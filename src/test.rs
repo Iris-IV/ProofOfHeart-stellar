@@ -27,6 +27,13 @@ fn setup_env<'a>() -> (Env, Address, Address, Address, Address, TokenClient<'a>,
 }
 
 #[test]
+fn test_init_only_once() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+    let res = client.try_init(&admin, &token.address, &300);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
+}
+
+#[test]
 fn test_create_and_validation() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 

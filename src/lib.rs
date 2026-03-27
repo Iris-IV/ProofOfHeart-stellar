@@ -23,6 +23,7 @@ pub enum Error {
     NoFundsToWithdraw = 13,
     CampaignAlreadyVerified = 14,
     ValidationFailed = 15,
+    AlreadyInitialized = 16,
 }
 
 #[contracttype]
@@ -70,7 +71,11 @@ pub struct ProofOfHeart;
 
 #[contractimpl]
 impl ProofOfHeart {
-    pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) {
+    pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::AlreadyInitialized);
+        }
+
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
@@ -78,6 +83,8 @@ impl ProofOfHeart {
         let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee }; // Max 10% limit
         env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
         env.storage().instance().set(&DataKey::CampaignCount, &0u32);
+
+        Ok(())
     }
 
     pub fn create_campaign(
