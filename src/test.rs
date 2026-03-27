@@ -1,11 +1,23 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String};
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
+};
 
-fn setup_env<'a>() -> (Env, Address, Address, Address, Address, TokenClient<'a>, TokenAdminClient<'a>, ProofOfHeartClient<'a>) {
+fn setup_env<'a>() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'a>,
+    TokenAdminClient<'a>,
+    ProofOfHeartClient<'a>,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -23,7 +35,16 @@ fn setup_env<'a>() -> (Env, Address, Address, Address, Address, TokenClient<'a>,
 
     client.init(&admin, &token.address, &300);
 
-    (env, admin, creator, contributor1, contributor2, token, token_admin, client)
+    (
+        env,
+        admin,
+        creator,
+        contributor1,
+        contributor2,
+        token,
+        token_admin,
+        client,
+    )
 }
 
 #[test]
@@ -34,20 +55,65 @@ fn test_create_and_validation() {
     let desc = String::from_str(&env, "Teaching science to kids");
 
     // Test goal validation
-    let res = client.try_create_campaign(&creator, &title, &desc, &0, &30, &Category::Publisher, &false, &0);
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &0,
+        &30,
+        &Category::Publisher,
+        &false,
+        &0,
+    );
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalMustBePositive);
 
     // Test duration validation
-    let res = client.try_create_campaign(&creator, &title, &desc, &500, &0, &Category::Publisher, &false, &0);
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &0,
+        &Category::Publisher,
+        &false,
+        &0,
+    );
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
-    let res = client.try_create_campaign(&creator, &title, &desc, &500, &400, &Category::Publisher, &false, &0);
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &400,
+        &Category::Publisher,
+        &false,
+        &0,
+    );
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
-    let res = client.try_create_campaign(&creator, &title, &desc, &500, &30, &Category::Educator, &true, &1000);
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &30,
+        &Category::Educator,
+        &true,
+        &1000,
+    );
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueShareOnlyForStartup);
 
-    let campaign_id = client.create_campaign(&creator, &title, &desc, &2000, &30, &Category::EducationalStartup, &true, &1500);
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &2000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &1500,
+    );
     assert_eq!(campaign_id, 1);
 
     let campaign = client.get_campaign(&campaign_id);
@@ -65,7 +131,16 @@ fn test_contribute_and_withdraw_success() {
 
     let title = String::from_str(&env, "Code Camp");
     let desc = String::from_str(&env, "Learn Rust");
-    let campaign_id = client.create_campaign(&creator, &title, &desc, &1000, &30, &Category::Educator, &false, &0);
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
 
     client.contribute(&campaign_id, &contributor1, &1000);
 
@@ -85,14 +160,24 @@ fn test_contribute_and_withdraw_success() {
 
 #[test]
 fn test_cancel_and_refund() {
-    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
 
     token_admin.mint(&contributor1, &2000);
     token_admin.mint(&contributor2, &1000);
 
     let title = String::from_str(&env, "Failed Idea");
     let desc = String::from_str(&env, "Desc");
-    let campaign_id = client.create_campaign(&creator, &title, &desc, &5000, &10, &Category::Learner, &false, &0);
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &5000,
+        &10,
+        &Category::Learner,
+        &false,
+        &0,
+    );
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor2, &500);
@@ -111,7 +196,8 @@ fn test_cancel_and_refund() {
 
 #[test]
 fn test_pull_based_revenue_distribution() {
-    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
 
     token_admin.mint(&contributor1, &1000);
     token_admin.mint(&contributor2, &1000);
@@ -119,26 +205,38 @@ fn test_pull_based_revenue_distribution() {
 
     let title = String::from_str(&env, "Next Gen AI");
     let desc = String::from_str(&env, "Build AI");
-    let campaign_id = client.create_campaign(&creator, &title, &desc, &2000, &30, &Category::EducationalStartup, &true, &2000); 
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &2000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &2000,
+    );
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor2, &1000);
 
     client.withdraw_funds(&campaign_id);
-    
+
     // Deposit revenue
     client.deposit_revenue(&campaign_id, &5000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 5000);
 
     client.claim_revenue(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 2500);
-    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 2500);
+    assert_eq!(
+        client.get_revenue_claimed(&campaign_id, &contributor1),
+        2500
+    );
 
     client.deposit_revenue(&campaign_id, &1000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 6000);
 
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(token.balance(&contributor1), 3000); 
+    assert_eq!(token.balance(&contributor1), 3000);
 
     client.claim_revenue(&campaign_id, &contributor2);
     assert_eq!(token.balance(&contributor2), 3000);
@@ -148,11 +246,20 @@ fn test_pull_based_revenue_distribution() {
 fn test_failure_states() {
     let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
-    
+
     let title = String::from_str(&env, "Deadline Test");
     let desc = String::from_str(&env, "Desc");
     let duration_days = 2;
-    let campaign_id = client.create_campaign(&creator, &title, &desc, &1000, &duration_days, &Category::Educator, &false, &0);
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &duration_days,
+        &Category::Educator,
+        &false,
+        &0,
+    );
 
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
@@ -162,7 +269,16 @@ fn test_failure_states() {
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
 
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo { timestamp: env.ledger().timestamp() + (duration_days * 86450), protocol_version: 20, sequence_number: env.ledger().sequence(), network_id: [0; 32], base_reserve: 10, min_temp_entry_ttl: 10, min_persistent_entry_ttl: 10, max_entry_ttl: 10 }); 
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (duration_days * 86450),
+        protocol_version: 20,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
@@ -177,7 +293,8 @@ fn test_failure_states() {
 
 #[test]
 fn test_multiple_concurrent_campaigns_are_isolated() {
-    let (env, _admin, creator1, contributor1, contributor2, token, token_admin, client) = setup_env();
+    let (env, _admin, creator1, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
 
     let creator2 = Address::generate(&env);
     let creator3 = Address::generate(&env);
@@ -290,4 +407,33 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     // Balance checks to ensure campaign operations remained isolated.
     assert_eq!(token.balance(&client.address), 5900);
     assert_eq!(token.balance(&creator3), 7000);
+}
+
+#[test]
+fn test_double_refund_prevention() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &2000);
+
+    let title = String::from_str(&env, "Double Refund");
+    let desc = String::from_str(&env, "Test double refund");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &5000,
+        &10,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.cancel_campaign(&campaign_id);
+
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 2000);
+
+    let res = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+    assert_eq!(token.balance(&contributor1), 2000);
 }
