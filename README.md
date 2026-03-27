@@ -99,4 +99,4 @@ We welcome contributors of all experience levels! Check the [Issues](../../issue
 
 ## License
 
-<!-- TODO: Add license -->
+Licensed under the MIT License. See [LICENSE](LICENSE) for details.
