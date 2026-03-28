@@ -765,3 +765,58 @@ fn test_reinit_prevention() {
     assert_eq!(client.get_token(), token.address);
     assert_eq!(client.get_platform_fee(), 300);
 }
+
+#[test]
+fn test_initialization_getters() {
+    let (_, admin, _, _, _, token, _, client) = setup_env();
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+    assert_eq!(client.get_campaign_count(), 0);
+}
+
+#[test]
+fn test_revenue_sharing_edge_cases() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+
+    // 1. Non-revenue campaign: check ValidationFailed
+    let title_nr = String::from_str(&env, "No Revenue");
+    let desc_nr = String::from_str(&env, "Non-revenue campaign");
+    let campaign_nr = client.create_campaign(
+        &creator, &title_nr, &desc_nr, &1000, &30, &Category::Educator, &false, &0
+    );
+    let res = client.try_claim_revenue(&campaign_nr, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    token_admin.mint(&contributor1, &10);
+    token_admin.mint(&contributor2, &10);
+    token_admin.mint(&creator, &100);
+
+    let title = String::from_str(&env, "Rounding Test");
+    let desc = String::from_str(&env, "Test rounding and pool edge cases");
+    // 100% revenue share (10000 bps)
+    let campaign_id = client.create_campaign(
+        &creator, &title, &desc, &3, &30, &Category::EducationalStartup, &true, &10000
+    );
+
+    client.contribute(&campaign_id, &contributor1, &1);
+    client.contribute(&campaign_id, &contributor2, &2);
+    client.withdraw_funds(&campaign_id);
+
+    // 2. Zero pool: should fail NoFundsToWithdraw
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+
+    // 3. Rounding: 10 revenue / 3 contribution units (1 vs 2)
+    client.deposit_revenue(&campaign_id, &10); 
+    client.claim_revenue(&campaign_id, &contributor1); // (1 * 10) / 3 = 3
+    assert_eq!(token.balance(&contributor1), 12); // Initial 10 - 1 contribution + 3 claimed
+
+    client.claim_revenue(&campaign_id, &contributor2); // (2 * 10) / 3 = 6
+    assert_eq!(token.balance(&contributor2), 14); // Initial 10 - 2 contribution + 6 claimed
+
+    // 4. Double claim: NoFundsToWithdraw
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}

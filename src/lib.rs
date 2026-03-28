@@ -614,11 +614,6 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    pub fn get_campaign(env: Env, campaign_id: u32) -> Campaign {
-        env.storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .unwrap()
     /// Gets a campaign's current state.
     ///
     /// # Returns
@@ -642,11 +637,10 @@ impl ProofOfHeart {
         get_revenue_claimed(&env, campaign_id, &contributor)
     }
 
+    /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::CampaignCount)
-            .unwrap_or(0)
+        get_campaign_count(&env)
+    }
     /// Returns the current contract version stored in instance storage.
     /// A return value of 0 indicates the contract was initialized before version tracking was added.
     pub fn get_version(env: Env) -> u32 {
