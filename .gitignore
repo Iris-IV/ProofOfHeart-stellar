@@ -1,0 +1,15 @@
+# Rust build artifacts
+/target/
+
+# Cargo lockfile (typically not committed for library crates/contracts)
+Cargo.lock
+
+# Soroban test snapshots
+/test_snapshots/
+
+# macOS and editor local files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

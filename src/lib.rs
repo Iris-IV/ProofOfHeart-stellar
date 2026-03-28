@@ -23,6 +23,10 @@ pub enum Error {
     NoFundsToWithdraw = 13,
     CampaignAlreadyVerified = 14,
     ValidationFailed = 15,
+    AlreadyVoted = 16,
+    NotTokenHolder = 17,
+    VotingQuorumNotMet = 18,
+    VotingThresholdNotMet = 19,
 }
 
 #[contracttype]
@@ -57,16 +61,24 @@ pub struct Campaign {
 pub enum DataKey {
     Admin,
     Token,
-    PlatformFee, 
+    PlatformFee,
     CampaignCount,
     Campaign(u32),
     Contribution(u32, Address),
     RevenuePool(u32),
     RevenueClaimed(u32, Address),
+    ApproveVotes(u32),
+    RejectVotes(u32),
+    HasVoted(u32, Address),
+    MinVotesQuorum,
+    ApprovalThresholdBps,
 }
 
 #[contract]
 pub struct ProofOfHeart;
+
+const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
+const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 
 #[contractimpl]
 impl ProofOfHeart {
@@ -74,10 +86,16 @@ impl ProofOfHeart {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
-        
+
         let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee }; // Max 10% limit
         env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
         env.storage().instance().set(&DataKey::CampaignCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::MinVotesQuorum, &DEFAULT_MIN_VOTES_QUORUM);
+        env.storage()
+            .instance()
+            .set(&DataKey::ApprovalThresholdBps, &DEFAULT_APPROVAL_THRESHOLD_BPS);
     }
 
     pub fn create_campaign(
@@ -294,6 +312,135 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    pub fn set_voting_params(
+        env: Env,
+        admin: Address,
+        min_votes_quorum: u32,
+        approval_threshold_bps: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            return Err(Error::NotAuthorized);
+        }
+
+        if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
+            return Err(Error::ValidationFailed);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::MinVotesQuorum, &min_votes_quorum);
+        env.storage()
+            .instance()
+            .set(&DataKey::ApprovalThresholdBps, &approval_threshold_bps);
+
+        Ok(())
+    }
+
+    pub fn vote_on_campaign(
+        env: Env,
+        campaign_id: u32,
+        voter: Address,
+        approve: bool,
+    ) -> Result<(), Error> {
+        voter.require_auth();
+
+        let campaign: Campaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(Error::CampaignNotFound)?;
+
+        if campaign.is_verified {
+            return Err(Error::CampaignAlreadyVerified);
+        }
+        if campaign.is_cancelled || !campaign.is_active {
+            return Err(Error::CampaignNotActive);
+        }
+
+        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_client = token::Client::new(&env, &token_addr);
+        let voter_balance = token_client.balance(&voter);
+        if voter_balance <= 0 {
+            return Err(Error::NotTokenHolder);
+        }
+
+        let has_voted_key = DataKey::HasVoted(campaign_id, voter.clone());
+        let has_voted: bool = env.storage().instance().get(&has_voted_key).unwrap_or(false);
+        if has_voted {
+            return Err(Error::AlreadyVoted);
+        }
+
+        if approve {
+            let key = DataKey::ApproveVotes(campaign_id);
+            let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
+            env.storage().instance().set(&key, &(current + 1));
+        } else {
+            let key = DataKey::RejectVotes(campaign_id);
+            let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
+            env.storage().instance().set(&key, &(current + 1));
+        }
+
+        env.storage().instance().set(&has_voted_key, &true);
+        env.events()
+            .publish(("campaign_vote_cast", campaign_id, voter), approve);
+
+        Ok(())
+    }
+
+    pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let mut campaign: Campaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(Error::CampaignNotFound)?;
+
+        if campaign.is_verified {
+            return Err(Error::CampaignAlreadyVerified);
+        }
+
+        let approve_votes: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApproveVotes(campaign_id))
+            .unwrap_or(0);
+        let reject_votes: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RejectVotes(campaign_id))
+            .unwrap_or(0);
+        let total_votes = approve_votes + reject_votes;
+
+        let min_votes_quorum: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::MinVotesQuorum)
+            .unwrap_or(DEFAULT_MIN_VOTES_QUORUM);
+        if total_votes < min_votes_quorum {
+            return Err(Error::VotingQuorumNotMet);
+        }
+
+        let approval_threshold_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ApprovalThresholdBps)
+            .unwrap_or(DEFAULT_APPROVAL_THRESHOLD_BPS);
+        let approval_bps = (approve_votes * 10000) / total_votes;
+        if approval_bps < approval_threshold_bps {
+            return Err(Error::VotingThresholdNotMet);
+        }
+
+        campaign.is_verified = true;
+        env.storage()
+            .instance()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
+        env.events()
+            .publish(("campaign_verified", campaign_id), approve_votes);
+
+        Ok(())
+    }
+
     pub fn get_campaign(env: Env, campaign_id: u32) -> Campaign {
         env.storage().instance().get(&DataKey::Campaign(campaign_id)).unwrap()
     }
@@ -308,6 +455,41 @@ impl ProofOfHeart {
 
     pub fn get_revenue_claimed(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         env.storage().instance().get(&DataKey::RevenueClaimed(campaign_id, contributor)).unwrap_or(0)
+    }
+
+    pub fn get_approve_votes(env: Env, campaign_id: u32) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ApproveVotes(campaign_id))
+            .unwrap_or(0)
+    }
+
+    pub fn get_reject_votes(env: Env, campaign_id: u32) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::RejectVotes(campaign_id))
+            .unwrap_or(0)
+    }
+
+    pub fn has_voted(env: Env, campaign_id: u32, voter: Address) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::HasVoted(campaign_id, voter))
+            .unwrap_or(false)
+    }
+
+    pub fn get_min_votes_quorum(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::MinVotesQuorum)
+            .unwrap_or(DEFAULT_MIN_VOTES_QUORUM)
+    }
+
+    pub fn get_approval_threshold_bps(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ApprovalThresholdBps)
+            .unwrap_or(DEFAULT_APPROVAL_THRESHOLD_BPS)
     }
 }
 
