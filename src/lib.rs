@@ -393,6 +393,29 @@ impl ProofOfHeart {
     }
 
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let mut campaign: Campaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(Error::CampaignNotFound)?;
+
+        if campaign.is_verified {
+            return Err(Error::CampaignAlreadyVerified);
+        }
+
+        campaign.is_verified = true;
+        env.storage()
+            .instance()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
+        env.events().publish(("campaign_verified", campaign_id), ());
+
+        Ok(())
+    }
+
+    pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign: Campaign = env
             .storage()
             .instance()

@@ -225,6 +225,30 @@ fn test_failure_states() {
 }
 
 #[test]
+fn test_admin_verify_campaign_success() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "Admin Verification");
+    let desc = String::from_str(&env, "Admin verifies campaign");
+    let campaign_id = client.create_campaign(&creator, &title, &desc, &1000, &30, &Category::Educator, &false, &0);
+
+    client.verify_campaign(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.is_verified, true);
+}
+
+#[test]
+fn test_admin_verify_campaign_duplicate_attempt() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "Duplicate Verification");
+    let desc = String::from_str(&env, "Cannot verify twice");
+    let campaign_id = client.create_campaign(&creator, &title, &desc, &1000, &30, &Category::Publisher, &false, &0);
+
+    client.verify_campaign(&campaign_id);
+    let res = client.try_verify_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
 fn test_community_voting_verification_success() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
@@ -245,7 +269,7 @@ fn test_community_voting_verification_success() {
     assert_eq!(client.get_reject_votes(&campaign_id), 1);
     assert_eq!(client.has_voted(&campaign_id, &contributor1), true);
 
-    client.verify_campaign(&campaign_id);
+    client.verify_campaign_with_votes(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.is_verified, true);
 }
@@ -293,11 +317,11 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
     client.vote_on_campaign(&campaign_id_1, &contributor2, &true);
     client.vote_on_campaign(&campaign_id_1, &voter3, &true);
 
-    let res = client.try_verify_campaign(&campaign_id_1);
+    let res = client.try_verify_campaign_with_votes(&campaign_id_1);
     assert_eq!(res.unwrap_err().unwrap(), Error::VotingQuorumNotMet);
 
     client.vote_on_campaign(&campaign_id_1, &voter4, &false);
-    client.verify_campaign(&campaign_id_1);
+    client.verify_campaign_with_votes(&campaign_id_1);
     assert_eq!(client.get_campaign(&campaign_id_1).is_verified, true);
 
     let title2 = String::from_str(&env, "Threshold Campaign");
@@ -309,7 +333,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
     client.vote_on_campaign(&campaign_id_2, &voter3, &false);
     client.vote_on_campaign(&campaign_id_2, &voter4, &false);
 
-    let res = client.try_verify_campaign(&campaign_id_2);
+    let res = client.try_verify_campaign_with_votes(&campaign_id_2);
     assert_eq!(res.unwrap_err().unwrap(), Error::VotingThresholdNotMet);
 }
 

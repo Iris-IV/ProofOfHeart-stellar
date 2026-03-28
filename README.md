@@ -26,13 +26,17 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 | Blockchain | [Stellar](https://stellar.org/) |
 | Smart Contract Platform | [Soroban](https://soroban.stellar.org/) |
 | Language | Rust |
-| SDK | [soroban-sdk 22.0.11](https://crates.io/crates/soroban-sdk) |
+| SDK | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
 
 ## Smart Contract Features
 
 ### Campaign Management
 - **Create Campaign** — Launch a new fundraising campaign with a title, description, funding goal, deadline, and category (`Learner`, `EducationalStartup`, `Educator`, `Publisher`).
 - **Cancel Campaign** — Campaign creators can cancel an active campaign at any time, enabling contributor refunds.
+
+### Campaign Verification
+- **Admin Verification** — Platform admin can mark a campaign as verified via `verify_campaign`.
+- **Community Voting Verification** — Token holders can vote and verify via `verify_campaign_with_votes` based on quorum and approval threshold.
 
 ### Contributions & Withdrawals
 - **Contribute** — Anyone can contribute tokens to an active campaign before the deadline.
