@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unexpected_cfgs)]
 
 /// Current contract version. Increment this on each breaking upgrade.
 /// To upgrade a deployed Soroban contract, call `env.deployer().update_current_contract_wasm(new_wasm_hash)`
@@ -45,6 +46,7 @@ pub enum Error {
     NotTokenHolder = 17,
     VotingQuorumNotMet = 18,
     VotingThresholdNotMet = 19,
+    AlreadyInitialized = 20,
 }
 
 /// Stores all details related to a funding campaign.
@@ -93,6 +95,7 @@ pub struct ProofOfHeart;
 const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
 const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 
+#[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
     /// Initializes the Proof of Heart contract.
@@ -104,7 +107,10 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `admin.require_auth()`.
-    pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) {
+    pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
+        if env.storage().instance().has(&DataKey::Admin) {
+            return Err(Error::AlreadyInitialized);
+        }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
@@ -128,9 +134,9 @@ impl ProofOfHeart {
             &DataKey::ApprovalThresholdBps,
             &DEFAULT_APPROVAL_THRESHOLD_BPS,
         );
-
         env.events()
             .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
+        Ok(())
     }
 
     /// Creates a new campaign to raise funds for learning/educational uses.
@@ -150,6 +156,7 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `creator.require_auth()`.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(
         env: Env,
         creator: Address,
@@ -166,7 +173,7 @@ impl ProofOfHeart {
         if funding_goal <= 0 {
             return Err(Error::FundingGoalMustBePositive);
         }
-        if duration_days < 1 || duration_days > 365 {
+        if !(1..=365).contains(&duration_days) {
             return Err(Error::InvalidDuration);
         }
         if title.len() == 0 || title.len() > 100 {
@@ -785,6 +792,21 @@ impl ProofOfHeart {
             .instance()
             .get(&DataKey::ApprovalThresholdBps)
             .unwrap_or(DEFAULT_APPROVAL_THRESHOLD_BPS)
+    }
+
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
+    }
+
+    pub fn get_token(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Token).unwrap()
+    }
+
+    pub fn get_platform_fee(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::PlatformFee)
+            .unwrap_or(300)
     }
 }
 
