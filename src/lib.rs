@@ -15,6 +15,45 @@ mod types;
 pub use errors::Error;
 pub use types::*;
 
+/// Stores all details related to a funding campaign.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Campaign {
+    pub id: u32,
+    pub creator: Address,
+    pub title: String,
+    pub description: String,
+    pub funding_goal: i128,
+    pub deadline: u64,
+    pub amount_raised: i128,
+    pub is_active: bool,
+    pub funds_withdrawn: bool,
+    pub is_cancelled: bool,
+    pub is_verified: bool,
+    pub category: Category,
+    pub has_revenue_sharing: bool,
+    pub revenue_share_percentage: u32,
+}
+
+/// Keys representing the unique storage state for the contract.
+#[contracttype]
+pub enum DataKey {
+    Admin,
+    Token,
+    PlatformFee,
+    CampaignCount,
+    Campaign(u32),
+    Contribution(u32, Address),
+    RevenuePool(u32),
+    RevenueClaimed(u32, Address),
+    CreatorRevenueClaimed(u32),
+    Version,
+    ApproveVotes(u32),
+    RejectVotes(u32),
+    HasVoted(u32, Address),
+    MinVotesQuorum,
+    ApprovalThresholdBps,
+}
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 use storage::*;
 
@@ -104,6 +143,8 @@ impl ProofOfHeart {
         if category != Category::EducationalStartup && has_revenue_sharing {
             return Err(Error::RevenueShareOnlyForStartup);
         }
+
+        if has_revenue_sharing && revenue_share_percentage > 5000 {
         if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > 5000)
         {
             return Err(Error::InvalidRevenueShare);
@@ -359,6 +400,17 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        let pool_key = DataKey::RevenuePool(campaign_id);
+        let total_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+
+        let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+
+        let total_due_to_contributor = (contribution * contributor_pool) / campaign.amount_raised;
+
+        let claimed_key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
+        let already_claimed: i128 = Self::get_revenue_claimed(env.clone(), campaign_id, contributor.clone());
+
+        let claimable = total_due_to_contributor - already_claimed;
         let total_pool = get_revenue_pool(&env, campaign_id);
         let total_due = (contribution * total_pool) / campaign.amount_raised;
         let already_claimed = get_revenue_claimed(&env, campaign_id, &contributor);
@@ -368,6 +420,13 @@ impl ProofOfHeart {
             return Err(Error::NoFundsToWithdraw);
         }
 
+        if already_claimed + claimable > total_due_to_contributor {
+            return Err(Error::ValidationFailed); // Prevent over-claiming safety guard
+        }
+
+        env.storage()
+            .instance()
+            .set(&claimed_key, &(already_claimed + claimable));
         set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
         let token_addr = get_token(&env);
@@ -375,7 +434,49 @@ impl ProofOfHeart {
         client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
         env.events()
-            .publish(("revenue_claimed", campaign_id, contributor), claimable);
+            .publish(("revenue_claimed", campaign_id, contributor.clone()), claimable);
+
+        Ok(())
+    }
+
+    /// Claims the creator's retained share of the revenue pool.
+    pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let campaign: Campaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(Error::CampaignNotFound)?;
+        campaign.creator.require_auth();
+
+        if !campaign.has_revenue_sharing {
+            return Err(Error::ValidationFailed);
+        }
+
+        let pool_key = DataKey::RevenuePool(campaign_id);
+        let total_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+
+        let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+        let creator_share_total = total_pool - contributor_pool;
+
+        let claimed_key = DataKey::CreatorRevenueClaimed(campaign_id);
+        let already_claimed: i128 = env.storage().instance().get(&claimed_key).unwrap_or(0);
+
+        let claimable = creator_share_total - already_claimed;
+
+        if claimable <= 0 {
+            return Err(Error::NoFundsToWithdraw);
+        }
+
+        env.storage()
+            .instance()
+            .set(&claimed_key, &(already_claimed + claimable));
+
+        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let client = token::Client::new(&env, &token_addr);
+        client.transfer(&env.current_contract_address(), &campaign.creator, &claimable);
+
+        env.events()
+            .publish(("creator_revenue_claimed", campaign_id, campaign.creator), claimable);
 
         Ok(())
     }
