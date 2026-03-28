@@ -26,7 +26,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 | Blockchain | [Stellar](https://stellar.org/) |
 | Smart Contract Platform | [Soroban](https://soroban.stellar.org/) |
 | Language | Rust |
-| SDK | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
+| SDK | [soroban-sdk 22.0.11](https://crates.io/crates/soroban-sdk) |
 
 ## Smart Contract Features
 
@@ -76,6 +76,17 @@ cargo build --target wasm32-unknown-unknown --release
 ```bash
 cargo test
 ```
+
+## Deployment
+
+For detailed instructions on deploying the contract to Stellar testnet and mainnet, see the [**Deployment Guide**](docs/DEPLOYMENT.md). It covers:
+
+- Soroban CLI setup and configuration
+- Testnet deployment with copy-pasteable examples
+- Mainnet deployment and cost considerations
+- Contract initialization with admin, token, and fee parameters
+- Token setup for the platform
+- Verification and troubleshooting
 
 ## Project Structure
 
