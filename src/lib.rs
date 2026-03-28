@@ -164,6 +164,7 @@ impl ProofOfHeart {
         let mut campaign: Campaign = env.storage().instance().get(&DataKey::Campaign(campaign_id)).ok_or(Error::CampaignNotFound)?;
 
         if !campaign.is_active || campaign.is_cancelled { return Err(Error::CampaignNotActive); }
+        if contributor == campaign.creator { return Err(Error::NotAuthorized); }
         if env.ledger().timestamp() > campaign.deadline { return Err(Error::DeadlinePassed); }
 
         let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();

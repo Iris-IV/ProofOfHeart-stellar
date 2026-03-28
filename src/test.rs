@@ -87,6 +87,18 @@ fn test_contribute_and_withdraw_success() {
 }
 
 #[test]
+fn test_creator_cannot_contribute_to_own_campaign() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "Self Funding Block");
+    let desc = String::from_str(&env, "Creator should not contribute");
+    let campaign_id = client.create_campaign(&creator, &title, &desc, &1000, &30, &Category::Educator, &false, &0);
+
+    let res = client.try_contribute(&campaign_id, &creator, &100);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
 fn test_cancel_and_refund() {
     let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
 
