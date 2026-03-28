@@ -2,16 +2,27 @@ use soroban_sdk::{Address, Env};
 
 use crate::types::{Campaign, DataKey};
 
+const DAY_IN_LEDGERS: u32 = 17280;
+const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
+const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+
 // ── Campaign ──────────────────────────────────────────────────────────────────
 
 pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
-    env.storage().instance().get(&DataKey::Campaign(campaign_id))
+    let key = DataKey::Campaign(campaign_id);
+    let val = env.storage().persistent().get(&key);
+    if val.is_some() {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_campaign(env: &Env, campaign_id: u32, campaign: &Campaign) {
+    let key = DataKey::Campaign(campaign_id);
+    env.storage().persistent().set(&key, campaign);
     env.storage()
-        .instance()
-        .set(&DataKey::Campaign(campaign_id), campaign);
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────
@@ -65,87 +76,126 @@ pub fn set_platform_fee(env: &Env, fee: u32) {
 // ── Contributions ─────────────────────────────────────────────────────────────
 
 pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Contribution(campaign_id, contributor.clone()))
-        .unwrap_or(0)
+    let key = DataKey::Contribution(campaign_id, contributor.clone());
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    env.storage().instance().set(
-        &DataKey::Contribution(campaign_id, contributor.clone()),
-        &amount,
-    );
+    let key = DataKey::Contribution(campaign_id, contributor.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
 
 pub fn get_revenue_pool(env: &Env, campaign_id: u32) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::RevenuePool(campaign_id))
-        .unwrap_or(0)
+    let key = DataKey::RevenuePool(campaign_id);
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_revenue_pool(env: &Env, campaign_id: u32, amount: i128) {
+    let key = DataKey::RevenuePool(campaign_id);
+    env.storage().persistent().set(&key, &amount);
     env.storage()
-        .instance()
-        .set(&DataKey::RevenuePool(campaign_id), &amount);
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 pub fn get_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::RevenueClaimed(campaign_id, contributor.clone()))
-        .unwrap_or(0)
+    let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    env.storage().instance().set(
-        &DataKey::RevenueClaimed(campaign_id, contributor.clone()),
-        &amount,
-    );
+    let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_creator_revenue_claimed(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::CreatorRevenueClaimed(campaign_id);
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+pub fn set_creator_revenue_claimed(env: &Env, campaign_id: u32, amount: i128) {
+    let key = DataKey::CreatorRevenueClaimed(campaign_id);
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Voting ────────────────────────────────────────────────────────────────────
 
 pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::ApproveVotes(campaign_id))
-        .unwrap_or(0)
+    let key = DataKey::ApproveVotes(campaign_id);
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_approve_votes(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::ApproveVotes(campaign_id);
+    env.storage().persistent().set(&key, &count);
     env.storage()
-        .instance()
-        .set(&DataKey::ApproveVotes(campaign_id), &count);
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::RejectVotes(campaign_id))
-        .unwrap_or(0)
+    let key = DataKey::RejectVotes(campaign_id);
+    let val = env.storage().persistent().get(&key).unwrap_or(0);
+    if val > 0 {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::RejectVotes(campaign_id);
+    env.storage().persistent().set(&key, &count);
     env.storage()
-        .instance()
-        .set(&DataKey::RejectVotes(campaign_id), &count);
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 pub fn get_has_voted(env: &Env, campaign_id: u32, voter: &Address) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::HasVoted(campaign_id, voter.clone()))
-        .unwrap_or(false)
+    let key = DataKey::HasVoted(campaign_id, voter.clone());
+    let val = env.storage().persistent().get(&key).unwrap_or(false);
+    if val {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
 }
 
 pub fn set_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
+    let key = DataKey::HasVoted(campaign_id, voter.clone());
+    env.storage().persistent().set(&key, &true);
     env.storage()
-        .instance()
-        .set(&DataKey::HasVoted(campaign_id, voter.clone()), &true);
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 pub fn get_min_votes_quorum(env: &Env, default: u32) -> u32 {

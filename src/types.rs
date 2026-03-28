@@ -41,6 +41,7 @@ pub enum DataKey {
     Contribution(u32, Address),
     RevenuePool(u32),
     RevenueClaimed(u32, Address),
+    CreatorRevenueClaimed(u32),
     Version,
     ApproveVotes(u32),
     RejectVotes(u32),
