@@ -54,7 +54,7 @@ fn test_create_and_validation() {
     let title = String::from_str(&env, "Science Book");
     let desc = String::from_str(&env, "Teaching science to kids");
 
-    // Test goal validation
+   
     let res = client.try_create_campaign(
         &creator,
         &title,
