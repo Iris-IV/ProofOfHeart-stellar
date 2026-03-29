@@ -8,120 +8,74 @@
 /// is included in the upgrade transaction.
 const CONTRACT_VERSION: u32 = 1;
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, String,
-};
+mod errors;
+mod storage;
+mod types;
+mod voting;
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    NotAuthorized = 1,
-    CampaignNotFound = 2,
-    CampaignNotActive = 3,
-    FundingGoalMustBePositive = 4,
-    InvalidDuration = 5,
-    InvalidRevenueShare = 6,
-    RevenueShareOnlyForStartup = 7,
-    DeadlinePassed = 8,
-    ContributionMustBePositive = 9,
-    DeadlineNotPassed = 10,
-    FundsAlreadyWithdrawn = 11,
-    FundingGoalNotReached = 12,
-    NoFundsToWithdraw = 13,
-    CampaignAlreadyVerified = 14,
-    ValidationFailed = 15,
-    AlreadyVoted = 16,
-    NotTokenHolder = 17,
-    VotingQuorumNotMet = 18,
-    VotingThresholdNotMet = 19,
-    AlreadyInitialized = 20,
-}
+pub use errors::Error;
+pub use storage::DataKey;
+use storage::*;
+pub use types::*;
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
 
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Category {
-    Learner = 0,
-    EducationalStartup = 1,
-    Educator = 2,
-    Publisher = 3,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Campaign {
-    pub id: u32,
-    pub creator: Address,
-    pub title: String,
-    pub description: String,
-    pub funding_goal: i128,
-    pub deadline: u64,
-    pub amount_raised: i128,
-    pub is_active: bool,
-    pub funds_withdrawn: bool,
-    pub is_cancelled: bool,
-    pub is_verified: bool,
-    pub category: Category,
-    pub has_revenue_sharing: bool,
-    pub revenue_share_percentage: u32,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    Token,
-    PlatformFee,
-    CampaignCount,
-    Campaign(u32),
-    Contribution(u32, Address),
-    RevenuePool(u32),
-    RevenueClaimed(u32, Address),
-    Version,
-    ApproveVotes(u32),
-    RejectVotes(u32),
-    HasVoted(u32, Address),
-    MinVotesQuorum,
-    ApprovalThresholdBps,
-}
-
+/// The main contract struct for the Proof of Heart Stellar implementation.
 #[contract]
 pub struct ProofOfHeart;
 
-const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
-const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
-
+#[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
+    /// Initializes the Proof of Heart contract.
+    ///
+    /// # Arguments
+    /// * `admin` - The global admin address.
+    /// * `token` - The required token for contributions and revenue.
+    /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Admin) {
+        if has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
+        set_admin(&env, &admin);
+        set_token(&env, &token);
 
         let valid_fee = if platform_fee > 1000 {
             1000
         } else {
             platform_fee
         }; // Max 10% limit
-        env.storage()
-            .instance()
-            .set(&DataKey::PlatformFee, &valid_fee);
-        env.storage().instance().set(&DataKey::CampaignCount, &0u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::Version, &CONTRACT_VERSION);
-        env.storage()
-            .instance()
-            .set(&DataKey::MinVotesQuorum, &DEFAULT_MIN_VOTES_QUORUM);
-        env.storage().instance().set(
-            &DataKey::ApprovalThresholdBps,
-            &DEFAULT_APPROVAL_THRESHOLD_BPS,
-        );
+        set_platform_fee(&env, valid_fee);
+        set_campaign_count(&env, 0);
+        set_version(&env, CONTRACT_VERSION);
+        set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
+        set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+
+        env.events()
+            .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
         Ok(())
     }
 
+    /// Creates a new campaign to raise funds for learning/educational uses.
+    ///
+    /// # Arguments
+    /// * `creator` - The address of the individual/startup starting the campaign.
+    /// * `title` - Short name of the campaign (1–100 characters).
+    /// * `description` - Long description of the campaign (1–1000 characters).
+    /// * `funding_goal` - Target token amount.
+    /// * `duration_days` - Number of days until deadline (1–365).
+    /// * `category` - The specific categorical nature.
+    /// * `has_revenue_sharing` - Should it enforce revenue deposits.
+    /// * `revenue_share_percentage` - The percentage of share in basis points.
+    ///
+    /// # Returns
+    /// The unique 32-bit `id` of the created campaign.
+    ///
+    /// # Authorization
+    /// Requires `creator.require_auth()`.
     #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(
         env: Env,
@@ -148,7 +102,6 @@ impl ProofOfHeart {
         if description.len() == 0 || description.len() > 1000 {
             return Err(Error::ValidationFailed);
         }
-
         if category != Category::EducationalStartup && has_revenue_sharing {
             return Err(Error::RevenueShareOnlyForStartup);
         }
@@ -158,11 +111,7 @@ impl ProofOfHeart {
             return Err(Error::InvalidRevenueShare);
         }
 
-        let mut count: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::CampaignCount)
-            .unwrap_or(0);
+        let mut count = get_campaign_count(&env);
         count += 1;
 
         let current_time = env.ledger().timestamp();
@@ -185,15 +134,9 @@ impl ProofOfHeart {
             revenue_share_percentage,
         };
 
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(count), &campaign);
-        env.storage()
-            .instance()
-            .set(&DataKey::CampaignCount, &count);
-        env.storage()
-            .instance()
-            .set(&DataKey::RevenuePool(count), &0i128);
+        set_campaign(&env, count, &campaign);
+        set_campaign_count(&env, count);
+        set_revenue_pool(&env, count, 0);
 
         env.events()
             .publish(("campaign_created", count, creator), title);
@@ -201,6 +144,20 @@ impl ProofOfHeart {
         Ok(count)
     }
 
+    /// Contributes tokens to an active campaign.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - The ID of the campaign to contribute to.
+    /// * `contributor` - The address performing the contribution.
+    /// * `amount` - The non-zero amount to contribute.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - Campaign ID doesn't exist.
+    /// * `CampaignNotActive` - Campaign is inactive or cancelled.
+    /// * `DeadlinePassed` - Contribution after deadline.
+    ///
+    /// # Authorization
+    /// Requires `contributor.require_auth()`.
     pub fn contribute(
         env: Env,
         campaign_id: u32,
@@ -213,11 +170,7 @@ impl ProofOfHeart {
             return Err(Error::ContributionMustBePositive);
         }
 
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
         if !campaign.is_active || campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
@@ -229,21 +182,15 @@ impl ProofOfHeart {
             return Err(Error::DeadlinePassed);
         }
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&contributor, &env.current_contract_address(), &amount);
 
         campaign.amount_raised += amount;
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
+        set_campaign(&env, campaign_id, &campaign);
 
-        let contribution_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let current_contribution: i128 =
-            env.storage().instance().get(&contribution_key).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&contribution_key, &(current_contribution + amount));
+        let current = get_contribution(&env, campaign_id, &contributor);
+        set_contribution(&env, campaign_id, &contributor, current + amount);
 
         env.events()
             .publish(("contribution_made", campaign_id, contributor), amount);
@@ -251,12 +198,19 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Withdraws campaign funds if the funding goal was reached by the creator.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - ID of the target campaign.
+    ///
+    /// # Errors
+    /// * `FundingGoalNotReached` - Target goal has not been met.
+    /// * `NoFundsToWithdraw` - Zero balance or already withdrawn.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
         campaign.creator.require_auth();
 
@@ -279,22 +233,16 @@ impl ProofOfHeart {
             }
         }
 
-        let platform_fee: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PlatformFee)
-            .unwrap_or(300);
+        let platform_fee = get_platform_fee(&env);
         let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
         let creator_amount = campaign.amount_raised - fee_amount;
 
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
+        set_campaign(&env, campaign_id, &campaign);
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-        let admin_addr: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let token_addr = get_token(&env);
+        let admin_addr = get_admin(&env);
         let client = token::Client::new(&env, &token_addr);
 
         client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
@@ -312,12 +260,12 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Cancels a campaign. Can only be performed by the creator before funds are withdrawn.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
 
         if campaign.funds_withdrawn {
@@ -326,9 +274,7 @@ impl ProofOfHeart {
 
         campaign.is_cancelled = true;
         campaign.is_active = false;
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
+        set_campaign(&env, campaign_id, &campaign);
 
         env.events()
             .publish(("campaign_cancelled", campaign_id), ());
@@ -336,14 +282,96 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Updates the title and description of a campaign if no contributions have been made yet.
+    ///
+    /// # Authorization
+    /// Requires `creator.require_auth()`.
+    pub fn update_campaign(
+        env: Env,
+        campaign_id: u32,
+        title: String,
+        description: String,
+    ) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+
+        campaign.creator.require_auth();
+
+        if campaign.amount_raised > 0 {
+            return Err(Error::ValidationFailed);
+        }
+
+        if campaign.is_cancelled || !campaign.is_active {
+            return Err(Error::CampaignNotActive);
+        }
+
+        if title.len() == 0 || title.len() > 100 {
+            return Err(Error::ValidationFailed);
+        }
+        if description.len() == 0 || description.len() > 1000 {
+            return Err(Error::ValidationFailed);
+        }
+
+        campaign.title = title.clone();
+        campaign.description = description;
+
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events()
+            .publish(("campaign_updated", campaign_id), title);
+
+        Ok(())
+    }
+
+    /// Updates the description of an active campaign.
+    ///
+    /// Unlike `update_campaign`, this function allows updating the description
+    /// even after contributions have been made. The funding goal and deadline
+    /// cannot be changed.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - ID of the campaign to update.
+    /// * `description` - New description (1–1000 characters).
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign exists with the given ID.
+    /// * `CampaignNotActive` - Campaign is cancelled or inactive.
+    /// * `ValidationFailed` - Description is empty or exceeds 1000 characters.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
+    pub fn update_campaign_description(
+        env: Env,
+        campaign_id: u32,
+        description: String,
+    ) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+
+        campaign.creator.require_auth();
+
+        if campaign.is_cancelled || !campaign.is_active {
+            return Err(Error::CampaignNotActive);
+        }
+        if description.len() == 0 || description.len() > 1000 {
+            return Err(Error::ValidationFailed);
+        }
+
+        campaign.description = description;
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events()
+            .publish(("campaign_description_updated", campaign_id), ());
+
+        Ok(())
+    }
+
+    /// Claim refunds for contributors if the campaign is cancelled or failed to reach the goal.
+    ///
+    /// # Authorization
+    /// Requires `contributor.require_auth()`.
     pub fn claim_refund(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributor.require_auth();
 
-        let campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
         let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
             && campaign.amount_raised < campaign.funding_goal;
@@ -352,15 +380,14 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        let contribution_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let amount: i128 = env.storage().instance().get(&contribution_key).unwrap_or(0);
+        let amount = get_contribution(&env, campaign_id, &contributor);
         if amount == 0 {
             return Err(Error::NoFundsToWithdraw);
         }
 
-        env.storage().instance().set(&contribution_key, &0i128);
+        set_contribution(&env, campaign_id, &contributor, 0);
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
 
@@ -370,12 +397,12 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Deposits revenue back into a profit-sharing campaign pool (for start-ups).
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
     pub fn deposit_revenue(env: Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
-        let campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
 
         if amount <= 0 {
@@ -385,16 +412,12 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
-
         client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
-        let pool_key = DataKey::RevenuePool(campaign_id);
-        let current_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&pool_key, &(current_pool + amount));
+        let current_pool = get_revenue_pool(&env, campaign_id);
+        set_revenue_pool(&env, campaign_id, current_pool + amount);
 
         env.events()
             .publish(("revenue_deposited", campaign_id), amount);
@@ -402,305 +425,239 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Claims a share of the revenue pool proportional to the contributor's contribution.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
+    /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
-        let campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
+        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         if !campaign.has_revenue_sharing {
             return Err(Error::ValidationFailed);
         }
 
-        let contribution_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let contribution: i128 = env.storage().instance().get(&contribution_key).unwrap_or(0);
-
+        let contribution = get_contribution(&env, campaign_id, &contributor);
         if contribution == 0 {
             return Err(Error::ValidationFailed);
         }
 
-        let pool_key = DataKey::RevenuePool(campaign_id);
-        let total_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
-
-        let total_due_to_contributor = (contribution * total_pool) / campaign.amount_raised;
-
-        let claimed_key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
-        let already_claimed: i128 = env.storage().instance().get(&claimed_key).unwrap_or(0);
-
-        let claimable = total_due_to_contributor - already_claimed;
+        let total_pool = get_revenue_pool(&env, campaign_id);
+        let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+        let total_due = (contribution * contributor_pool) / campaign.amount_raised;
+        let already_claimed = get_revenue_claimed(&env, campaign_id, &contributor);
+        let claimable = total_due - already_claimed;
 
         if claimable <= 0 {
             return Err(Error::NoFundsToWithdraw);
         }
 
-        env.storage()
-            .instance()
-            .set(&claimed_key, &(already_claimed + claimable));
+        set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
+        let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
-        env.events()
-            .publish(("revenue_claimed", campaign_id, contributor), claimable);
+        env.events().publish(
+            ("revenue_claimed", campaign_id, contributor.clone()),
+            claimable,
+        );
 
         Ok(())
     }
 
+    /// Claims the creator's retained share of the revenue pool.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `ValidationFailed` - Campaign does not have revenue sharing enabled.
+    /// * `NoFundsToWithdraw` - Nothing claimable at this time.
+    pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        campaign.creator.require_auth();
+
+        if !campaign.has_revenue_sharing {
+            return Err(Error::ValidationFailed);
+        }
+
+        let total_pool = get_revenue_pool(&env, campaign_id);
+        let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+        let creator_share_total = total_pool - contributor_pool;
+
+        let already_claimed = get_creator_revenue_claimed(&env, campaign_id);
+        let claimable = creator_share_total - already_claimed;
+
+        if claimable <= 0 {
+            return Err(Error::NoFundsToWithdraw);
+        }
+
+        set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
+
+        let token_addr = get_token(&env);
+        let client = token::Client::new(&env, &token_addr);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &claimable,
+        );
+
+        env.events().publish(
+            ("creator_revenue_claimed", campaign_id, campaign.creator),
+            claimable,
+        );
+
+        Ok(())
+    }
+
+    /// Sets the community voting parameters for verifying a campaign.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address.
+    /// * `min_votes_quorum` - The minimum votes needed to reach quorum.
+    /// * `approval_threshold_bps` - The approval threshold in basis points (100 = 1%).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn set_voting_params(
         env: Env,
         admin: Address,
         min_votes_quorum: u32,
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
-        admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-        if admin != stored_admin {
-            return Err(Error::NotAuthorized);
-        }
-
-        if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
-            return Err(Error::ValidationFailed);
-        }
-
-        env.storage()
-            .instance()
-            .set(&DataKey::MinVotesQuorum, &min_votes_quorum);
-        env.storage()
-            .instance()
-            .set(&DataKey::ApprovalThresholdBps, &approval_threshold_bps);
-
-        Ok(())
+        voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)
     }
 
+    /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
+    ///
+    /// # Authorization
+    /// Requires `voter.require_auth()`.
     pub fn vote_on_campaign(
         env: Env,
         campaign_id: u32,
         voter: Address,
         approve: bool,
     ) -> Result<(), Error> {
-        voter.require_auth();
-
-        let campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-        if campaign.is_cancelled || !campaign.is_active {
-            return Err(Error::CampaignNotActive);
-        }
-
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-        let token_client = token::Client::new(&env, &token_addr);
-        let voter_balance = token_client.balance(&voter);
-        if voter_balance <= 0 {
-            return Err(Error::NotTokenHolder);
-        }
-
-        let has_voted_key = DataKey::HasVoted(campaign_id, voter.clone());
-        let has_voted: bool = env
-            .storage()
-            .instance()
-            .get(&has_voted_key)
-            .unwrap_or(false);
-        if has_voted {
-            return Err(Error::AlreadyVoted);
-        }
-
-        if approve {
-            let key = DataKey::ApproveVotes(campaign_id);
-            let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
-            env.storage().instance().set(&key, &(current + 1));
-        } else {
-            let key = DataKey::RejectVotes(campaign_id);
-            let current: u32 = env.storage().instance().get(&key).unwrap_or(0);
-            env.storage().instance().set(&key, &(current + 1));
-        }
-
-        env.storage().instance().set(&has_voted_key, &true);
-        env.events()
-            .publish(("campaign_vote_cast", campaign_id, voter), approve);
-
-        Ok(())
+        voting::cast_vote(&env, campaign_id, voter, approve)
     }
 
+    /// Directly verify a campaign. Can only be performed by the admin.
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-        admin.require_auth();
-
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-
-        campaign.is_verified = true;
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
-        env.events().publish(("campaign_verified", campaign_id), ());
-
-        Ok(())
+        voting::admin_verify(&env, campaign_id)
     }
 
+    /// Checks if a campaign meets community verification thresholds and marks it verified.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign: Campaign = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .ok_or(Error::CampaignNotFound)?;
-
-        if campaign.is_verified {
-            return Err(Error::CampaignAlreadyVerified);
-        }
-
-        let approve_votes: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ApproveVotes(campaign_id))
-            .unwrap_or(0);
-        let reject_votes: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::RejectVotes(campaign_id))
-            .unwrap_or(0);
-        let total_votes = approve_votes + reject_votes;
-
-        let min_votes_quorum: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::MinVotesQuorum)
-            .unwrap_or(DEFAULT_MIN_VOTES_QUORUM);
-        if total_votes < min_votes_quorum {
-            return Err(Error::VotingQuorumNotMet);
-        }
-
-        let approval_threshold_bps: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::ApprovalThresholdBps)
-            .unwrap_or(DEFAULT_APPROVAL_THRESHOLD_BPS);
-        let approval_bps = (approve_votes * 10000) / total_votes;
-        if approval_bps < approval_threshold_bps {
-            return Err(Error::VotingThresholdNotMet);
-        }
-
-        campaign.is_verified = true;
-        env.storage()
-            .instance()
-            .set(&DataKey::Campaign(campaign_id), &campaign);
-        env.events()
-            .publish(("campaign_verified", campaign_id), approve_votes);
-
-        Ok(())
+        voting::verify_with_votes(&env, campaign_id)
     }
 
-    pub fn get_campaign(env: Env, campaign_id: u32) -> Campaign {
-        env.storage()
-            .instance()
-            .get(&DataKey::Campaign(campaign_id))
-            .unwrap()
+    /// Gets a campaign's current state.
+    ///
+    /// # Returns
+    /// `Result<Campaign, Error>` where the Error is `CampaignNotFound` if the ID is invalid.
+    pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
+        get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
     }
 
+    /// Returns the total number of campaigns created.
+    pub fn get_campaign_count(env: Env) -> u32 {
+        get_campaign_count(&env)
+    }
+
+    /// Gets the contributor's contribution amount for a specific campaign.
     pub fn get_contribution(env: Env, campaign_id: u32, contributor: Address) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::Contribution(campaign_id, contributor))
-            .unwrap_or(0)
+        get_contribution(&env, campaign_id, &contributor)
     }
 
+    /// Gets the total revenue pool for a given campaign.
     pub fn get_revenue_pool(env: Env, campaign_id: u32) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::RevenuePool(campaign_id))
-            .unwrap_or(0)
+        get_revenue_pool(&env, campaign_id)
     }
 
+    /// Gets the total revenue claimed by a specific contributor.
     pub fn get_revenue_claimed(env: Env, campaign_id: u32, contributor: Address) -> i128 {
-        env.storage()
-            .instance()
-            .get(&DataKey::RevenueClaimed(campaign_id, contributor))
-            .unwrap_or(0)
+        get_revenue_claimed(&env, campaign_id, &contributor)
     }
 
     /// Returns the current contract version stored in instance storage.
     /// A return value of 0 indicates the contract was initialized before version tracking was added.
     pub fn get_version(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::Version).unwrap_or(0)
+        get_version(&env)
     }
 
+    /// Updates the global platform fee.
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin = get_admin(&env);
         admin.require_auth();
         let valid_fee = if new_fee > 1000 { 1000 } else { new_fee };
-        let old_fee: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::PlatformFee)
-            .unwrap_or(300);
-        env.storage()
-            .instance()
-            .set(&DataKey::PlatformFee, &valid_fee);
+        let old_fee = get_platform_fee(&env);
+        set_platform_fee(&env, valid_fee);
         env.events().publish(("fee_updated",), (old_fee, valid_fee));
         Ok(())
     }
 
+    /// Transfers admin privileges to a new address.
+    ///
+    /// # Authorization
+    /// Requires the current admin to authorize the call.
+    pub fn update_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+
+        let current_admin = get_admin(&env);
+        if admin != current_admin {
+            return Err(Error::NotAuthorized);
+        }
+
+        set_admin(&env, &new_admin);
+        env.events()
+            .publish(("admin_updated",), (current_admin, new_admin));
+
+        Ok(())
+    }
+
+    /// Gets the number of recorded approval votes for a campaign.
     pub fn get_approve_votes(env: Env, campaign_id: u32) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::ApproveVotes(campaign_id))
-            .unwrap_or(0)
+        get_approve_votes(&env, campaign_id)
     }
 
+    /// Gets the number of recorded rejection votes for a campaign.
     pub fn get_reject_votes(env: Env, campaign_id: u32) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::RejectVotes(campaign_id))
-            .unwrap_or(0)
+        get_reject_votes(&env, campaign_id)
     }
 
+    /// Checks if a voter has already voted on a specific campaign.
     pub fn has_voted(env: Env, campaign_id: u32, voter: Address) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::HasVoted(campaign_id, voter))
-            .unwrap_or(false)
+        get_has_voted(&env, campaign_id, &voter)
     }
 
+    /// Gets the minimum votes needed to reach quorum.
     pub fn get_min_votes_quorum(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::MinVotesQuorum)
-            .unwrap_or(DEFAULT_MIN_VOTES_QUORUM)
+        get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM)
     }
 
+    /// Gets the required approval threshold in basis points.
     pub fn get_approval_threshold_bps(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::ApprovalThresholdBps)
-            .unwrap_or(DEFAULT_APPROVAL_THRESHOLD_BPS)
+        get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS)
     }
 
+    /// Returns the current admin address.
     pub fn get_admin(env: Env) -> Address {
-        env.storage().instance().get(&DataKey::Admin).unwrap()
+        get_admin(&env)
     }
 
+    /// Returns the accepted token address.
     pub fn get_token(env: Env) -> Address {
-        env.storage().instance().get(&DataKey::Token).unwrap()
+        get_token(&env)
     }
 
+    /// Returns the current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::PlatformFee)
-            .unwrap_or(300)
+        get_platform_fee(&env)
     }
 
     pub fn get_campaign_count(env: Env) -> u32 {
@@ -755,4 +712,7 @@ impl ProofOfHeart {
     }
 }
 
+#[cfg(test)]
 mod test;
+#[cfg(test)]
+mod update_admin_test;
