@@ -1,0 +1,6 @@
+{
+  "title": "Fix issues #17, #29, #26, #8",
+  "body": "This pull request implements comprehensive enhancements to `ProofOfHeart-stellar`, bringing stability, event persistence, strict documentation, and precise boundary constraints to the platform.\n\n### Changes Implemented\n* **Graceful Failure on Missing Campaigns**: `get_campaign` now returns `Result<Campaign, Error>` applying `ok_or(Error::CampaignNotFound)`.\n* **Initialization Events**: The `init` function now persistently triggers an `\"initialized\"` event right after environmental configurations are registered.\n* **Comprehensive RustDocs**: Applied extensive contextual `///` documentation blocks across all struct typings, categorical enums, parameter variants, and the 23 public contract commands spanning `ProofOfHeart`.\n* **Deadline Boundary Constraints**: Injected `test_deadline_boundary` inside `src/test.rs` to securely map Soroban ledger timestamps.\n\nCloses #17, Closes #29, Closes #26, Closes #8",
+  "head": "presidojay1:fix/all-issues-2",
+  "base": "main"
+}
