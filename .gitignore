@@ -1,15 +1,46 @@
-# Rust build artifacts
-/target/
 
-# Cargo lockfile (typically not committed for library crates/contracts)
-Cargo.lock
+# Rust build artifacts
+# =========================
+/target/
+**/*.rs.bk
+*.rlib
+*.rmeta
+*.d
+*.pdb
+
+# =========================
+# Cargo
+# =========================
+# Keep Cargo.lock for reproducible WASM builds
+# (DO NOT IGNORE)
+# Cargo.lock
+
+# =========================
+# Soroban artifacts
+# =========================
+.soroban/
+*.wasm
+!contracts/**/*.wasm
 
 # Soroban test snapshots
 /test_snapshots/
 
-# macOS and editor local files
-.DS_Store
+# =========================
+# IDE / Editor files
+# =========================
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs & temp
+# =========================
+*.log
+*.tmp
