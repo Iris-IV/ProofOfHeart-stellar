@@ -785,6 +785,157 @@ fn test_reinit_prevention() {
 }
 
 #[test]
+fn test_get_campaign_count() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    assert_eq!(client.get_campaign_count(), 0);
+
+    let title = String::from_str(&env, "Campaign 1");
+    let desc = String::from_str(&env, "Desc 1");
+    client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+    assert_eq!(client.get_campaign_count(), 1);
+
+    client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &2000,
+        &60,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+    assert_eq!(client.get_campaign_count(), 2);
+}
+
+#[test]
+fn test_update_campaign_success_and_failure() {
+    let (env, _, creator, contributor1, _, _, token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "Old Title");
+    let desc = String::from_str(&env, "Old Description");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+
+    // Success update
+    client.update_campaign(&campaign_id, &new_title, &new_desc);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, new_title);
+    assert_eq!(campaign.description, new_desc);
+
+    // Fail update after contribution
+    token_admin.mint(&contributor1, &100);
+    client.contribute(&campaign_id, &contributor1, &50);
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_voting_on_cancelled_campaign() {
+    let (env, _, creator, contributor1, _, _, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &100);
+
+    let title = String::from_str(&env, "Cancelled Campaign");
+    let desc = String::from_str(&env, "Desc");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    client.cancel_campaign(&campaign_id);
+
+    // Try voting on cancelled campaign
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_voting_on_inactive_campaign() {
+    let (env, _, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &2000);
+
+    let title = String::from_str(&env, "Inactive Campaign");
+    let desc = String::from_str(&env, "Desc");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // Now inactive
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_update_platform_fee_application() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    // 1. Update Platform Fee to 5% (500 bps)
+    client.update_platform_fee(&500);
+    assert_eq!(client.get_platform_fee(), 500);
+
+    // 2. Create campaign
+    token_admin.mint(&contributor1, &2000);
+    let title = String::from_str(&env, "Fee Test");
+    let desc = String::from_str(&env, "Testing 5% fee");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    // 3. Contribute 1000
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // 4. Withdraw
+    client.withdraw_funds(&campaign_id);
+
+    // 5. Verify fee (5% of 1000 = 50)
+    assert_eq!(token.balance(&admin), 50);
+    assert_eq!(token.balance(&creator), 950);
+}
+
+#[test]
 fn test_initialization_getters() {
     let (_, admin, _, _, _, token, _, client) = setup_env();
 
@@ -869,7 +1020,7 @@ fn test_view_functions_error_handling() {
     let invalid_id = 999u32;
 
     // 1. get_campaign with invalid ID
-    // Expected: Returns Error::CampaignNotFound (previously panicked before Issue #8 fix)
+    // Expected: Returns Error::CampaignNotFound
     let res = client.try_get_campaign(&invalid_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 
@@ -893,4 +1044,3 @@ fn test_view_functions_error_handling() {
     // Expected: Returns 0 (no panic)
     assert_eq!(client.get_revenue_claimed(&invalid_id, &contributor1), 0);
 }
-

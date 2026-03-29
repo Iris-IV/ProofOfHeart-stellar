@@ -283,6 +283,52 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Updates the title and description of a campaign if no contributions have been made yet.
+    ///
+    /// # Authorization
+    /// Requires `creator.require_auth()`.
+    pub fn update_campaign(
+        env: Env,
+        campaign_id: u32,
+        title: String,
+        description: String,
+    ) -> Result<(), Error> {
+        let mut campaign: Campaign = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaign(campaign_id))
+            .ok_or(Error::CampaignNotFound)?;
+
+        campaign.creator.require_auth();
+
+        if campaign.amount_raised > 0 {
+            return Err(Error::ValidationFailed);
+        }
+
+        if campaign.is_cancelled || !campaign.is_active {
+            return Err(Error::CampaignNotActive);
+        }
+
+        if title.len() == 0 || title.len() > 100 {
+            return Err(Error::ValidationFailed);
+        }
+        if description.len() == 0 || description.len() > 1000 {
+            return Err(Error::ValidationFailed);
+        }
+
+        campaign.title = title.clone();
+        campaign.description = description;
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Campaign(campaign_id), &campaign);
+
+        env.events()
+            .publish(("campaign_updated", campaign_id), title);
+
+        Ok(())
+    }
+
     /// Claim refunds for contributors if the campaign is cancelled or failed to reach the goal.
     ///
     /// # Authorization
@@ -555,6 +601,14 @@ impl ProofOfHeart {
     /// `Result<Campaign, Error>` where the Error is `CampaignNotFound` if the ID is invalid.
     pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
         get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
+    }
+
+    /// Gets the total number of campaigns created.
+    pub fn get_campaign_count(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::CampaignCount)
+            .unwrap_or(0)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
