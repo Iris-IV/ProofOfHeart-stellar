@@ -29,6 +29,8 @@ pub enum DataKey {
     CreatorRevenueClaimed(u32),
     /// The stored contract version number.
     Version,
+    /// Whether the contract is paused.
+    Paused,
     /// Number of approval votes cast for a campaign, keyed by campaign ID.
     ApproveVotes(u32),
     /// Number of rejection votes cast for a campaign, keyed by campaign ID.
