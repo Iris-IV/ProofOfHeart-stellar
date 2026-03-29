@@ -572,6 +572,7 @@ impl ProofOfHeart {
         get_revenue_claimed(&env, campaign_id, &contributor)
     }
 
+    /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
         get_campaign_count(&env)
     }
