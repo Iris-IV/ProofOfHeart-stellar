@@ -22,6 +22,8 @@ pub struct Campaign {
     pub id: u32,
     /// The address of the campaign creator.
     pub creator: Address,
+    /// The address of the proposed new creator (for two-step transfer).
+    pub pending_creator: Option<Address>,
     /// Short display name of the campaign.
     pub title: String,
     /// Long description of the campaign's purpose.

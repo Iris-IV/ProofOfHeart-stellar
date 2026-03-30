@@ -45,4 +45,10 @@ pub enum Error {
     VotingThresholdNotMet = 19,
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
+    /// The caller is not the pending creator.
+    NotPendingOwner = 21,
+    /// No ownership transfer is currently pending.
+    NoTransferPending = 22,
+    /// The new owner address is invalid (e.g., same as current).
+    InvalidNewOwner = 23,
 }

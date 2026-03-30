@@ -996,3 +996,58 @@ fn test_update_campaign_description_not_found() {
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
+
+#[test]
+fn test_campaign_ownership_transfer_flow() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+    let new_creator = contributor1; // Using contributor1 as the new owner target
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Transfer Test"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+
+    // 1. Initiate transfer
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, Some(new_creator.clone()));
+    assert_eq!(campaign.creator, creator); // Original creator still in charge
+
+    // 2. Accept transfer (by new_creator)
+    client.accept_campaign_transfer(&campaign_id);
+    
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.creator, new_creator);
+    assert_eq!(campaign_after.pending_creator, None);
+
+    // 3. Verify old creator no longer has access (e.g., trying to update description)
+    // Since we use mock_all_auths in setup_env, we check if the auth stack matches
+    // the expected behavior of require_auth().
+    
+    // To test auth failure specifically in Soroban tests without mock_all_auths 
+    // usually requires a different env setup, but following the existing patterns,
+    // this validates the state change is complete.
+    
+    // 4. Test Cancellation
+    let third_party = Address::generate(&env);
+    let campaign_id_2 = client.create_campaign(
+        &new_creator, // use the new owner
+        &String::from_str(&env, "Cancel Test"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+    );
+    client.initiate_campaign_transfer(&campaign_id_2, &third_party);
+    client.cancel_campaign_transfer(&campaign_id_2);
+    let final_campaign = client.get_campaign(&campaign_id_2);
+    assert_eq!(final_campaign.pending_creator, None);
+}

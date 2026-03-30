@@ -120,6 +120,7 @@ impl ProofOfHeart {
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
+            pending_creator: None,
             title: title.clone(),
             description,
             funding_goal,
@@ -660,12 +661,8 @@ impl ProofOfHeart {
         get_platform_fee(&env)
     }
 
-    pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
-    }
-
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
-        let total_count: u32 = env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0);
+        let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);
 
         if start >= total_count || limit == 0 {
@@ -679,7 +676,7 @@ impl ProofOfHeart {
         };
 
         for id in (start + 1)..=end {
-            if let Some(campaign) = env.storage().instance().get::<_, Campaign>(&DataKey::Campaign(id)) {
+            if let Some(campaign) = get_campaign(&env, id) {
                 campaigns.push_back(campaign);
             }
         }
@@ -688,7 +685,7 @@ impl ProofOfHeart {
     }
 
     pub fn list_active_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
-        let total_count: u32 = env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0);
+        let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);
 
         if start >= total_count || limit == 0 {
@@ -699,7 +696,7 @@ impl ProofOfHeart {
         let mut current_id = start + 1;
 
         while collected < limit && current_id <= total_count {
-            if let Some(campaign) = env.storage().instance().get::<_, Campaign>(&DataKey::Campaign(current_id)) {
+            if let Some(campaign) = get_campaign(&env, current_id) {
                 if campaign.is_active && !campaign.is_cancelled {
                     campaigns.push_back(campaign);
                     collected += 1;
@@ -709,6 +706,81 @@ impl ProofOfHeart {
         }
 
         campaigns
+    }
+
+    /// Initiates a transfer of campaign ownership to a new address.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
+    pub fn initiate_campaign_transfer(
+        env: Env,
+        campaign_id: u32,
+        new_creator: Address,
+    ) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        campaign.creator.require_auth();
+
+        if new_creator == campaign.creator {
+            return Err(Error::InvalidNewOwner);
+        }
+
+        campaign.pending_creator = Some(new_creator.clone());
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events().publish(
+            ("campaign_transfer_initiated", campaign_id, campaign.creator.clone()),
+            new_creator,
+        );
+
+        Ok(())
+    }
+
+    /// Finalizes the ownership transfer. Must be called by the pending creator.
+    ///
+    /// # Authorization
+    /// Requires `pending_creator.require_auth()`.
+    pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+
+        let pending = campaign
+            .pending_creator
+            .clone()
+            .ok_or(Error::NoTransferPending)?;
+        pending.require_auth();
+
+        let old_creator = campaign.creator.clone();
+        campaign.creator = pending.clone();
+        campaign.pending_creator = None;
+
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events().publish(
+            ("campaign_transfer_completed", campaign_id),
+            (old_creator, pending),
+        );
+
+        Ok(())
+    }
+
+    /// Cancels a pending ownership transfer.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
+    pub fn cancel_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        campaign.creator.require_auth();
+
+        if campaign.pending_creator.is_none() {
+            return Err(Error::NoTransferPending);
+        }
+
+        campaign.pending_creator = None;
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events()
+            .publish(("campaign_transfer_cancelled", campaign_id), ());
+
+        Ok(())
     }
 }
 
