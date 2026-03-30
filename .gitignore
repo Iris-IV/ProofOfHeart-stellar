@@ -44,3 +44,8 @@ Thumbs.db
 # =========================
 *.log
 *.tmp
+# Temporary tracker files
+body*.txt
+issue*.json
+pr_data.json
+pr_response.json
