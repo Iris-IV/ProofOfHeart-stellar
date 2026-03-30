@@ -110,7 +110,7 @@ ProofOfHeart-stellar/
 
 ## Contributing
 
-We welcome contributors of all experience levels! Check the [Issues](../../issues) tab for open tasks — many are tagged as `good first issue` to help you get started.
+We welcome contributors of all experience levels! For detailed setup instructions, coding standards, and PR guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

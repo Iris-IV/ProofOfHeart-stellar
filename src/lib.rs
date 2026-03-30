@@ -26,6 +26,14 @@ pub struct ProofOfHeart;
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
+    /// Checks if the contract is paused and returns an error if it is.
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
     /// Initializes the Proof of Heart contract.
     ///
     /// # Arguments
@@ -89,6 +97,7 @@ impl ProofOfHeart {
         revenue_share_percentage: u32,
     ) -> Result<u32, Error> {
         creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if funding_goal <= 0 {
             return Err(Error::FundingGoalMustBePositive);
@@ -166,6 +175,7 @@ impl ProofOfHeart {
         amount: i128,
     ) -> Result<(), Error> {
         contributor.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ContributionMustBePositive);
@@ -214,6 +224,7 @@ impl ProofOfHeart {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
@@ -268,6 +279,7 @@ impl ProofOfHeart {
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if campaign.funds_withdrawn {
             return Err(Error::ValidationFailed);
@@ -371,6 +383,7 @@ impl ProofOfHeart {
     /// Requires `contributor.require_auth()`.
     pub fn claim_refund(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributor.require_auth();
+        Self::require_not_paused(&env)?;
 
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
@@ -405,6 +418,7 @@ impl ProofOfHeart {
     pub fn deposit_revenue(env: Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ValidationFailed);
@@ -433,6 +447,7 @@ impl ProofOfHeart {
     /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
     /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         if !campaign.has_revenue_sharing {
             return Err(Error::ValidationFailed);
@@ -476,6 +491,7 @@ impl ProofOfHeart {
     pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if !campaign.has_revenue_sharing {
             return Err(Error::ValidationFailed);
@@ -525,7 +541,41 @@ impl ProofOfHeart {
         min_votes_quorum: u32,
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
         voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)
+    }
+
+    /// Pauses the contract, preventing state-changing operations.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events().publish(("contract_paused", admin), ());
+        Ok(())
+    }
+
+    /// Unpauses the contract, allowing state-changing operations.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events().publish(("contract_unpaused", admin), ());
+        Ok(())
+    }
+
+    /// Returns whether the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
@@ -538,6 +588,7 @@ impl ProofOfHeart {
         voter: Address,
         approve: bool,
     ) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
         voting::cast_vote(&env, campaign_id, voter, approve)
     }
 
@@ -546,11 +597,13 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `admin.require_auth()`.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
         voting::admin_verify(&env, campaign_id)
     }
 
     /// Checks if a campaign meets community verification thresholds and marks it verified.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
         voting::verify_with_votes(&env, campaign_id)
     }
 
@@ -564,7 +617,7 @@ impl ProofOfHeart {
 
     /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        get_campaign_count(&env)
+        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -595,6 +648,7 @@ impl ProofOfHeart {
     pub fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {
         let admin = get_admin(&env);
         admin.require_auth();
+        Self::require_not_paused(&env)?;
         let valid_fee = if new_fee > 1000 { 1000 } else { new_fee };
         let old_fee = get_platform_fee(&env);
         set_platform_fee(&env, valid_fee);
@@ -608,6 +662,7 @@ impl ProofOfHeart {
     /// Requires the current admin to authorize the call.
     pub fn update_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
         admin.require_auth();
+        Self::require_not_paused(&env)?;
 
         let current_admin = get_admin(&env);
         if admin != current_admin {

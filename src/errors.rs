@@ -51,4 +51,6 @@ pub enum Error {
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
     InvalidNewOwner = 23,
+    /// The contract is currently paused.
+    ContractPaused = 21,
 }
