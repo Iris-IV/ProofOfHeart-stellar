@@ -660,10 +660,6 @@ impl ProofOfHeart {
         get_platform_fee(&env)
     }
 
-    pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
-    }
-
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
         let total_count: u32 = env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0);
         let mut campaigns = soroban_sdk::Vec::new(&env);

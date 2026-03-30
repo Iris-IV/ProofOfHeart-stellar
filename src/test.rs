@@ -26,8 +26,7 @@ fn setup_env<'a>() -> (
     let contributor1 = Address::generate(&env);
     let contributor2 = Address::generate(&env);
 
-    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-    let token_address = token_contract.address();
+    let token_address = env.register_stellar_asset_contract(admin.clone());
     let token = TokenClient::new(&env, &token_address);
     let token_admin = TokenAdminClient::new(&env, &token_address);
 
