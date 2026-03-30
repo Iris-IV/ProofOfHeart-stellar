@@ -26,8 +26,7 @@ fn setup_env<'a>() -> (
     let contributor1 = Address::generate(&env);
     let contributor2 = Address::generate(&env);
 
-    let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
-    let token_address = token_contract.address();
+    let token_address = env.register_stellar_asset_contract(admin.clone());
     let token = TokenClient::new(&env, &token_address);
     let token_admin = TokenAdminClient::new(&env, &token_address);
 
@@ -995,4 +994,94 @@ fn test_update_campaign_description_not_found() {
         &String::from_str(&env, "Some desc"),
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+#[test]
+fn test_pause_and_unpause() {
+    let (_env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    // Initially not paused
+    assert!(!client.is_paused());
+
+    // Pause
+    client.pause(&admin);
+
+    // Now paused
+    assert!(client.is_paused());
+
+    // Unpause
+    client.unpause(&admin);
+
+    // Not paused
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_pause_blocks_state_changing_operations() {
+    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Paused Test");
+    let desc = String::from_str(&env, "Testing pause functionality");
+
+    // Create campaign before pause
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    // Pause
+    client.pause(&admin);
+    assert!(client.is_paused());
+
+    // Try state-changing operations, should fail
+    let res = client.try_create_campaign(
+        &creator,
+        &String::from_str(&env, "New Campaign"),
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    let res = client.try_cancel_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    let res = client.try_verify_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    let res = client.try_update_platform_fee(&400);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // View functions should still work
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, title);
+
+    let paused = client.is_paused();
+    assert!(paused);
+
+    // Unpause
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+
+    // Now operations should work
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
 }

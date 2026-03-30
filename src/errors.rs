@@ -45,4 +45,6 @@ pub enum Error {
     VotingThresholdNotMet = 19,
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
+    /// The contract is currently paused.
+    ContractPaused = 21,
 }
