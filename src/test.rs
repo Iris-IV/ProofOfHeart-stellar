@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
@@ -437,18 +435,18 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     let c2_after_withdraw = client.get_campaign(&campaign_2);
     let c3_after_withdraw = client.get_campaign(&campaign_3);
 
-    assert_eq!(c1_after_withdraw.funds_withdrawn, true);
-    assert_eq!(c1_after_withdraw.is_active, false);
+    assert!(c1_after_withdraw.funds_withdrawn);
+    assert!(!c1_after_withdraw.is_active);
 
     assert_eq!(c2_after_withdraw.amount_raised, 900);
-    assert_eq!(c2_after_withdraw.funds_withdrawn, false);
-    assert_eq!(c2_after_withdraw.is_active, true);
-    assert_eq!(c2_after_withdraw.is_cancelled, false);
+    assert!(!c2_after_withdraw.funds_withdrawn);
+    assert!(c2_after_withdraw.is_active);
+    assert!(!c2_after_withdraw.is_cancelled);
 
     assert_eq!(c3_after_withdraw.amount_raised, 2000);
-    assert_eq!(c3_after_withdraw.funds_withdrawn, false);
-    assert_eq!(c3_after_withdraw.is_active, true);
-    assert_eq!(c3_after_withdraw.is_cancelled, false);
+    assert!(!c3_after_withdraw.funds_withdrawn);
+    assert!(c3_after_withdraw.is_active);
+    assert!(!c3_after_withdraw.is_cancelled);
 
     client.cancel_campaign(&campaign_2);
 
@@ -456,13 +454,13 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     let c2_after_cancel = client.get_campaign(&campaign_2);
     let c3_after_cancel = client.get_campaign(&campaign_3);
 
-    assert_eq!(c2_after_cancel.is_cancelled, true);
-    assert_eq!(c2_after_cancel.is_active, false);
+    assert!(c2_after_cancel.is_cancelled);
+    assert!(!c2_after_cancel.is_active);
 
-    assert_eq!(c1_after_cancel.funds_withdrawn, true);
-    assert_eq!(c1_after_cancel.is_cancelled, false);
-    assert_eq!(c3_after_cancel.is_active, true);
-    assert_eq!(c3_after_cancel.is_cancelled, false);
+    assert!(c1_after_cancel.funds_withdrawn);
+    assert!(!c1_after_cancel.is_cancelled);
+    assert!(c3_after_cancel.is_active);
+    assert!(!c3_after_cancel.is_cancelled);
 
     assert_eq!(client.get_revenue_pool(&campaign_1), 0);
     assert_eq!(client.get_revenue_pool(&campaign_2), 0);
@@ -536,7 +534,7 @@ fn test_admin_verify_campaign_success() {
 
     client.verify_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.is_verified, true);
+    assert!(campaign.is_verified);
 }
 
 #[test]
@@ -910,7 +908,7 @@ fn test_view_functions_error_handling() {
 
 #[test]
 fn test_update_campaign_description_success() {
-    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &10_000);
 
@@ -1008,57 +1006,20 @@ fn test_campaign_ownership_transfer_flow() {
         &1000,
         &30,
         &Category::Educator,
-fn test_pause_and_unpause() {
-    let (_env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
-
-    // Initially not paused
-    assert!(!client.is_paused());
-
-    // Pause
-    client.pause(&admin);
-
-    // Now paused
-    assert!(client.is_paused());
-
-    // Unpause
-    client.unpause(&admin);
-
-    // Not paused
-    assert!(!client.is_paused());
-}
-
-#[test]
-fn test_pause_blocks_state_changing_operations() {
-    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
-
-    token_admin.mint(&contributor1, &2000);
-    token_admin.mint(&creator, &10000);
-
-    let title = String::from_str(&env, "Paused Test");
-    let desc = String::from_str(&env, "Testing pause functionality");
-
-    // Create campaign before pause
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
         &false,
         &0,
     );
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.pending_creator, Some(new_creator.clone()));
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::Some(new_creator.clone()));
     assert_eq!(campaign.creator, creator);
 
     client.accept_campaign_transfer(&campaign_id);
 
     let campaign_after = client.get_campaign(&campaign_id);
     assert_eq!(campaign_after.creator, new_creator.clone());
-    assert_eq!(campaign_after.pending_creator, None);
+    assert_eq!(campaign_after.pending_creator, MaybePendingCreator::None);
 
     let updated_description = String::from_str(&env, "Managed by the transferred owner");
     client.update_campaign_description(&campaign_id, &updated_description);
@@ -1091,7 +1052,7 @@ fn test_pause_blocks_state_changing_operations() {
     client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
     client.cancel_campaign_transfer(&campaign_id_2);
     let final_campaign = client.get_campaign(&campaign_id_2);
-    assert_eq!(final_campaign.pending_creator, None);
+    assert_eq!(final_campaign.pending_creator, MaybePendingCreator::None);
 }
 
 #[test]
@@ -1118,15 +1079,60 @@ fn test_campaign_transfer_validations() {
     client.initiate_campaign_transfer(&campaign_id, &contributor1);
     client.cancel_campaign_transfer(&campaign_id);
 
-    let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.pending_creator, None);
-
-    let res = client.try_cancel_campaign_transfer(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
-
+    // Verify cancel was authorized by the creator
     let auths = env.auths();
     let (auth_addr, _) = auths.last().unwrap();
     assert_eq!(auth_addr, &creator);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+
+    let res = client.try_cancel_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+}
+
+#[test]
+fn test_pause_and_unpause() {
+    let (_env, admin, _creator, _contributor1, _, _token, _token_admin, client) = setup_env();
+
+    // Initially not paused
+    assert!(!client.is_paused());
+
+    // Pause
+    client.pause(&admin);
+
+    // Now paused
+    assert!(client.is_paused());
+
+    // Unpause
+    client.unpause(&admin);
+
+    // Not paused
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_pause_blocks_state_changing_operations() {
+    let (env, admin, creator, contributor1, _contributor2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Paused Test");
+    let desc = String::from_str(&env, "Testing pause functionality");
+
+    // Create campaign before pause
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
     // Pause
     client.pause(&admin);
     assert!(client.is_paused());
@@ -1173,4 +1179,6 @@ fn test_campaign_transfer_validations() {
     // Now operations should work
     client.contribute(&campaign_id, &contributor1, &500);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    let _ = token;
 }

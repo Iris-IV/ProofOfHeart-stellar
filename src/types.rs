@@ -1,5 +1,15 @@
 use soroban_sdk::{contracttype, Address, String};
 
+/// Represents an optional pending campaign creator for ownership transfers.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybePendingCreator {
+    /// No ownership transfer is in progress.
+    None,
+    /// An ownership transfer to this address is pending acceptance.
+    Some(Address),
+}
+
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -23,7 +33,7 @@ pub struct Campaign {
     /// The address of the campaign creator.
     pub creator: Address,
     /// The address of the proposed new creator (for two-step transfer).
-    pub pending_creator: Option<Address>,
+    pub pending_creator: MaybePendingCreator,
     /// Short display name of the campaign.
     pub title: String,
     /// Long description of the campaign's purpose.

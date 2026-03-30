@@ -52,5 +52,5 @@ pub enum Error {
     /// The new owner address is invalid (e.g., same as current).
     InvalidNewOwner = 23,
     /// The contract is currently paused.
-    ContractPaused = 21,
+    ContractPaused = 24,
 }

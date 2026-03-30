@@ -129,7 +129,7 @@ impl ProofOfHeart {
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
-            pending_creator: None,
+            pending_creator: MaybePendingCreator::None,
             title: title.clone(),
             description,
             funding_goal,
@@ -779,7 +779,7 @@ impl ProofOfHeart {
             return Err(Error::InvalidNewOwner);
         }
 
-        campaign.pending_creator = Some(new_creator.clone());
+        campaign.pending_creator = MaybePendingCreator::Some(new_creator.clone());
         set_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
@@ -797,15 +797,15 @@ impl ProofOfHeart {
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
 
-        let pending = campaign
-            .pending_creator
-            .clone()
-            .ok_or(Error::NoTransferPending)?;
+        let pending = match campaign.pending_creator.clone() {
+            MaybePendingCreator::Some(addr) => addr,
+            MaybePendingCreator::None => return Err(Error::NoTransferPending),
+        };
         pending.require_auth();
 
         let old_creator = campaign.creator.clone();
         campaign.creator = pending.clone();
-        campaign.pending_creator = None;
+        campaign.pending_creator = MaybePendingCreator::None;
 
         set_campaign(&env, campaign_id, &campaign);
 
@@ -825,11 +825,11 @@ impl ProofOfHeart {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
 
-        if campaign.pending_creator.is_none() {
+        if campaign.pending_creator == MaybePendingCreator::None {
             return Err(Error::NoTransferPending);
         }
 
-        campaign.pending_creator = None;
+        campaign.pending_creator = MaybePendingCreator::None;
         set_campaign(&env, campaign_id, &campaign);
 
         env.events()
@@ -843,3 +843,5 @@ impl ProofOfHeart {
 mod test;
 #[cfg(test)]
 mod update_admin_test;
+#[cfg(test)]
+mod revenue_share_proptest;
