@@ -1182,3 +1182,142 @@ fn test_pause_blocks_state_changing_operations() {
 
     let _ = token;
 }
+
+// ── Deadline edge-case tests (#74) ───────────────────────────────────────────
+
+/// A contribution made 1 second before the deadline must succeed.
+#[test]
+fn test_contribute_one_second_before_deadline() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Almost Deadline"),
+        &String::from_str(&env, "Desc"),
+        &1000,
+        &1,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline - 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+}
+
+/// Withdrawing while the deadline has not yet passed and the goal is not met
+/// returns `FundingGoalNotReached`.
+#[test]
+fn test_withdraw_before_deadline_goal_not_met_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Early Withdraw"),
+        &String::from_str(&env, "Desc"),
+        &10_000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Deadline has not passed; goal not met — withdraw must fail
+    let res = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
+}
+
+/// A contributor can claim a refund only after the deadline has passed
+/// and the campaign failed to reach its goal.
+#[test]
+fn test_refund_requires_deadline_passed_and_goal_missed() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Failed Campaign"),
+        &String::from_str(&env, "Desc"),
+        &10_000,
+        &1,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Before deadline: refund must fail (campaign still active, goal not met yet)
+    let res = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // After deadline, goal not reached: refund succeeds
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
+
+/// A contributor whose campaign reached its goal cannot claim a refund.
+#[test]
+fn test_no_refund_when_goal_reached() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Successful Campaign"),
+        &String::from_str(&env, "Desc"),
+        &500,
+        &1,
+        &Category::Learner,
+        &false,
+        &0,
+    );
+
+    // Meet the funding goal exactly
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // Goal was reached — refund must be rejected
+    let res = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
