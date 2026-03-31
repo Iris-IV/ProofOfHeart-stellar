@@ -304,3 +304,18 @@ pub fn get_version(env: &Env) -> u32 {
         .get(&DataKey::Version)
         .unwrap_or(0)
 }
+
+// ── Paused state ──────────────────────────────────────────────────────────────
+
+/// Returns whether the contract is currently paused.
+pub fn get_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Stores the paused state of the contract.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+}

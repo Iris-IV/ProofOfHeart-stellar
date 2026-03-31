@@ -1,70 +1,22 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, String,
+mod errors;
+mod storage;
+mod types;
+mod voting;
+
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
+
+use errors::Error;
+use storage::{
+    get_admin, get_approval_threshold_bps, get_approve_votes, get_campaign, get_campaign_count,
+    get_contribution, get_creator_revenue_claimed, get_has_voted, get_min_votes_quorum,
+    get_paused, get_platform_fee, get_reject_votes, get_revenue_claimed, get_revenue_pool,
+    get_token, get_version, has_admin, set_admin, set_campaign, set_campaign_count,
+    set_contribution, set_creator_revenue_claimed, set_paused, set_platform_fee,
+    set_revenue_claimed, set_revenue_pool, set_token, set_version,
 };
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    NotAuthorized = 1,
-    CampaignNotFound = 2,
-    CampaignNotActive = 3,
-    FundingGoalMustBePositive = 4,
-    InvalidDuration = 5,
-    InvalidRevenueShare = 6,
-    RevenueShareOnlyForStartup = 7,
-    DeadlinePassed = 8,
-    ContributionMustBePositive = 9,
-    DeadlineNotPassed = 10,
-    FundsAlreadyWithdrawn = 11,
-    FundingGoalNotReached = 12,
-    NoFundsToWithdraw = 13,
-    CampaignAlreadyVerified = 14,
-    ValidationFailed = 15,
-    AlreadyInitialized = 16,
-}
-
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Category {
-    Learner = 0,
-    EducationalStartup = 1,
-    Educator = 2,
-    Publisher = 3,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Campaign {
-    pub id: u32,
-    pub creator: Address,
-    pub title: String,
-    pub description: String,
-    pub funding_goal: i128,
-    pub deadline: u64,
-    pub amount_raised: i128,
-    pub is_active: bool,
-    pub funds_withdrawn: bool,
-    pub is_cancelled: bool,
-    pub is_verified: bool,
-    pub category: Category,
-    pub has_revenue_sharing: bool,
-    pub revenue_share_percentage: u32,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    Token,
-    PlatformFee, 
-    CampaignCount,
-    Campaign(u32),
-    Contribution(u32, Address),
-    RevenuePool(u32),
-    RevenueClaimed(u32, Address),
-}
+use types::{Campaign, Category, MaybePendingCreator};
 
 #[contract]
 pub struct ProofOfHeart;
@@ -73,17 +25,18 @@ pub struct ProofOfHeart;
 #[contractimpl]
 impl ProofOfHeart {
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Admin) {
+        if has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
 
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
-        
-        let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee }; // Max 10% limit
-        env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
-        env.storage().instance().set(&DataKey::CampaignCount, &0u32);
+        set_admin(&env, &admin);
+        set_token(&env, &token);
+
+        let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee };
+        set_platform_fee(&env, valid_fee);
+        set_campaign_count(&env, 0);
+        set_version(&env, 1);
 
         Ok(())
     }
@@ -99,6 +52,7 @@ impl ProofOfHeart {
     /// * `category` - The specific categorical nature.
     /// * `has_revenue_sharing` - Should it enforce revenue deposits.
     /// * `revenue_share_percentage` - The percentage of share in basis points.
+    /// * `max_contribution_per_user` - Per-contributor cap in tokens (0 = unlimited).
     ///
     /// # Returns
     /// The unique 32-bit `id` of the created campaign.
@@ -135,7 +89,6 @@ impl ProofOfHeart {
         if category != Category::EducationalStartup && has_revenue_sharing {
             return Err(Error::RevenueShareOnlyForStartup);
         }
-
         if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > 5000)
         {
             return Err(Error::InvalidRevenueShare);
@@ -214,15 +167,16 @@ impl ProofOfHeart {
             return Err(Error::DeadlinePassed);
         }
 
+        // Effects: update state before the external token transfer (CEI pattern).
+        let current = get_contribution(&env, campaign_id, &contributor);
+        campaign.amount_raised += amount;
+        set_campaign(&env, campaign_id, &campaign);
+        set_contribution(&env, campaign_id, &contributor, current + amount);
+
+        // Interactions: external token transfer last.
         let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&contributor, &env.current_contract_address(), &amount);
-
-        campaign.amount_raised += amount;
-        set_campaign(&env, campaign_id, &campaign);
-
-        let current = get_contribution(&env, campaign_id, &contributor);
-        set_contribution(&env, campaign_id, &contributor, current + amount);
 
         env.events()
             .publish(("contribution_made", campaign_id, contributor), amount);
@@ -448,12 +402,14 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        // Effects: update the pool balance before the external transfer (CEI pattern).
+        let current_pool = get_revenue_pool(&env, campaign_id);
+        set_revenue_pool(&env, campaign_id, current_pool + amount);
+
+        // Interactions: external token transfer last.
         let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
-
-        let current_pool = get_revenue_pool(&env, campaign_id);
-        set_revenue_pool(&env, campaign_id, current_pool + amount);
 
         env.events()
             .publish(("revenue_deposited", campaign_id), amount);
@@ -575,7 +531,7 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
-        env.storage().instance().set(&DataKey::Paused, &true);
+        set_paused(&env, true);
         env.events().publish(("contract_paused", admin), ());
         Ok(())
     }
@@ -589,14 +545,14 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
-        env.storage().instance().set(&DataKey::Paused, &false);
+        set_paused(&env, false);
         env.events().publish(("contract_unpaused", admin), ());
         Ok(())
     }
 
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        get_paused(&env)
     }
 
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
@@ -638,7 +594,7 @@ impl ProofOfHeart {
 
     /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
+        get_campaign_count(&env)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -856,6 +812,15 @@ impl ProofOfHeart {
         env.events()
             .publish(("campaign_transfer_cancelled", campaign_id), ());
 
+        Ok(())
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if get_paused(env) {
+            return Err(Error::ContractPaused);
+        }
         Ok(())
     }
 }
