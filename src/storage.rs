@@ -6,6 +6,21 @@ const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
 
+/// Instance-storage TTL thresholds (same cadence as persistent storage).
+const INSTANCE_BUMP_THRESHOLD: u32 = BUMP_THRESHOLD;
+const INSTANCE_BUMP_AMOUNT: u32 = BUMP_AMOUNT;
+
+/// Extends the TTL of the contract's instance storage entry.
+///
+/// Call this at the start of every state-changing function so the
+/// instance storage (admin, token, fee, campaign count, etc.) never
+/// expires while the contract is actively used.
+pub fn extend_instance_ttl(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+}
+
 /// Keys representing the unique storage state for the contract.
 #[contracttype]
 pub enum DataKey {
@@ -303,4 +318,19 @@ pub fn get_version(env: &Env) -> u32 {
         .instance()
         .get(&DataKey::Version)
         .unwrap_or(0)
+}
+
+// ── Paused state ──────────────────────────────────────────────────────────────
+
+/// Returns whether the contract is currently paused.
+pub fn get_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Stores the paused state of the contract.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
 }
