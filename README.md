@@ -34,6 +34,10 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - **Create Campaign** — Launch a new fundraising campaign with a title, description, funding goal, deadline, and category (`Learner`, `EducationalStartup`, `Educator`, `Publisher`).
 - **Cancel Campaign** — Campaign creators can cancel an active campaign at any time, enabling contributor refunds.
 
+### Campaign Verification
+- **Admin Verification** — Platform admin can mark a campaign as verified via `verify_campaign`.
+- **Community Voting Verification** — Token holders can vote and verify via `verify_campaign_with_votes` based on quorum and approval threshold.
+
 ### Contributions & Withdrawals
 - **Contribute** — Anyone can contribute tokens to an active campaign before the deadline.
 - **Withdraw Funds** — Once the funding goal is met, the campaign creator can withdraw raised funds (minus a configurable platform fee, max 10%).
@@ -77,6 +81,17 @@ cargo build --target wasm32-unknown-unknown --release
 cargo test
 ```
 
+## Deployment
+
+For detailed instructions on deploying the contract to Stellar testnet and mainnet, see the [**Deployment Guide**](docs/DEPLOYMENT.md). It covers:
+
+- Soroban CLI setup and configuration
+- Testnet deployment with copy-pasteable examples
+- Mainnet deployment and cost considerations
+- Contract initialization with admin, token, and fee parameters
+- Token setup for the platform
+- Verification and troubleshooting
+
 ## Project Structure
 
 ```
@@ -95,8 +110,8 @@ ProofOfHeart-stellar/
 
 ## Contributing
 
-We welcome contributors of all experience levels! Check the [Issues](../../issues) tab for open tasks — many are tagged as `good first issue` to help you get started.
+We welcome contributors of all experience levels! For detailed setup instructions, coding standards, and PR guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-<!-- TODO: Add license -->
+Licensed under the MIT License. See [LICENSE](LICENSE) for details.

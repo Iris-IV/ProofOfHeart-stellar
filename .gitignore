@@ -1,0 +1,51 @@
+
+# Rust build artifacts
+# =========================
+/target/
+**/*.rs.bk
+*.rlib
+*.rmeta
+*.d
+*.pdb
+
+# =========================
+# Cargo
+# =========================
+# Keep Cargo.lock for reproducible WASM builds
+# (DO NOT IGNORE)
+# Cargo.lock
+
+# =========================
+# Soroban artifacts
+# =========================
+.soroban/
+*.wasm
+!contracts/**/*.wasm
+
+# Soroban test snapshots
+/test_snapshots/
+
+# =========================
+# IDE / Editor files
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs & temp
+# =========================
+*.log
+*.tmp
+# Temporary tracker files
+body*.txt
+issue*.json
+pr_data.json
+pr_response.json
