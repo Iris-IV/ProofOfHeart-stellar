@@ -58,4 +58,6 @@ pub struct Campaign {
     pub has_revenue_sharing: bool,
     /// Percentage of deposited revenue distributed to contributors, in basis points.
     pub revenue_share_percentage: u32,
+    /// Maximum tokens a single contributor may contribute in total. 0 means no cap.
+    pub max_contribution_per_user: i128,
 }

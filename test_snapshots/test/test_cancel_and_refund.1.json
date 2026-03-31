@@ -133,6 +133,12 @@
                 },
                 {
                   "u32": 0
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 0
+                  }
                 }
               ]
             }
@@ -822,6 +828,17 @@
                     },
                     {
                       "key": {
+                        "symbol": "max_contribution_per_user"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "pending_creator"
                       },
                       "val": {
@@ -1052,36 +1069,12 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ApprovalThresholdBps"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 6000
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "CampaignCount"
                             }
                           ]
                         },
                         "val": {
                           "u32": 1
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "MinVotesQuorum"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 3
                         }
                       },
                       {
@@ -1645,36 +1638,6 @@
       "event": {
         "ext": "v0",
         "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "string": "initialized"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-              }
-            ],
-            "data": {
-              "vec": [
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u32": 300
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
         "type_": "diagnostic",
         "body": {
           "v0": {
@@ -1916,6 +1879,12 @@
                 },
                 {
                   "u32": 0
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 0
+                  }
                 }
               ]
             }
@@ -2546,6 +2515,17 @@
                   },
                   "val": {
                     "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
                   }
                 },
                 {

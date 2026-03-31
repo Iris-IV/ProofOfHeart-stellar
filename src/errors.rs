@@ -53,4 +53,6 @@ pub enum Error {
     InvalidNewOwner = 23,
     /// The contract is currently paused.
     ContractPaused = 24,
+    /// The contribution would exceed the per-user cap set by the campaign creator.
+    ContributionCapExceeded = 25,
 }
