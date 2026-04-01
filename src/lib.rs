@@ -1,90 +1,74 @@
 #![no_std]
+#![allow(unexpected_cfgs)]
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, String,
-};
+/// Current contract version. Increment this on each breaking upgrade.
+/// To upgrade a deployed Soroban contract, call `env.deployer().update_current_contract_wasm(new_wasm_hash)`
+/// from an admin-guarded function after deploying the new WASM to the network. The storage layout
+/// (DataKey variants, struct fields) must remain backwards-compatible unless a migration function
+/// is included in the upgrade transaction.
+const CONTRACT_VERSION: u32 = 1;
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Error {
-    NotAuthorized = 1,
-    CampaignNotFound = 2,
-    CampaignNotActive = 3,
-    FundingGoalMustBePositive = 4,
-    InvalidDuration = 5,
-    InvalidRevenueShare = 6,
-    RevenueShareOnlyForStartup = 7,
-    DeadlinePassed = 8,
-    ContributionMustBePositive = 9,
-    DeadlineNotPassed = 10,
-    FundsAlreadyWithdrawn = 11,
-    FundingGoalNotReached = 12,
-    NoFundsToWithdraw = 13,
-    CampaignAlreadyVerified = 14,
-    ValidationFailed = 15,
-    AlreadyInitialized = 16,
-}
+mod errors;
+mod storage;
+mod types;
+mod voting;
 
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Category {
-    Learner = 0,
-    EducationalStartup = 1,
-    Educator = 2,
-    Publisher = 3,
-}
+pub use errors::Error;
+use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
+pub use storage::DataKey;
+use storage::*;
+pub use types::*;
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Campaign {
-    pub id: u32,
-    pub creator: Address,
-    pub title: String,
-    pub description: String,
-    pub funding_goal: i128,
-    pub deadline: u64,
-    pub amount_raised: i128,
-    pub is_active: bool,
-    pub funds_withdrawn: bool,
-    pub is_cancelled: bool,
-    pub is_verified: bool,
-    pub category: Category,
-    pub has_revenue_sharing: bool,
-    pub revenue_share_percentage: u32,
-}
-
-#[contracttype]
-pub enum DataKey {
-    Admin,
-    Token,
-    PlatformFee, 
-    CampaignCount,
-    Campaign(u32),
-    Contribution(u32, Address),
-    RevenuePool(u32),
-    RevenueClaimed(u32, Address),
-}
-
+/// The main contract struct for the Proof of Heart Stellar implementation.
 #[contract]
 pub struct ProofOfHeart;
 
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
+    /// Checks if the contract is paused and returns an error if it is.
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
+    /// Initializes the Proof of Heart contract.
+    ///
+    /// # Arguments
+    /// * `admin` - The global admin address.
+    /// * `token` - The required token for contributions and revenue.
+    /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::Admin) {
+        if has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
-
         admin.require_auth();
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::Token, &token);
-        
-        let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee }; // Max 10% limit
-        env.storage().instance().set(&DataKey::PlatformFee, &valid_fee);
-        env.storage().instance().set(&DataKey::CampaignCount, &0u32);
+        set_admin(&env, &admin);
+        set_token(&env, &token);
 
+        let valid_fee = if platform_fee > 1000 {
+            1000
+        } else {
+            platform_fee
+        }; // Max 10% limit
+        set_platform_fee(&env, valid_fee);
+        set_campaign_count(&env, 0);
+        set_version(&env, CONTRACT_VERSION);
+        set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
+        set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+
+        env.events()
+            .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
         Ok(())
     }
 
@@ -596,7 +580,10 @@ impl ProofOfHeart {
 
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
@@ -638,7 +625,10 @@ impl ProofOfHeart {
 
     /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::CampaignCount).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::CampaignCount)
+            .unwrap_or(0)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -804,7 +794,11 @@ impl ProofOfHeart {
         set_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
-            ("campaign_transfer_initiated", campaign_id, campaign.creator.clone()),
+            (
+                "campaign_transfer_initiated",
+                campaign_id,
+                campaign.creator.clone(),
+            ),
             new_creator,
         );
 
@@ -861,8 +855,8 @@ impl ProofOfHeart {
 }
 
 #[cfg(test)]
+mod revenue_share_proptest;
+#[cfg(test)]
 mod test;
 #[cfg(test)]
 mod update_admin_test;
-#[cfg(test)]
-mod revenue_share_proptest;
