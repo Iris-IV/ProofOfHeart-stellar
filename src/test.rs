@@ -299,10 +299,7 @@ fn test_pull_based_revenue_distribution() {
     // contributor1 share = (1000 * 1000) / 2000 = 500
     client.claim_revenue(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 500);
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor1),
-        500
-    );
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 500);
 
     client.deposit_revenue(&campaign_id, &1000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 6000);
@@ -961,10 +958,8 @@ fn test_update_campaign_description_rejects_cancelled() {
 
     client.cancel_campaign(&campaign_id);
 
-    let res = client.try_update_campaign_description(
-        &campaign_id,
-        &String::from_str(&env, "New desc"),
-    );
+    let res =
+        client.try_update_campaign_description(&campaign_id, &String::from_str(&env, "New desc"));
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
@@ -983,10 +978,7 @@ fn test_update_campaign_description_rejects_empty() {
         &0,
     );
 
-    let res = client.try_update_campaign_description(
-        &campaign_id,
-        &String::from_str(&env, ""),
-    );
+    let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
@@ -994,10 +986,7 @@ fn test_update_campaign_description_rejects_empty() {
 fn test_update_campaign_description_not_found() {
     let (env, _, _, _, _, _, _, client) = setup_env();
 
-    let res = client.try_update_campaign_description(
-        &999,
-        &String::from_str(&env, "Some desc"),
-    );
+    let res = client.try_update_campaign_description(&999, &String::from_str(&env, "Some desc"));
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
 
@@ -1019,7 +1008,10 @@ fn test_campaign_ownership_transfer_flow() {
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.pending_creator, MaybePendingCreator::Some(new_creator.clone()));
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(new_creator.clone())
+    );
     assert_eq!(campaign.creator, creator);
 
     client.accept_campaign_transfer(&campaign_id);
@@ -1120,7 +1112,8 @@ fn test_pause_and_unpause() {
 
 #[test]
 fn test_pause_blocks_state_changing_operations() {
-    let (env, admin, creator, contributor1, _contributor2, token, token_admin, client) = setup_env();
+    let (env, admin, creator, contributor1, _contributor2, token, token_admin, client) =
+        setup_env();
 
     token_admin.mint(&contributor1, &2000);
     token_admin.mint(&creator, &10000);

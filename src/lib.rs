@@ -1,43 +1,74 @@
 #![no_std]
+#![allow(unexpected_cfgs)]
+
+/// Current contract version. Increment this on each breaking upgrade.
+/// To upgrade a deployed Soroban contract, call `env.deployer().update_current_contract_wasm(new_wasm_hash)`
+/// from an admin-guarded function after deploying the new WASM to the network. The storage layout
+/// (DataKey variants, struct fields) must remain backwards-compatible unless a migration function
+/// is included in the upgrade transaction.
+const CONTRACT_VERSION: u32 = 1;
 
 mod errors;
 mod storage;
 mod types;
 mod voting;
 
+pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, token, Address, Env, String};
+pub use storage::DataKey;
+use storage::*;
+pub use types::*;
 
-use errors::Error;
-use storage::{
-    get_admin, get_approval_threshold_bps, get_approve_votes, get_campaign, get_campaign_count,
-    get_contribution, get_creator_revenue_claimed, get_has_voted, get_min_votes_quorum,
-    get_paused, get_platform_fee, get_reject_votes, get_revenue_claimed, get_revenue_pool,
-    get_token, get_version, has_admin, set_admin, set_campaign, set_campaign_count,
-    set_contribution, set_creator_revenue_claimed, set_paused, set_platform_fee,
-    set_revenue_claimed, set_revenue_pool, set_token, set_version,
-};
-use types::{Campaign, Category, MaybePendingCreator};
-
+/// The main contract struct for the Proof of Heart Stellar implementation.
 #[contract]
 pub struct ProofOfHeart;
 
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
+    /// Checks if the contract is paused and returns an error if it is.
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
+    /// Initializes the Proof of Heart contract.
+    ///
+    /// # Arguments
+    /// * `admin` - The global admin address.
+    /// * `token` - The required token for contributions and revenue.
+    /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
         if has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
-
         admin.require_auth();
         set_admin(&env, &admin);
         set_token(&env, &token);
 
-        let valid_fee = if platform_fee > 1000 { 1000 } else { platform_fee };
+        let valid_fee = if platform_fee > 1000 {
+            1000
+        } else {
+            platform_fee
+        }; // Max 10% limit
         set_platform_fee(&env, valid_fee);
         set_campaign_count(&env, 0);
-        set_version(&env, 1);
+        set_version(&env, CONTRACT_VERSION);
+        set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
+        set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
 
+        env.events()
+            .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
         Ok(())
     }
 
@@ -52,7 +83,6 @@ impl ProofOfHeart {
     /// * `category` - The specific categorical nature.
     /// * `has_revenue_sharing` - Should it enforce revenue deposits.
     /// * `revenue_share_percentage` - The percentage of share in basis points.
-    /// * `max_contribution_per_user` - Per-contributor cap in tokens (0 = unlimited).
     ///
     /// # Returns
     /// The unique 32-bit `id` of the created campaign.
@@ -89,6 +119,7 @@ impl ProofOfHeart {
         if category != Category::EducationalStartup && has_revenue_sharing {
             return Err(Error::RevenueShareOnlyForStartup);
         }
+
         if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > 5000)
         {
             return Err(Error::InvalidRevenueShare);
@@ -531,7 +562,7 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
-        set_paused(&env, true);
+        env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(("contract_paused", admin), ());
         Ok(())
     }
@@ -545,14 +576,17 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
-        set_paused(&env, false);
+        env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(("contract_unpaused", admin), ());
         Ok(())
     }
 
     /// Returns whether the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
-        get_paused(&env)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
@@ -594,7 +628,10 @@ impl ProofOfHeart {
 
     /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        get_campaign_count(&env)
+        env.storage()
+            .instance()
+            .get(&DataKey::CampaignCount)
+            .unwrap_or(0)
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -760,7 +797,11 @@ impl ProofOfHeart {
         set_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
-            ("campaign_transfer_initiated", campaign_id, campaign.creator.clone()),
+            (
+                "campaign_transfer_initiated",
+                campaign_id,
+                campaign.creator.clone(),
+            ),
             new_creator,
         );
 
@@ -814,20 +855,11 @@ impl ProofOfHeart {
 
         Ok(())
     }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    fn require_not_paused(env: &Env) -> Result<(), Error> {
-        if get_paused(env) {
-            return Err(Error::ContractPaused);
-        }
-        Ok(())
-    }
 }
 
+#[cfg(test)]
+mod revenue_share_proptest;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
 mod update_admin_test;
-#[cfg(test)]
-mod revenue_share_proptest;

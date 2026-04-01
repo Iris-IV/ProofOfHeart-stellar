@@ -50,7 +50,9 @@ pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
     let key = DataKey::Campaign(campaign_id);
     let val = env.storage().persistent().get(&key);
     if val.is_some() {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -128,7 +130,9 @@ pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i
     let key = DataKey::Contribution(campaign_id, contributor.clone());
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -149,7 +153,9 @@ pub fn get_revenue_pool(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::RevenuePool(campaign_id);
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -168,7 +174,9 @@ pub fn get_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) -
     let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -187,7 +195,9 @@ pub fn get_creator_revenue_claimed(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::CreatorRevenueClaimed(campaign_id);
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -208,7 +218,9 @@ pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = DataKey::ApproveVotes(campaign_id);
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -227,7 +239,9 @@ pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = DataKey::RejectVotes(campaign_id);
     let val = env.storage().persistent().get(&key).unwrap_or(0);
     if val > 0 {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -246,7 +260,9 @@ pub fn get_has_voted(env: &Env, campaign_id: u32, voter: &Address) -> bool {
     let key = DataKey::HasVoted(campaign_id, voter.clone());
     let val = env.storage().persistent().get(&key).unwrap_or(false);
     if val {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -299,23 +315,5 @@ pub fn set_version(env: &Env, version: u32) {
 
 /// Returns the stored contract version, defaulting to 0 if unset.
 pub fn get_version(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Version)
-        .unwrap_or(0)
-}
-
-// ── Paused state ──────────────────────────────────────────────────────────────
-
-/// Returns whether the contract is currently paused.
-pub fn get_paused(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false)
-}
-
-/// Stores the paused state of the contract.
-pub fn set_paused(env: &Env, paused: bool) {
-    env.storage().instance().set(&DataKey::Paused, &paused);
+    env.storage().instance().get(&DataKey::Version).unwrap_or(0)
 }
