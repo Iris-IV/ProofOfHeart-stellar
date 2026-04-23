@@ -2,7 +2,7 @@ use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::{
-    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger},
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events, Ledger},
     Address, Env, IntoVal, String, Symbol,
 };
 
@@ -1357,4 +1357,27 @@ fn test_no_refund_when_goal_reached() {
     // Goal was reached — refund must be rejected
     let res = client.try_claim_refund(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_set_voting_params_emits_event() {
+    extern crate std;
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    client.set_voting_params(&admin, &5, &7000);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+
+    std::println!("Last event: {:?}", last_event);
+
+    let topics = &last_event.1;
+    assert_eq!(topics.len(), 1);
+
+    let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data_vec.get(0).unwrap(), 3);
+    assert_eq!(data_vec.get(1).unwrap(), 5);
+    assert_eq!(data_vec.get(2).unwrap(), 6000);
+    assert_eq!(data_vec.get(3).unwrap(), 7000);
 }
