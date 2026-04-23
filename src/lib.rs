@@ -49,12 +49,13 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `admin.require_auth()`.
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
-        if has_admin(&env) {
+        if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
         set_admin(&env, &admin);
         set_token(&env, &token);
+        set_initialized(&env);
 
         let valid_fee = if platform_fee > 1000 {
             1000
@@ -193,6 +194,10 @@ impl ProofOfHeart {
         }
 
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+
+        if !campaign.is_verified {
+            return Err(Error::CampaignNotVerified);
+        }
 
         if !campaign.is_active || campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
@@ -465,6 +470,7 @@ impl ProofOfHeart {
     /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
     /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
+        contributor.require_auth();
         Self::require_not_paused(&env)?;
         let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         if !campaign.has_revenue_sharing {

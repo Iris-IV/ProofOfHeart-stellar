@@ -45,6 +45,8 @@ pub enum DataKey {
     ApproveWeight(u32),
     /// Total token-weight of rejection votes for a campaign, keyed by campaign ID.
     RejectWeight(u32),
+    /// Whether the contract has been initialized.
+    Initialized,
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -88,6 +90,17 @@ pub fn set_campaign_count(env: &Env, count: u32) {
 }
 
 // ── Admin / token / fee ───────────────────────────────────────────────────────
+
+/// Returns `true` if the contract is initialized.
+pub fn is_initialized(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::Initialized)
+}
+
+/// Marks the contract as initialized.
+pub fn set_initialized(env: &Env) {
+    env.storage().instance().set(&DataKey::Initialized, &true);
+}
+
 
 /// Returns the admin address. Panics if not yet initialized.
 pub fn get_admin(env: &Env) -> Address {

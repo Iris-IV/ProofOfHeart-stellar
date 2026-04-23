@@ -55,4 +55,6 @@ pub enum Error {
     ContractPaused = 24,
     /// The contribution would exceed the per-user cap set by the campaign creator.
     ContributionCapExceeded = 25,
+    /// The campaign requires verification before actions can occur.
+    CampaignNotVerified = 26,
 }

@@ -151,6 +151,7 @@ fn test_contribute_and_withdraw_success() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
 
@@ -186,6 +187,7 @@ fn test_creator_cannot_contribute_to_own_campaign() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_contribute(&campaign_id, &creator, &100);
     assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
@@ -212,6 +214,7 @@ fn test_cancel_and_refund() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor2, &500);
@@ -248,6 +251,7 @@ fn test_claim_refund_requires_contributor_auth() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.cancel_campaign(&campaign_id);
@@ -295,6 +299,7 @@ fn test_pull_based_revenue_distribution() {
         &2000,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor2, &1000);
@@ -302,6 +307,7 @@ fn test_pull_based_revenue_distribution() {
     client.withdraw_funds(&campaign_id);
 
     // Deposit revenue
+    token_admin.mint(&creator, &5000);
     client.deposit_revenue(&campaign_id, &5000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 5000);
 
@@ -342,6 +348,7 @@ fn test_failure_states() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
@@ -398,6 +405,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_1);
 
     let c2_title = String::from_str(&env, "Campaign 2");
     let c2_desc = String::from_str(&env, "Learner campaign");
@@ -412,6 +420,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_2);
 
     let c3_title = String::from_str(&env, "Campaign 3");
     let c3_desc = String::from_str(&env, "Startup campaign");
@@ -426,6 +435,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
         &1500,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_3);
 
     assert_eq!(campaign_1, 1);
     assert_eq!(campaign_2, 2);
@@ -512,6 +522,7 @@ fn test_double_refund_prevention() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.cancel_campaign(&campaign_id);
@@ -757,6 +768,7 @@ fn test_deadline_boundary() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let campaign = client.get_campaign(&campaign_id);
     let deadline = campaign.deadline;
@@ -840,6 +852,7 @@ fn test_revenue_sharing_edge_cases() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_nr);
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 
@@ -861,6 +874,7 @@ fn test_revenue_sharing_edge_cases() {
         &5000,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1);
     client.contribute(&campaign_id, &contributor2, &2);
@@ -903,6 +917,7 @@ fn test_view_functions_error_handling() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let stranger = Address::generate(&env);
     let invalid_id = 999u32;
@@ -952,6 +967,7 @@ fn test_update_campaign_description_success() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     // Contribute so amount_raised > 0 (update_campaign would reject this)
     token_admin.mint(&contributor1, &1_000);
@@ -982,6 +998,7 @@ fn test_update_campaign_description_rejects_cancelled() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.cancel_campaign(&campaign_id);
 
@@ -1005,6 +1022,7 @@ fn test_update_campaign_description_rejects_empty() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -1034,6 +1052,7 @@ fn test_campaign_ownership_transfer_flow() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
@@ -1078,6 +1097,7 @@ fn test_campaign_ownership_transfer_flow() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id_2);
     client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
     client.cancel_campaign_transfer(&campaign_id_2);
     let final_campaign = client.get_campaign(&campaign_id_2);
@@ -1099,6 +1119,7 @@ fn test_campaign_transfer_validations() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidNewOwner);
@@ -1164,6 +1185,7 @@ fn test_pause_blocks_state_changing_operations() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     // Pause
     client.pause(&admin);
@@ -1235,6 +1257,7 @@ fn test_contribute_one_second_before_deadline() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     let deadline = client.get_campaign(&campaign_id).deadline;
 
@@ -1271,6 +1294,7 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &500);
 
@@ -1297,6 +1321,7 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &500);
 
@@ -1338,6 +1363,7 @@ fn test_no_refund_when_goal_reached() {
         &0,
         &0i128,
     );
+    let _ = client.try_verify_campaign(&campaign_id);
 
     // Meet the funding goal exactly
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1357,4 +1383,53 @@ fn test_no_refund_when_goal_reached() {
     // Goal was reached — refund must be rejected
     let res = client.try_claim_refund(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_claim_revenue_requires_contributor_auth() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+
+    let title = String::from_str(&env, "Revenue Claim Auth");
+    let desc = String::from_str(&env, "Testing claim revenue auth");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &10,
+        &Category::EducationalStartup,
+        &true,
+        &1000, // 10%
+        &0i128,
+    );
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1000);
+    
+    // withdraw to distribute funds
+    client.withdraw_funds(&campaign_id);
+
+    // deposit revenue
+    token_admin.mint(&creator, &5000);
+    client.deposit_revenue(&campaign_id, &5000);
+
+    // Now clear auths just in case
+    env.mock_all_auths();
+    
+    client.claim_revenue(&campaign_id, &contributor1);
+
+    let auths = env.auths();
+    let found = auths.iter().any(|(addr, inv)| {
+        *addr == contributor1 && 
+        match &inv.function {
+            AuthorizedFunction::Contract((contract, function, _)) => {
+                contract == &client.address && function == &Symbol::new(&env, "claim_revenue")
+            },
+            _ => false,
+        }
+    });
+
+    assert!(found, "contributor1 should have been authorized for claim_revenue");
 }
