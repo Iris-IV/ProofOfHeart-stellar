@@ -560,7 +560,20 @@ impl ProofOfHeart {
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
-        voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)
+        let old_quorum = get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
+        let old_threshold =
+            get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+        voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)?;
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "voting_params_updated"),),
+            (
+                old_quorum,
+                min_votes_quorum,
+                old_threshold,
+                approval_threshold_bps,
+            ),
+        );
+        Ok(())
     }
 
     /// Pauses the contract, preventing state-changing operations.
