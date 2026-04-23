@@ -53,6 +53,73 @@ fn test_init_only_once() {
 }
 
 #[test]
+fn test_platform_fee_cap_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let contributor = Address::generate(&env);
+
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+    let token = TokenClient::new(&env, &token_address);
+    let token_admin = TokenAdminClient::new(&env, &token_address);
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    // Initialize with fee > 1000 (5000 = 50%), should be capped to 1000 (10%)
+    client.init(&admin, &token_address, &5000);
+    assert_eq!(client.get_platform_fee(), 1000);
+
+    // Verify withdrawal uses capped fee (10%), not original input (50%)
+    token_admin.mint(&contributor, &2000);
+
+    let title = String::from_str(&env, "Fee Cap Test");
+    let desc = String::from_str(&env, "Testing platform fee cap enforcement");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    // Before withdrawal: contributor has 1000, contract has 1000
+    assert_eq!(token.balance(&contributor), 1000);
+    assert_eq!(token.balance(&client.address), 1000);
+
+    client.withdraw_funds(&campaign_id);
+
+    // After withdrawal: admin gets 10% (100), creator gets 90% (900)
+    assert_eq!(token.balance(&admin), 100);
+    assert_eq!(token.balance(&creator), 900);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_platform_fee_exact_storage() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    // Initialize with fee = 1000, should store exactly
+    client.init(&admin, &token_address, &1000);
+    assert_eq!(client.get_platform_fee(), 1000);
+}
+
+#[test]
 fn test_create_and_validation() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
