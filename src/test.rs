@@ -838,7 +838,7 @@ fn test_revenue_sharing_edge_cases() {
     let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
         setup_env();
 
-    // 1. Non-revenue campaign: check ValidationFailed
+    // 1. Non-revenue campaign: check explicit revenue-sharing error on deposit.
     let title_nr = String::from_str(&env, "No Revenue");
     let desc_nr = String::from_str(&env, "Non-revenue campaign");
     let campaign_nr = client.create_campaign(
@@ -853,6 +853,11 @@ fn test_revenue_sharing_edge_cases() {
         &0i128,
     );
     let _ = client.try_verify_campaign(&campaign_nr);
+    let deposit_res = client.try_deposit_revenue(&campaign_nr, &10);
+    assert_eq!(
+        deposit_res.unwrap_err().unwrap(),
+        Error::RevenueSharingNotEnabled
+    );
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 

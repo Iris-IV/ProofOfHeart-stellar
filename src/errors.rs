@@ -59,4 +59,6 @@ pub enum Error {
     CampaignNotVerified = 26,
     /// Revenue claim calculation is invalid because `amount_raised` is zero.
     AmountRaisedIsZero = 27,
+    /// Revenue deposit attempted on a campaign without revenue sharing enabled.
+    RevenueSharingNotEnabled = 28,
 }

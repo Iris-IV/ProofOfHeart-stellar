@@ -474,7 +474,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
         if !campaign.has_revenue_sharing {
-            return Err(Error::ValidationFailed);
+            return Err(Error::RevenueSharingNotEnabled);
         }
 
         bump_instance_ttl(&env);
