@@ -42,6 +42,20 @@ This policy covers the on-chain Soroban smart contract (`src/`) and any official
 - Issues already publicly disclosed
 - Theoretical attacks without a realistic exploit path
 
+## Voting Sybil-Resistance Assumptions
+
+Community verification uses a token-gated voting model:
+
+- **Eligibility:** an address must hold a positive balance of the configured token at the time of voting.
+- **Quorum:** counts *addresses* that voted (approve + reject).
+- **Threshold:** uses *token-weighted* approval vs rejection weight (sum of voter balances at vote time).
+
+Security assumptions and limitations:
+
+- This mechanism is **not inherently sybil-resistant**: a single token holder can split tokens across many addresses to inflate the *vote count* and reach quorum more easily (even though total voting weight stays similar).
+- The model assumes the token's distribution and issuance are outside the contract’s control; if token minting is centralized or cheaply obtainable, governance can be captured.
+- Admin verification (`verify_campaign`) is a privileged path; users should treat the stored admin as a trust assumption for campaign verification.
+
 ## Disclosure Policy
 
 We follow a **coordinated disclosure** process. Please allow us reasonable time to investigate and patch the vulnerability before making any public disclosure.
