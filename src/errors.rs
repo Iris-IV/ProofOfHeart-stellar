@@ -61,4 +61,6 @@ pub enum Error {
     AmountRaisedIsZero = 27,
     /// Revenue deposit attempted on a campaign without revenue sharing enabled.
     RevenueSharingNotEnabled = 28,
+    /// Campaign cancellation is disallowed because funds have already been withdrawn.
+    CancellationNotAllowed = 29,
 }

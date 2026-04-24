@@ -317,6 +317,10 @@ impl ProofOfHeart {
 
     /// Cancels a campaign. Can only be performed by the creator before funds are withdrawn.
     ///
+    /// # Errors
+    /// * `CampaignNotFound` - Campaign ID doesn't exist.
+    /// * `CancellationNotAllowed` - Funds have already been withdrawn.
+    ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
@@ -325,7 +329,7 @@ impl ProofOfHeart {
         Self::require_not_paused(&env)?;
 
         if campaign.funds_withdrawn {
-            return Err(Error::ValidationFailed);
+            return Err(Error::CancellationNotAllowed);
         }
 
         bump_instance_ttl(&env);

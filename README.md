@@ -53,6 +53,11 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - `get_revenue_pool` — View the total revenue pool for a campaign.
 - `get_revenue_claimed` — Check how much revenue a contributor has already claimed.
 
+## Documentation
+
+- Authorization requirements for every public method: `docs/AUTHORIZATION.md`
+- Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
+
 ## Getting Started
 
 ### Prerequisites
