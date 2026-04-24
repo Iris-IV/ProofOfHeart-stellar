@@ -8,6 +8,16 @@
 /// is included in the upgrade transaction.
 const CONTRACT_VERSION: u32 = 1;
 
+// Validation limit constants
+const CAMPAIGN_TITLE_MIN_LEN: u32 = 1;
+const CAMPAIGN_TITLE_MAX_LEN: u32 = 100;
+const CAMPAIGN_DESCRIPTION_MIN_LEN: u32 = 1;
+const CAMPAIGN_DESCRIPTION_MAX_LEN: u32 = 1000;
+const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
+const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
+const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
+const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
+
 mod errors;
 mod storage;
 mod types;
@@ -53,15 +63,20 @@ impl ProofOfHeart {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+
+        // Validate token contract by attempting to use it
+        let token_client = token::Client::new(&env, &token);
+        let _ = token_client.balance(&admin);
+
         set_admin(&env, &admin);
         set_token(&env, &token);
         set_initialized(&env);
 
-        let valid_fee = if platform_fee > 1000 {
-            1000
+        let valid_fee = if platform_fee > PLATFORM_FEE_MAX_BPS {
+            PLATFORM_FEE_MAX_BPS
         } else {
             platform_fee
-        }; // Max 10% limit
+        };
         set_platform_fee(&env, valid_fee);
         set_campaign_count(&env, 0);
         set_version(&env, CONTRACT_VERSION);
@@ -110,20 +125,24 @@ impl ProofOfHeart {
         if funding_goal <= 0 {
             return Err(Error::FundingGoalMustBePositive);
         }
-        if !(1..=365).contains(&duration_days) {
+        if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
             return Err(Error::InvalidDuration);
         }
-        if title.len() == 0 || title.len() > 100 {
+        if title.len() < CAMPAIGN_TITLE_MIN_LEN as usize
+            || title.len() > CAMPAIGN_TITLE_MAX_LEN as usize
+        {
             return Err(Error::ValidationFailed);
         }
-        if description.len() == 0 || description.len() > 1000 {
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        {
             return Err(Error::ValidationFailed);
         }
         if category != Category::EducationalStartup && has_revenue_sharing {
             return Err(Error::RevenueShareOnlyForStartup);
         }
 
-        if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > 5000)
+        if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > REVENUE_SHARE_MAX_BPS)
         {
             return Err(Error::InvalidRevenueShare);
         }
@@ -340,10 +359,14 @@ impl ProofOfHeart {
             return Err(Error::CampaignNotActive);
         }
 
-        if title.len() == 0 || title.len() > 100 {
+        if title.len() < CAMPAIGN_TITLE_MIN_LEN as usize
+            || title.len() > CAMPAIGN_TITLE_MAX_LEN as usize
+        {
             return Err(Error::ValidationFailed);
         }
-        if description.len() == 0 || description.len() > 1000 {
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        {
             return Err(Error::ValidationFailed);
         }
 
@@ -387,7 +410,9 @@ impl ProofOfHeart {
         if campaign.is_cancelled || !campaign.is_active {
             return Err(Error::CampaignNotActive);
         }
-        if description.len() == 0 || description.len() > 1000 {
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        {
             return Err(Error::ValidationFailed);
         }
 
@@ -692,7 +717,11 @@ impl ProofOfHeart {
         let admin = get_admin(&env);
         admin.require_auth();
         Self::require_not_paused(&env)?;
-        let valid_fee = if new_fee > 1000 { 1000 } else { new_fee };
+        let valid_fee = if new_fee > PLATFORM_FEE_MAX_BPS {
+            PLATFORM_FEE_MAX_BPS
+        } else {
+            new_fee
+        };
         let old_fee = get_platform_fee(&env);
         set_platform_fee(&env, valid_fee);
         env.events().publish(("fee_updated",), (old_fee, valid_fee));
