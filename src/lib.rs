@@ -649,7 +649,6 @@ impl ProofOfHeart {
         Ok(())
     }
 
-
     /// Pauses the contract, preventing state-changing operations.
     ///
     /// # Authorization
