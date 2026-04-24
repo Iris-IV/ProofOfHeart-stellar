@@ -57,4 +57,6 @@ pub enum Error {
     ContributionCapExceeded = 25,
     /// The campaign requires verification before actions can occur.
     CampaignNotVerified = 26,
+    /// Revenue claim calculation is invalid because `amount_raised` is zero.
+    AmountRaisedIsZero = 27,
 }
