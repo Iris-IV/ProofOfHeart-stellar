@@ -899,6 +899,144 @@ fn test_revenue_sharing_edge_cases() {
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
 }
 
+// ── Issue #101 ────────────────────────────────────────────────────────────────
+// Regression: campaign_count must never reset after deployment, regardless of
+// which admin-level operations are executed.
+#[test]
+fn test_campaign_count_cannot_reset_after_deployment() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    // Start at zero
+    assert_eq!(client.get_campaign_count(), 0);
+
+    // Create three campaigns so the counter increments
+    for i in 1u32..=3 {
+        let title = String::from_str(&env, "Campaign");
+        let desc = String::from_str(&env, "Description");
+        let id = client.create_campaign(
+            &creator,
+            &title,
+            &desc,
+            &1000,
+            &30,
+            &Category::Educator,
+            &false,
+            &0,
+            &0i128,
+        );
+        assert_eq!(id, i);
+    }
+    assert_eq!(client.get_campaign_count(), 3);
+
+    // Admin flows that must NOT reset the counter
+    let new_admin = Address::generate(&env);
+    client.update_admin(&admin, &new_admin);
+    assert_eq!(client.get_campaign_count(), 3);
+
+    client.set_voting_params(&new_admin, &5, &7000);
+    assert_eq!(client.get_campaign_count(), 3);
+
+    client.update_platform_fee(&500);
+    assert_eq!(client.get_campaign_count(), 3);
+
+    // Re-initialisation attempt must be rejected and counter must stay intact
+    let token_address = env.register_stellar_asset_contract(new_admin.clone());
+    let res = client.try_init(&new_admin, &token_address, &300);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
+    assert_eq!(client.get_campaign_count(), 3);
+}
+
+// ── Issue #112 ────────────────────────────────────────────────────────────────
+// Negative test: approval_threshold_bps values above 10 000 must be rejected.
+#[test]
+fn test_set_voting_params_rejects_threshold_over_10000() {
+    let (_env, admin, _, _, _, _, _, client) = setup_env();
+
+    // Exactly 10 000 is the boundary — must be accepted
+    let res = client.try_set_voting_params(&admin, &3, &10000);
+    assert!(
+        res.is_ok(),
+        "approval_threshold_bps = 10000 should be valid"
+    );
+
+    // 10 001 exceeds the maximum — must be rejected
+    let res = client.try_set_voting_params(&admin, &3, &10001);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // u32::MAX is far above the maximum — must be rejected
+    let res = client.try_set_voting_params(&admin, &3, &u32::MAX);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+// ── Issue #129 ────────────────────────────────────────────────────────────────
+// Invariant: the sum of every individual contributor's stored contribution must
+// equal the campaign's amount_raised at all times.
+#[test]
+fn test_contribution_accounting_invariant() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    let contributor3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &3000);
+    token_admin.mint(&contributor2, &3000);
+    token_admin.mint(&contributor3, &3000);
+
+    let title = String::from_str(&env, "Invariant Campaign");
+    let desc = String::from_str(&env, "Accounting invariant check");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &5000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    // Each contributor makes two separate contributions
+    client.contribute(&campaign_id, &contributor1, &500);
+    client.contribute(&campaign_id, &contributor2, &750);
+    client.contribute(&campaign_id, &contributor3, &250);
+    client.contribute(&campaign_id, &contributor1, &300);
+    client.contribute(&campaign_id, &contributor2, &200);
+
+    let c1 = client.get_contribution(&campaign_id, &contributor1);
+    let c2 = client.get_contribution(&campaign_id, &contributor2);
+    let c3 = client.get_contribution(&campaign_id, &contributor3);
+
+    assert_eq!(c1, 800, "contributor1 total must be 800");
+    assert_eq!(c2, 950, "contributor2 total must be 950");
+    assert_eq!(c3, 250, "contributor3 total must be 250");
+
+    // The canonical invariant: per-user totals must sum to amount_raised
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        c1 + c2 + c3,
+        campaign.amount_raised,
+        "sum of per-user contributions must equal campaign amount_raised"
+    );
+}
+
+// ── Issue #117 ────────────────────────────────────────────────────────────────
+// Auth test: a non-admin caller must not be able to update voting parameters.
+#[test]
+fn test_set_voting_params_rejects_non_admin() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    // creator is not the admin — the call must be rejected
+    let res = client.try_set_voting_params(&creator, &5, &7000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+
+    // A completely random address also must be rejected
+    let random = Address::generate(&env);
+    let res = client.try_set_voting_params(&random, &5, &7000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
 #[test]
 fn test_view_functions_error_handling() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
