@@ -373,7 +373,7 @@ fn test_failure_states() {
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
 
     let res = client.try_withdraw_funds(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
 
     // After failure refund successful
     client.claim_refund(&campaign_id, &contributor1);

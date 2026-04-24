@@ -68,6 +68,7 @@ impl ProofOfHeart {
         let token_client = token::Client::new(&env, &token);
         let _ = token_client.balance(&admin);
 
+        bump_instance_ttl(&env);
         set_admin(&env, &admin);
         set_token(&env, &token);
         set_initialized(&env);
@@ -149,6 +150,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         let mut count = get_campaign_count(&env);
         count += 1;
 
@@ -236,6 +238,7 @@ impl ProofOfHeart {
             return Err(Error::ContributionCapExceeded);
         }
 
+        bump_instance_ttl(&env);
         let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&contributor, &env.current_contract_address(), &amount);
@@ -277,15 +280,11 @@ impl ProofOfHeart {
             return Err(Error::NoFundsToWithdraw);
         }
 
-        let time_remaining = env.ledger().timestamp() <= campaign.deadline;
         if campaign.amount_raised < campaign.funding_goal {
-            if time_remaining {
-                return Err(Error::FundingGoalNotReached);
-            } else {
-                return Err(Error::CampaignNotActive);
-            }
+            return Err(Error::FundingGoalNotReached);
         }
 
+        bump_instance_ttl(&env);
         let platform_fee = get_platform_fee(&env);
         let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
         let creator_amount = campaign.amount_raised - fee_amount;
@@ -326,6 +325,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         campaign.is_cancelled = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
@@ -358,6 +358,7 @@ impl ProofOfHeart {
             return Err(Error::CampaignNotActive);
         }
 
+        bump_instance_ttl(&env);
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
@@ -413,6 +414,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         campaign.description = description;
         set_campaign(&env, campaign_id, &campaign);
 
@@ -444,6 +446,7 @@ impl ProofOfHeart {
             return Err(Error::NoFundsToWithdraw);
         }
 
+        bump_instance_ttl(&env);
         set_contribution(&env, campaign_id, &contributor, 0);
 
         let token_addr = get_token(&env);
@@ -472,6 +475,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         let token_addr = get_token(&env);
         let client = token::Client::new(&env, &token_addr);
         client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
@@ -503,6 +507,9 @@ impl ProofOfHeart {
         if contribution == 0 {
             return Err(Error::ValidationFailed);
         }
+        if campaign.amount_raised == 0 {
+            return Err(Error::AmountRaisedIsZero);
+        }
 
         let total_pool = get_revenue_pool(&env, campaign_id);
         let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
@@ -514,6 +521,7 @@ impl ProofOfHeart {
             return Err(Error::NoFundsToWithdraw);
         }
 
+        bump_instance_ttl(&env);
         set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
         let token_addr = get_token(&env);
@@ -554,6 +562,7 @@ impl ProofOfHeart {
             return Err(Error::NoFundsToWithdraw);
         }
 
+        bump_instance_ttl(&env);
         set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
         let token_addr = get_token(&env);
@@ -588,6 +597,7 @@ impl ProofOfHeart {
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
         let old_quorum = get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
         let old_threshold =
             get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
@@ -613,6 +623,7 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
+        bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(("contract_paused", admin), ());
         Ok(())
@@ -627,6 +638,7 @@ impl ProofOfHeart {
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
+        bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(("contract_unpaused", admin), ());
         Ok(())
@@ -651,6 +663,7 @@ impl ProofOfHeart {
         approve: bool,
     ) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
         voting::cast_vote(&env, campaign_id, voter, approve)
     }
 
@@ -660,12 +673,14 @@ impl ProofOfHeart {
     /// Requires `admin.require_auth()`.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
         voting::admin_verify(&env, campaign_id)
     }
 
     /// Checks if a campaign meets community verification thresholds and marks it verified.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
         voting::verify_with_votes(&env, campaign_id)
     }
 
@@ -675,6 +690,11 @@ impl ProofOfHeart {
     /// `Result<Campaign, Error>` where the Error is `CampaignNotFound` if the ID is invalid.
     pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
         get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
+    }
+
+    /// Gets a campaign's current state, returning `None` if the ID is invalid.
+    pub fn get_campaign_optional(env: Env, campaign_id: u32) -> Option<Campaign> {
+        get_campaign(&env, campaign_id)
     }
 
     /// Returns the total number of campaigns created.
@@ -720,6 +740,7 @@ impl ProofOfHeart {
             new_fee
         };
         let old_fee = get_platform_fee(&env);
+        bump_instance_ttl(&env);
         set_platform_fee(&env, valid_fee);
         env.events().publish(("fee_updated",), (old_fee, valid_fee));
         Ok(())
@@ -738,6 +759,7 @@ impl ProofOfHeart {
             return Err(Error::NotAuthorized);
         }
 
+        bump_instance_ttl(&env);
         set_admin(&env, &new_admin);
         env.events()
             .publish(("admin_updated",), (current_admin, new_admin));
@@ -843,11 +865,13 @@ impl ProofOfHeart {
     ) -> Result<(), Error> {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if new_creator == campaign.creator {
             return Err(Error::InvalidNewOwner);
         }
 
+        bump_instance_ttl(&env);
         campaign.pending_creator = MaybePendingCreator::Some(new_creator.clone());
         set_campaign(&env, campaign_id, &campaign);
 
@@ -869,6 +893,7 @@ impl ProofOfHeart {
     /// Requires `pending_creator.require_auth()`.
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        Self::require_not_paused(&env)?;
 
         let pending = match campaign.pending_creator.clone() {
             MaybePendingCreator::Some(addr) => addr,
@@ -876,6 +901,7 @@ impl ProofOfHeart {
         };
         pending.require_auth();
 
+        bump_instance_ttl(&env);
         let old_creator = campaign.creator.clone();
         campaign.creator = pending.clone();
         campaign.pending_creator = MaybePendingCreator::None;
@@ -897,11 +923,13 @@ impl ProofOfHeart {
     pub fn cancel_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
         campaign.creator.require_auth();
+        Self::require_not_paused(&env)?;
 
         if campaign.pending_creator == MaybePendingCreator::None {
             return Err(Error::NoTransferPending);
         }
 
+        bump_instance_ttl(&env);
         campaign.pending_creator = MaybePendingCreator::None;
         set_campaign(&env, campaign_id, &campaign);
 
