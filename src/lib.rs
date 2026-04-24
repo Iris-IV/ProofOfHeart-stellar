@@ -128,13 +128,11 @@ impl ProofOfHeart {
         if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
             return Err(Error::InvalidDuration);
         }
-        if title.len() < CAMPAIGN_TITLE_MIN_LEN as usize
-            || title.len() > CAMPAIGN_TITLE_MAX_LEN as usize
-        {
+        if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
-        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
-            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
             return Err(Error::ValidationFailed);
         }
@@ -142,7 +140,8 @@ impl ProofOfHeart {
             return Err(Error::RevenueShareOnlyForStartup);
         }
 
-        if has_revenue_sharing && (revenue_share_percentage == 0 || revenue_share_percentage > REVENUE_SHARE_MAX_BPS)
+        if has_revenue_sharing
+            && (revenue_share_percentage == 0 || revenue_share_percentage > REVENUE_SHARE_MAX_BPS)
         {
             return Err(Error::InvalidRevenueShare);
         }
@@ -359,13 +358,11 @@ impl ProofOfHeart {
             return Err(Error::CampaignNotActive);
         }
 
-        if title.len() < CAMPAIGN_TITLE_MIN_LEN as usize
-            || title.len() > CAMPAIGN_TITLE_MAX_LEN as usize
-        {
+        if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
-        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
-            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
             return Err(Error::ValidationFailed);
         }
@@ -410,8 +407,8 @@ impl ProofOfHeart {
         if campaign.is_cancelled || !campaign.is_active {
             return Err(Error::CampaignNotActive);
         }
-        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN as usize
-            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN as usize
+        if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
+            || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
             return Err(Error::ValidationFailed);
         }

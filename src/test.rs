@@ -1386,9 +1386,8 @@ fn test_no_refund_when_goal_reached() {
 }
 
 #[test]
-<<<<<<< fix-issues-93-94-95-96
 fn test_claim_revenue_requires_contributor_auth() {
-    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &2000);
 
@@ -1408,7 +1407,7 @@ fn test_claim_revenue_requires_contributor_auth() {
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
-    
+
     // withdraw to distribute funds
     client.withdraw_funds(&campaign_id);
 
@@ -1418,22 +1417,27 @@ fn test_claim_revenue_requires_contributor_auth() {
 
     // Now clear auths just in case
     env.mock_all_auths();
-    
+
     client.claim_revenue(&campaign_id, &contributor1);
 
     let auths = env.auths();
     let found = auths.iter().any(|(addr, inv)| {
-        *addr == contributor1 && 
-        match &inv.function {
-            AuthorizedFunction::Contract((contract, function, _)) => {
-                contract == &client.address && function == &Symbol::new(&env, "claim_revenue")
-            },
-            _ => false,
-        }
+        *addr == contributor1
+            && match &inv.function {
+                AuthorizedFunction::Contract((contract, function, _)) => {
+                    contract == &client.address && function == &Symbol::new(&env, "claim_revenue")
+                }
+                _ => false,
+            }
     });
 
-    assert!(found, "contributor1 should have been authorized for claim_revenue");
-=======
+    assert!(
+        found,
+        "contributor1 should have been authorized for claim_revenue"
+    );
+}
+
+#[test]
 fn test_set_voting_params_emits_event() {
     extern crate std;
     let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
@@ -1454,5 +1458,110 @@ fn test_set_voting_params_emits_event() {
     assert_eq!(data_vec.get(1).unwrap(), 5);
     assert_eq!(data_vec.get(2).unwrap(), 6000);
     assert_eq!(data_vec.get(3).unwrap(), 7000);
->>>>>>> main
+}
+
+#[test]
+fn test_revenue_lifecycle_e2e() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    // Mint tokens for contributors
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &3000);
+
+    // Create campaign with revenue sharing enabled
+    let title = String::from_str(&env, "Revenue Sharing Campaign");
+    let desc = String::from_str(
+        &env,
+        "Full lifecycle test: create, fund, withdraw, deposit revenue, claim",
+    );
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &6000, // funding goal
+        &30,   // duration in days
+        &Category::EducationalStartup,
+        &true,  // has revenue sharing
+        &2000,  // revenue_share_percentage = 20% (basis points)
+        &0i128, // no per-user cap
+    );
+
+    // Verify campaign so contributions are allowed
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    // Both contributors fund the campaign
+    client.contribute(&campaign_id, &contributor1, &4000);
+    assert_eq!(
+        client.get_contribution(&campaign_id, &contributor1),
+        4000,
+        "contributor1 contribution should be 4000"
+    );
+
+    client.contribute(&campaign_id, &contributor2, &2500);
+    assert_eq!(
+        client.get_contribution(&campaign_id, &contributor2),
+        2500,
+        "contributor2 contribution should be 2500"
+    );
+
+    // Verify campaign reached funding goal
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.amount_raised, 6500,
+        "amount_raised should equal sum of contributions"
+    );
+    assert!(campaign.amount_raised >= campaign.funding_goal);
+
+    // Creator withdraws funds (campaign closes, distributions happen)
+    client.withdraw_funds(&campaign_id);
+
+    let campaign_after_withdrawal = client.get_campaign(&campaign_id);
+    assert!(campaign_after_withdrawal.funds_withdrawn);
+    assert!(!campaign_after_withdrawal.is_active);
+
+    // Creator deposits revenue into the pool
+    token_admin.mint(&creator, &10000);
+    client.deposit_revenue(&campaign_id, &10000);
+
+    let revenue_pool = client.get_revenue_pool(&campaign_id);
+    assert_eq!(
+        revenue_pool, 10000,
+        "revenue pool should be 10000 after deposit"
+    );
+
+    // Contributor 1 claims revenue share
+    let contrib1_claimed_before = client.get_revenue_claimed(&campaign_id, &contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let contrib1_claimed_after = client.get_revenue_claimed(&campaign_id, &contributor1);
+    assert!(
+        contrib1_claimed_after > contrib1_claimed_before,
+        "contributor1 should have claimed revenue"
+    );
+
+    // Contributor 2 claims revenue share
+    let contrib2_claimed_before = client.get_revenue_claimed(&campaign_id, &contributor2);
+    client.claim_revenue(&campaign_id, &contributor2);
+    let contrib2_claimed_after = client.get_revenue_claimed(&campaign_id, &contributor2);
+    assert!(
+        contrib2_claimed_after > contrib2_claimed_before,
+        "contributor2 should have claimed revenue"
+    );
+
+    // Creator claims their retained share
+    client.claim_creator_revenue(&campaign_id);
+
+    // Verify no more revenue available for contributors
+    let result1 = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert!(result1.is_err(), "second claim by contributor1 should fail");
+
+    let result2 = client.try_claim_revenue(&campaign_id, &contributor2);
+    assert!(result2.is_err(), "second claim by contributor2 should fail");
+
+    // Verify event emissions (check contribution and withdrawal events exist)
+    let events = env.events().all();
+    assert!(
+        !events.is_empty(),
+        "contract should have emitted at least one event"
+    );
 }

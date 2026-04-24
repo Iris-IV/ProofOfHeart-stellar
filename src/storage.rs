@@ -101,7 +101,6 @@ pub fn set_initialized(env: &Env) {
     env.storage().instance().set(&DataKey::Initialized, &true);
 }
 
-
 /// Returns the admin address. Panics if not yet initialized.
 pub fn get_admin(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Admin).unwrap()
@@ -110,11 +109,6 @@ pub fn get_admin(env: &Env) -> Address {
 /// Stores the admin address.
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
-}
-
-/// Returns `true` if an admin has been set (i.e. the contract is initialized).
-pub fn has_admin(env: &Env) -> bool {
-    env.storage().instance().has(&DataKey::Admin)
 }
 
 /// Returns the accepted token address. Panics if not yet initialized.
