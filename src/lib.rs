@@ -36,7 +36,7 @@ pub struct ProofOfHeart;
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
-    fn token_client(env: &Env) -> token::Client {
+    fn token_client(env: &Env) -> token::Client<'_> {
         token::Client::new(env, &get_token(env))
     }
 
