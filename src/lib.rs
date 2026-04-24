@@ -36,6 +36,10 @@ pub struct ProofOfHeart;
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
+    fn token_client(env: &Env) -> token::Client {
+        token::Client::new(env, &get_token(env))
+    }
+
     /// Checks if the contract is paused and returns an error if it is.
     fn require_not_paused(env: &Env) -> Result<(), Error> {
         if env
@@ -236,8 +240,7 @@ impl ProofOfHeart {
             return Err(Error::ContributionCapExceeded);
         }
 
-        let token_addr = get_token(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
         client.transfer(&contributor, &env.current_contract_address(), &amount);
 
         campaign.amount_raised += amount;
@@ -294,9 +297,8 @@ impl ProofOfHeart {
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
 
-        let token_addr = get_token(&env);
         let admin_addr = get_admin(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
 
         client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
         client.transfer(
@@ -446,8 +448,7 @@ impl ProofOfHeart {
 
         set_contribution(&env, campaign_id, &contributor, 0);
 
-        let token_addr = get_token(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
 
         env.events()
@@ -472,8 +473,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        let token_addr = get_token(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
         client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
         let current_pool = get_revenue_pool(&env, campaign_id);
@@ -516,8 +516,7 @@ impl ProofOfHeart {
 
         set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
-        let token_addr = get_token(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
         env.events().publish(
@@ -556,8 +555,7 @@ impl ProofOfHeart {
 
         set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
-        let token_addr = get_token(&env);
-        let client = token::Client::new(&env, &token_addr);
+        let client = Self::token_client(&env);
         client.transfer(
             &env.current_contract_address(),
             &campaign.creator,

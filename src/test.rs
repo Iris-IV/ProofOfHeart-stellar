@@ -1007,6 +1007,85 @@ fn test_update_campaign_description_rejects_cancelled() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
+// ── Issue #99: init idempotency regression tests ──────────────────────────────
+
+#[test]
+fn test_init_returns_already_initialized_error() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+    let err = client
+        .try_init(&admin, &token.address, &300)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, Error::AlreadyInitialized);
+}
+
+#[test]
+fn test_init_preserves_all_config_state() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    // Attempt re-init with completely different parameters
+    let _ = client.try_init(&admin, &token.address, &999);
+
+    // Every stored value must reflect the original init, not the rejected one
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+    assert_eq!(client.get_campaign_count(), 0);
+    assert_eq!(client.get_version(), 1);
+    assert_eq!(
+        client.get_min_votes_quorum(),
+        crate::voting::DEFAULT_MIN_VOTES_QUORUM
+    );
+    assert_eq!(
+        client.get_approval_threshold_bps(),
+        crate::voting::DEFAULT_APPROVAL_THRESHOLD_BPS
+    );
+}
+
+#[test]
+fn test_init_rejects_every_subsequent_call() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    // Each extra call must be rejected regardless of how many times it is attempted
+    for _ in 0..3 {
+        let res = client.try_init(&admin, &token.address, &300);
+        assert_eq!(
+            res.unwrap_err().unwrap(),
+            Error::AlreadyInitialized,
+            "expected AlreadyInitialized on every repeated call"
+        );
+    }
+}
+
+#[test]
+fn test_init_cannot_overwrite_after_campaign_created() {
+    let (env, admin, creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    // Advance state: create a campaign so campaign_count > 0
+    let _ = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Test Campaign"),
+        &String::from_str(&env, "Testing init idempotency after state change"),
+        &1_000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(client.get_campaign_count(), 1);
+
+    // Attempt re-init must still be rejected
+    let res = client.try_init(&admin, &token.address, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
+
+    // State must be unchanged — campaign count must not have been reset to 0
+    assert_eq!(client.get_campaign_count(), 1);
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+}
+
 #[test]
 fn test_update_campaign_description_rejects_empty() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();

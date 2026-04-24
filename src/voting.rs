@@ -58,9 +58,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
         return Err(Error::CampaignNotActive);
     }
 
-    let token_addr = get_token(env);
-    let token_client = token::Client::new(env, &token_addr);
-    let balance = token_client.balance(&voter);
+    let balance = token::Client::new(env, &get_token(env)).balance(&voter);
     if balance <= 0 {
         return Err(Error::NotTokenHolder);
     }
