@@ -53,6 +53,8 @@ pub enum DataKey {
     RejectWeight(u32),
     /// Whether the contract has been initialized.
     Initialized,
+    /// Minimum token balance required to vote on campaigns.
+    MinVotingBalance,
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -365,6 +367,21 @@ pub fn set_approval_threshold_bps(env: &Env, value: u32) {
     env.storage()
         .instance()
         .set(&DataKey::ApprovalThresholdBps, &value);
+}
+
+/// Returns the minimum voting balance in stroops, defaulting to 0 if unset.
+pub fn get_min_voting_balance(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MinVotingBalance)
+        .unwrap_or(0)
+}
+
+/// Stores the minimum voting balance in stroops.
+pub fn set_min_voting_balance(env: &Env, balance: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MinVotingBalance, &balance);
 }
 
 // ── Version ───────────────────────────────────────────────────────────────────

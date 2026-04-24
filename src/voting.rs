@@ -3,9 +3,10 @@ use soroban_sdk::{token, Address, Env};
 use crate::errors::Error;
 use crate::storage::{
     get_admin, get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_campaign,
-    get_has_voted, get_min_votes_quorum, get_reject_votes, get_reject_weight, get_token,
-    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    get_has_voted, get_min_votes_quorum, get_min_voting_balance, get_reject_votes,
+    get_reject_weight, get_token, set_approval_threshold_bps, set_approve_votes,
+    set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
+    set_reject_weight,
 };
 
 /// Default minimum number of votes required to reach quorum.
@@ -60,6 +61,11 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     let balance = token::Client::new(env, &get_token(env)).balance(&voter);
     if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
         return Err(Error::NotTokenHolder);
     }
 

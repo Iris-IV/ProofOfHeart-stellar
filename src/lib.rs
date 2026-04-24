@@ -159,7 +159,13 @@ impl ProofOfHeart {
         count += 1;
 
         let current_time = env.ledger().timestamp();
-        let deadline = current_time + (duration_days * 86400);
+        // Guard against u64 overflow when computing deadline
+        let seconds_in_duration = duration_days
+            .checked_mul(86400)
+            .ok_or(Error::ValidationFailed)?;
+        let deadline = current_time
+            .checked_add(seconds_in_duration)
+            .ok_or(Error::ValidationFailed)?;
 
         let campaign = Campaign {
             id: count,
@@ -617,6 +623,35 @@ impl ProofOfHeart {
         );
         Ok(())
     }
+    /// Updates the minimum token balance required to vote on campaigns.
+    ///
+    /// # Arguments
+    /// * `admin` - The admin address.
+    /// * `min_balance` - The minimum token balance required to vote (in stroops).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn set_min_voting_balance(
+        env: Env,
+        admin: Address,
+        min_balance: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        if min_balance < 0 {
+            return Err(Error::ValidationFailed);
+        }
+        bump_instance_ttl(&env);
+        let old_balance = get_min_voting_balance(&env);
+        set_min_voting_balance(&env, min_balance);
+        env.events().publish(
+            (soroban_sdk::Symbol::new(&env, "min_voting_balance_updated"),),
+            (old_balance, min_balance),
+        );
+        Ok(())
+    }
 
     /// Pauses the contract, preventing state-changing operations.
     ///
@@ -809,6 +844,11 @@ impl ProofOfHeart {
     /// Returns the current platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
+    }
+
+    /// Returns the minimum token balance required to vote on campaigns.
+    pub fn get_min_voting_balance(env: Env) -> i128 {
+        get_min_voting_balance(&env)
     }
 
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
