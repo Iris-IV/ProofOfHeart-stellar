@@ -106,10 +106,17 @@ For detailed instructions on deploying the contract to Stellar testnet and mainn
 
 ```
 ProofOfHeart-stellar/
-├── Cargo.toml          # Project manifest & dependencies
+├── Cargo.toml                        # Project manifest & dependencies
 └── src/
-    ├── lib.rs          # Smart contract implementation
-    └── test.rs         # Unit tests
+    ├── lib.rs                        # Smart contract entry-points and business logic
+    ├── errors.rs                     # Contract error enum (Error)
+    ├── storage.rs                    # Storage helpers and DataKey definitions
+    ├── types.rs                      # Shared types: Campaign, Category, etc.
+    ├── voting.rs                     # Community voting logic and helpers
+    ├── test.rs                       # Integration and unit tests
+    ├── update_admin_test.rs          # Admin transfer / update tests
+    ├── revenue_share_proptest.rs     # Property-based tests for revenue sharing
+    └── voting_proptest.rs            # Property-based tests for voting
 ```
 
 ## Related Repositories

@@ -63,4 +63,8 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
+    /// An arithmetic operation overflowed.
+    Overflow = 30,
+    /// The provided address is not a valid SEP-41 token contract.
+    InvalidTokenContract = 31,
 }

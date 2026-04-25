@@ -27,6 +27,7 @@ source "$HOME/.cargo/env"
 ```
 
 Verify installation:
+
 ```bash
 rustc --version
 cargo --version
@@ -49,6 +50,7 @@ cargo install soroban-cli
 ```
 
 Verify installation:
+
 ```bash
 soroban --version
 ```
@@ -73,6 +75,7 @@ cargo build --target wasm32-unknown-unknown --release
 **Output:** `target/wasm32-unknown-unknown/release/proof_of_heart.wasm`
 
 Verify the WASM file was created:
+
 ```bash
 ls -lh target/wasm32-unknown-unknown/release/proof_of_heart.wasm
 ```
@@ -110,6 +113,7 @@ soroban keys fund deployer --network testnet
 This command uses the official Stellar testnet friendbot to fund your account with 10,000 XLM.
 
 **Verify funding:**
+
 ```bash
 soroban account balance --source deployer --network testnet
 ```
@@ -136,6 +140,7 @@ export CONTRACT_ID="<CONTRACT_ID_FROM_DEPLOY>"
 ```
 
 **Example:**
+
 ```bash
 export CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 ```
@@ -162,9 +167,11 @@ soroban keys generate --global deployer-mainnet
 ```
 
 Fund your mainnet account using an exchange or other means:
+
 - Minimum: 2–3 XLM (deployment: ~0.5 XLM, initialization: ~0.05 XLM, buffer for fees)
 
 **Verify mainnet balance:**
+
 ```bash
 soroban account balance --source deployer-mainnet --network mainnet
 ```
@@ -179,6 +186,7 @@ soroban contract deploy \
 ```
 
 **Save the contract ID:**
+
 ```bash
 export CONTRACT_ID_MAINNET="<CONTRACT_ID_FROM_DEPLOY>"
 ```
@@ -187,13 +195,13 @@ export CONTRACT_ID_MAINNET="<CONTRACT_ID_FROM_DEPLOY>"
 
 ### Cost Summary
 
-| Operation | Estimated Cost |
-| --- | --- |
-| Deploy contract | ~0.5 XLM |
-| Initialize contract | ~0.05 XLM |
-| **Total** | **~0.55 XLM** |
+| Operation           | Estimated Cost |
+| ------------------- | -------------- |
+| Deploy contract     | ~0.5 XLM       |
+| Initialize contract | ~0.05 XLM      |
+| **Total**           | **~0.55 XLM**  |
 
-*Costs may vary with network congestion.*
+_Costs may vary with network congestion._
 
 ---
 
@@ -203,13 +211,14 @@ The contract must be initialized before use. This sets the admin, token address,
 
 ### Parameters Explained
 
-| Parameter | Type | Example | Description |
-| --- | --- | --- | --- |
-| `admin` | Address | `GBRPGWUSZSTZ...` | Account that can govern the contract (usually the deployer) |
-| `token` | Address | `CBQHD3V2OMK2...` | The token contract address used for contributions (usually a wrapped asset or native Stellar asset) |
-| `platform_fee` | u32 | `300` | Fee in basis points (1/100th of a percent). `300` = 3%, max 10% (1000) |
+| Parameter      | Type    | Example           | Description                                                                                         |
+| -------------- | ------- | ----------------- | --------------------------------------------------------------------------------------------------- |
+| `admin`        | Address | `GBRPGWUSZSTZ...` | Account that can govern the contract (usually the deployer)                                         |
+| `token`        | Address | `CBQHD3V2OMK2...` | The token contract address used for contributions (usually a wrapped asset or native Stellar asset) |
+| `platform_fee` | u32     | `300`             | Fee in basis points (1/100th of a percent). `300` = 3%, max 10% (1000)                              |
 
 **Fee Calculation Example:**
+
 - If a campaign raises 1,000 tokens and the fee is 300 (3%):
   - Platform receives: 30 tokens
   - Creator receives: 970 tokens
@@ -233,6 +242,7 @@ soroban contract invoke \
 ```
 
 **Example:**
+
 ```bash
 soroban contract invoke \
   --id "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4" \
@@ -272,6 +282,7 @@ ProofOfHeart uses a token contract for contributions. You have two options:
 Stellar provides wrapped assets for common tokens. For testnet, use the USDC wrapped asset:
 
 **Testnet USDC contract address:**
+
 ```
 CBQHD3V2OMK2HLAQYAOIMJG753VQULQYSIU3IM27YPUYVISFSFSOSDE
 ```
@@ -283,6 +294,7 @@ Use this address directly in contract initialization.
 If you want full control over the token:
 
 1. Create a token contract (e.g., using the Soroban token template):
+
    ```bash
    soroban contract init token
    cd token
@@ -290,6 +302,7 @@ If you want full control over the token:
    ```
 
 2. Deploy it:
+
    ```bash
    soroban contract deploy \
      --wasm token/target/wasm32-unknown-unknown/release/soroban_token_contract.wasm \
@@ -384,6 +397,7 @@ soroban account balance --source deployer --network testnet
 **Cause:** Your account wasn't funded.
 
 **Solution:**
+
 ```bash
 soroban keys fund deployer --network testnet
 ```
@@ -393,6 +407,7 @@ soroban keys fund deployer --network testnet
 **Cause:** The contract ID format is wrong or the contract doesn't exist on that network.
 
 **Solution:**
+
 - Verify the contract ID starts with `C` and is 56 characters long.
 - Check you're using the correct network (`--network testnet` or `--network mainnet`).
 - Redeploy if necessary.
@@ -402,6 +417,7 @@ soroban keys fund deployer --network testnet
 **Cause:** Your account doesn't have enough XLM.
 
 **Solution:**
+
 - Testnet: Run `soroban keys fund deployer --network testnet` again.
 - Mainnet: Transfer XLM from an exchange to your account.
 
@@ -410,6 +426,7 @@ soroban keys fund deployer --network testnet
 **Cause:** The deployer key doesn't exist or is named incorrectly.
 
 **Solution:**
+
 ```bash
 soroban keys list
 soroban keys generate --global deployer  # Recreate if needed
@@ -420,6 +437,7 @@ soroban keys generate --global deployer  # Recreate if needed
 **Cause:** Network connectivity issue or the network is overloaded.
 
 **Solution:**
+
 - Check your internet connection.
 - Try again in a few moments.
 - Check the [Stellar status page](https://status.stellar.org/).
@@ -429,6 +447,7 @@ soroban keys generate --global deployer  # Recreate if needed
 **Cause:** The contract wasn't built yet.
 
 **Solution:**
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
@@ -453,4 +472,4 @@ cargo build --target wasm32-unknown-unknown --release
 
 ---
 
-**Last Updated:** March 28, 2026
+**Last Updated:** April 25, 2026
