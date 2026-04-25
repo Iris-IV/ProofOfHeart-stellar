@@ -1753,7 +1753,7 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
             creator.clone(),
             title.clone(),
             desc.clone(),
-            (1000 + i as i128),
+            1000 + i as i128,
             30,
             Category::Learner,
             false,
@@ -2862,7 +2862,7 @@ fn test_withdraw_funds_requires_verified_campaign() {
 
 #[test]
 fn test_withdraw_funds_succeeds_when_verified() {
-    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
     let title = String::from_str(&env, "Verified Campaign");
