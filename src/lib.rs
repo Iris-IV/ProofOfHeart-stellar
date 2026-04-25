@@ -438,10 +438,11 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Cancels a campaign. Can only be performed by the creator before funds are withdrawn.
+    /// Cancels a campaign. Can only be performed by the creator while the campaign is still active.
     ///
     /// # Errors
     /// * `CampaignNotFound` - Campaign ID doesn't exist.
+    /// * `CampaignNotActive` - Campaign is already in a terminal state (cancelled, closed, or expired).
     /// * `CancellationNotAllowed` - Funds have already been withdrawn.
     ///
     /// # Authorization
@@ -450,6 +451,7 @@ impl ProofOfHeart {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
+        require_active_campaign(&campaign)?;
         if campaign.funds_withdrawn {
             return Err(Error::CancellationNotAllowed);
         }
@@ -748,10 +750,10 @@ impl ProofOfHeart {
         admin: Address,
         min_balance: i128,
     ) -> Result<(), Error> {
-        admin.require_auth();
         if admin != get_admin(&env) {
             return Err(Error::NotAuthorized);
         }
+        admin.require_auth();
         if min_balance < 0 {
             return Err(Error::ValidationFailed);
         }
@@ -771,12 +773,10 @@ impl ProofOfHeart {
     /// Pauses the contract, preventing state-changing operations.
     ///
     /// # Authorization
-    /// Requires admin authorization.
-    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+    /// Requires the stored admin's authorization.
+    pub fn pause(env: Env) -> Result<(), Error> {
+        let admin = get_admin(&env);
         admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(Error::NotAuthorized);
-        }
         bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(("contract_paused", admin), ());
@@ -786,12 +786,10 @@ impl ProofOfHeart {
     /// Unpauses the contract, allowing state-changing operations.
     ///
     /// # Authorization
-    /// Requires admin authorization.
-    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+    /// Requires the stored admin's authorization.
+    pub fn unpause(env: Env) -> Result<(), Error> {
+        let admin = get_admin(&env);
         admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(Error::NotAuthorized);
-        }
         bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(("contract_unpaused", admin), ());
@@ -977,13 +975,13 @@ impl ProofOfHeart {
         admin: Address,
         new_admin: Address,
     ) -> Result<(), Error> {
-        admin.require_auth();
         Self::require_not_paused(&env)?;
 
         let current_admin = get_admin(&env);
         if admin != current_admin {
             return Err(Error::NotAuthorized);
         }
+        admin.require_auth();
         if new_admin == current_admin {
             return Err(Error::InvalidNewOwner);
         }
@@ -1015,13 +1013,13 @@ impl ProofOfHeart {
 
     /// Cancels a pending admin transfer.
     pub fn cancel_admin_transfer(env: Env, admin: Address) -> Result<(), Error> {
-        admin.require_auth();
         Self::require_not_paused(&env)?;
 
         let current_admin = get_admin(&env);
         if admin != current_admin {
             return Err(Error::NotAuthorized);
         }
+        admin.require_auth();
         if get_pending_admin(&env).is_none() {
             return Err(Error::NoTransferPending);
         }
@@ -1035,7 +1033,8 @@ impl ProofOfHeart {
     }
 
     /// Backwards-compatible wrapper that initiates two-step admin transfer.
-    pub fn update_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+    pub fn update_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin = get_admin(&env);
         Self::initiate_admin_transfer(env, admin, new_admin)
     }
 

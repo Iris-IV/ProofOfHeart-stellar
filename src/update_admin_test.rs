@@ -22,7 +22,7 @@ fn test_update_admin_success() {
     let (env, admin, _creator, client) = setup_env();
     let new_admin = Address::generate(&env);
 
-    let res = client.try_update_admin(&admin, &new_admin);
+    let res = client.try_update_admin(&new_admin);
     assert!(res.is_ok());
     assert_eq!(client.get_admin(), admin);
     assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
@@ -34,12 +34,21 @@ fn test_update_admin_success() {
 }
 
 #[test]
-fn test_update_admin_rejects_non_admin() {
-    let (env, _admin, creator, client) = setup_env();
+fn test_update_admin_requires_stored_admin_auth() {
+    let (env, admin, _creator, client) = setup_env();
     let new_admin = Address::generate(&env);
 
-    let res = client.try_update_admin(&creator, &new_admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+    // update_admin no longer accepts a caller-supplied admin address;
+    // the contract fetches the stored admin and requires auth from it.
+    let res = client.try_update_admin(&new_admin);
+    assert!(res.is_ok());
+
+    // Verify that the stored admin's address was the authorized signer.
+    let auths = env.auths();
+    assert!(
+        auths.iter().any(|(addr, _)| addr == &admin),
+        "stored admin must be the authorized address"
+    );
 }
 
 #[test]
@@ -47,7 +56,7 @@ fn test_cancel_admin_transfer() {
     let (env, admin, _creator, client) = setup_env();
     let new_admin = Address::generate(&env);
 
-    client.update_admin(&admin, &new_admin);
+    client.update_admin(&new_admin);
     assert_eq!(client.get_pending_admin(), Some(new_admin));
 
     let cancel_res = client.try_cancel_admin_transfer(&admin);
