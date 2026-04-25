@@ -314,7 +314,8 @@ impl ProofOfHeart {
 
         if block_count > AUTO_PAUSE_BURST_THRESHOLD {
             env.storage().instance().set(&DataKey::Paused, &true);
-            env.events().publish(("auto_paused",), ("burst", block_count));
+            env.events()
+                .publish(("auto_paused",), ("burst", block_count));
             return Ok(());
         }
 
@@ -1072,7 +1073,7 @@ impl ProofOfHeart {
 
         // Update creator lists
         let mut old_ids = get_creator_campaign_ids(&env, &old_creator);
-        if let Some(index) = old_ids.first_index_of(&campaign_id) {
+        if let Some(index) = old_ids.first_index_of(campaign_id) {
             old_ids.remove(index);
             set_creator_campaign_ids(&env, &old_creator, &old_ids);
         }
