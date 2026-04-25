@@ -29,6 +29,47 @@ pub use storage::DataKey;
 use storage::*;
 pub use types::*;
 
+fn get_campaign_or_error(env: &Env, campaign_id: u32) -> Result<Campaign, Error> {
+    get_campaign(env, campaign_id).ok_or(Error::CampaignNotFound)
+}
+
+fn get_creator_campaign(env: &Env, campaign_id: u32) -> Result<Campaign, Error> {
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    campaign.creator.require_auth();
+    Ok(campaign)
+}
+
+fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
+    if campaign.is_cancelled || !campaign.is_active {
+        return Err(Error::CampaignNotActive);
+    }
+    Ok(())
+}
+
+fn require_unverified_campaign(campaign: &Campaign) -> Result<(), Error> {
+    if campaign.is_verified {
+        return Err(Error::CampaignAlreadyVerified);
+    }
+    Ok(())
+}
+
+fn require_revenue_sharing(campaign: &Campaign, error: Error) -> Result<(), Error> {
+    if !campaign.has_revenue_sharing {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn calculate_deadline(current_time: u64, duration_days: u64) -> Result<u64, Error> {
+    let seconds_in_duration = duration_days
+        .checked_mul(86400)
+        .ok_or(Error::ValidationFailed)?;
+
+    current_time
+        .checked_add(seconds_in_duration)
+        .ok_or(Error::ValidationFailed)
+}
+
 /// The main contract struct for the Proof of Heart Stellar implementation.
 #[contract]
 pub struct ProofOfHeart;
@@ -158,14 +199,7 @@ impl ProofOfHeart {
         let mut count = get_campaign_count(&env);
         count += 1;
 
-        let current_time = env.ledger().timestamp();
-        // Guard against u64 overflow when computing deadline
-        let seconds_in_duration = duration_days
-            .checked_mul(86400)
-            .ok_or(Error::ValidationFailed)?;
-        let deadline = current_time
-            .checked_add(seconds_in_duration)
-            .ok_or(Error::ValidationFailed)?;
+        let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
         let campaign = Campaign {
             id: count,
@@ -223,15 +257,13 @@ impl ProofOfHeart {
             return Err(Error::ContributionMustBePositive);
         }
 
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign_or_error(&env, campaign_id)?;
 
         if !campaign.is_verified {
             return Err(Error::CampaignNotVerified);
         }
 
-        if !campaign.is_active || campaign.is_cancelled {
-            return Err(Error::CampaignNotActive);
-        }
+        require_active_campaign(&campaign)?;
         if contributor == campaign.creator {
             return Err(Error::NotAuthorized);
         }
@@ -275,9 +307,7 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-        campaign.creator.require_auth();
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         if campaign.is_cancelled {
@@ -330,8 +360,7 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        campaign.creator.require_auth();
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         if campaign.funds_withdrawn {
@@ -359,17 +388,13 @@ impl ProofOfHeart {
         title: String,
         description: String,
     ) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-        campaign.creator.require_auth();
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
 
         if campaign.amount_raised > 0 {
             return Err(Error::ValidationFailed);
         }
 
-        if campaign.is_cancelled || !campaign.is_active {
-            return Err(Error::CampaignNotActive);
-        }
+        require_active_campaign(&campaign)?;
 
         bump_instance_ttl(&env);
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
@@ -414,13 +439,9 @@ impl ProofOfHeart {
         campaign_id: u32,
         description: String,
     ) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
 
-        campaign.creator.require_auth();
-
-        if campaign.is_cancelled || !campaign.is_active {
-            return Err(Error::CampaignNotActive);
-        }
+        require_active_campaign(&campaign)?;
         if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
             || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
@@ -445,7 +466,7 @@ impl ProofOfHeart {
         contributor.require_auth();
         Self::require_not_paused(&env)?;
 
-        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
 
         let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
             && campaign.amount_raised < campaign.funding_goal;
@@ -476,16 +497,13 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
     pub fn deposit_revenue(env: Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
-        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        campaign.creator.require_auth();
+        let campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::ValidationFailed);
         }
-        if !campaign.has_revenue_sharing {
-            return Err(Error::RevenueSharingNotEnabled);
-        }
+        require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
 
         bump_instance_ttl(&env);
         let token_addr = get_token(&env);
@@ -510,10 +528,8 @@ impl ProofOfHeart {
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributor.require_auth();
         Self::require_not_paused(&env)?;
-        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        if !campaign.has_revenue_sharing {
-            return Err(Error::ValidationFailed);
-        }
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
         let contribution = get_contribution(&env, campaign_id, &contributor);
         if contribution == 0 {
@@ -554,13 +570,10 @@ impl ProofOfHeart {
     /// * `ValidationFailed` - Campaign does not have revenue sharing enabled.
     /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        campaign.creator.require_auth();
+        let campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
-        if !campaign.has_revenue_sharing {
-            return Err(Error::ValidationFailed);
-        }
+        require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
         let total_pool = get_revenue_pool(&env, campaign_id);
         let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
@@ -728,7 +741,7 @@ impl ProofOfHeart {
     /// # Returns
     /// `Result<Campaign, Error>` where the Error is `CampaignNotFound` if the ID is invalid.
     pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
-        get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
+        get_campaign_or_error(&env, campaign_id)
     }
 
     /// Gets a campaign's current state, returning `None` if the ID is invalid.
@@ -907,8 +920,7 @@ impl ProofOfHeart {
         campaign_id: u32,
         new_creator: Address,
     ) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        campaign.creator.require_auth();
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         if new_creator == campaign.creator {
@@ -936,7 +948,7 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `pending_creator.require_auth()`.
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        let mut campaign = get_campaign_or_error(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         let pending = match campaign.pending_creator.clone() {
@@ -965,8 +977,7 @@ impl ProofOfHeart {
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
     pub fn cancel_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
-        let mut campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
-        campaign.creator.require_auth();
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
         if campaign.pending_creator == MaybePendingCreator::None {

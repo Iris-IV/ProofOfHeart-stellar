@@ -2,12 +2,12 @@ use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
 use crate::storage::{
-    get_admin, get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_campaign,
-    get_has_voted, get_min_votes_quorum, get_min_voting_balance, get_reject_votes,
-    get_reject_weight, get_token, set_approval_threshold_bps, set_approve_votes,
-    set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
-    set_reject_weight,
+    get_admin, get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_has_voted,
+    get_min_votes_quorum, get_min_voting_balance, get_reject_votes, get_reject_weight, get_token,
+    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
+    set_min_votes_quorum, set_reject_votes, set_reject_weight,
 };
+use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
 /// Default minimum number of votes required to reach quorum.
 pub const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
@@ -50,14 +50,9 @@ pub fn set_params(
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
     voter.require_auth();
 
-    let campaign = get_campaign(env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-    if campaign.is_verified {
-        return Err(Error::CampaignAlreadyVerified);
-    }
-    if campaign.is_cancelled || !campaign.is_active {
-        return Err(Error::CampaignNotActive);
-    }
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_unverified_campaign(&campaign)?;
+    require_active_campaign(&campaign)?;
 
     let balance = token::Client::new(env, &get_token(env)).balance(&voter);
     if balance <= 0 {
@@ -105,11 +100,8 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let admin = get_admin(env);
     admin.require_auth();
 
-    let mut campaign = get_campaign(env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-    if campaign.is_verified {
-        return Err(Error::CampaignAlreadyVerified);
-    }
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    require_unverified_campaign(&campaign)?;
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
@@ -126,11 +118,8 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 /// * `VotingQuorumNotMet` - Fewer votes than the required quorum.
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
 pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
-    let mut campaign = get_campaign(env, campaign_id).ok_or(Error::CampaignNotFound)?;
-
-    if campaign.is_verified {
-        return Err(Error::CampaignAlreadyVerified);
-    }
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    require_unverified_campaign(&campaign)?;
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);
