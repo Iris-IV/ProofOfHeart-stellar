@@ -69,6 +69,12 @@ pub enum DataKey {
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
     BlockContributionCount,
+    /// Delay in days before the reserve can be released.
+    WithdrawReleaseDelayDays,
+    /// Percentage of funds held in reserve (basis points).
+    WithdrawReservePercentage,
+    /// Held reserve for a campaign, keyed by campaign ID.
+    CampaignReserve(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -510,4 +516,46 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
+}
+
+// ── Withdrawal Vesting ───────────────────────────────────────────────────────
+use crate::types::CampaignReserve;
+
+pub fn get_withdraw_release_delay_days(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::WithdrawReleaseDelayDays)
+        .unwrap_or(0)
+}
+
+pub fn set_withdraw_release_delay_days(env: &Env, days: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawReleaseDelayDays, &days);
+}
+
+pub fn get_withdraw_reserve_percentage(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::WithdrawReservePercentage)
+        .unwrap_or(0)
+}
+
+pub fn set_withdraw_reserve_percentage(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawReservePercentage, &bps);
+}
+
+pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReserve> {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().set(&key, reserve);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }

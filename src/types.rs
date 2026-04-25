@@ -103,3 +103,15 @@ pub struct CreateCampaignParams {
     /// Per-user contribution cap in tokens. `0` means no cap.
     pub max_contribution_per_user: i128,
 }
+
+/// Stores details about withheld funds for a campaign.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignReserve {
+    /// The amount held in reserve.
+    pub amount: i128,
+    /// Unix timestamp after which the reserve can be released.
+    pub release_timestamp: u64,
+    /// Whether the reserve has already been released.
+    pub released: bool,
+}

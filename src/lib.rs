@@ -149,9 +149,19 @@ impl ProofOfHeart {
         set_version(&env, CONTRACT_VERSION);
         set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
         set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+        set_withdraw_release_delay_days(&env, 0);
+        set_withdraw_reserve_percentage(&env, 0);
 
-        env.events()
-            .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
+        env.events().publish(
+            ("initialized", admin.clone()),
+            (
+                token.clone(),
+                valid_fee,
+                voting::DEFAULT_MIN_VOTES_QUORUM,
+                voting::DEFAULT_APPROVAL_THRESHOLD_BPS,
+                CONTRACT_VERSION,
+            ),
+        );
         Ok(())
     }
 
@@ -363,6 +373,11 @@ impl ProofOfHeart {
         set_contribution(&env, campaign_id, &contributor, current + amount);
         set_lifetime_contribution(&env, campaign_id, &contributor, lifetime + amount);
 
+        // Increment contributor count if this is the first lifetime contribution
+        if lifetime == 0 {
+            increment_contributor_count(&env, campaign_id);
+        }
+
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised + amount);
 
@@ -411,11 +426,31 @@ impl ProofOfHeart {
         bump_instance_ttl(&env);
         let platform_fee = get_platform_fee(&env);
         let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
-        let creator_amount = campaign.amount_raised - fee_amount;
+        let total_after_fee = campaign.amount_raised - fee_amount;
+
+        let reserve_bps = get_withdraw_reserve_percentage(&env);
+        let reserve_amount = (total_after_fee * (reserve_bps as i128)) / 10000;
+        let creator_amount = total_after_fee - reserve_amount;
 
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+
+        if reserve_amount > 0 {
+            let delay_days = get_withdraw_release_delay_days(&env);
+            let release_timestamp = env
+                .ledger()
+                .timestamp()
+                .checked_add(delay_days * 86400)
+                .ok_or(Error::Overflow)?;
+
+            let reserve = CampaignReserve {
+                amount: reserve_amount,
+                release_timestamp,
+                released: false,
+            };
+            set_campaign_reserve(&env, campaign_id, &reserve);
+        }
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised - campaign.amount_raised);
@@ -434,6 +469,66 @@ impl ProofOfHeart {
             ("withdrawal", campaign_id, campaign.creator.clone()),
             creator_amount,
         );
+
+        if reserve_amount > 0 {
+            env.events()
+                .publish(("reserve_withheld", campaign_id), reserve_amount);
+        }
+
+        Ok(())
+    }
+
+    /// Releases the held reserve funds to the campaign creator after the delay.
+    pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let mut reserve = get_campaign_reserve(&env, campaign_id).ok_or(Error::NoFundsToWithdraw)?;
+        if reserve.released {
+            return Err(Error::FundsAlreadyWithdrawn);
+        }
+        if env.ledger().timestamp() < reserve.release_timestamp {
+            return Err(Error::ValidationFailed);
+        }
+
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        campaign.creator.require_auth();
+
+        reserve.released = true;
+        set_campaign_reserve(&env, campaign_id, &reserve);
+
+        let client = Self::token_client(&env);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &reserve.amount,
+        );
+
+        env.events().publish(
+            ("reserve_released", campaign_id, campaign.creator),
+            reserve.amount,
+        );
+
+        Ok(())
+    }
+
+    /// Updates the global withdrawal vesting parameters.
+    pub fn set_vesting_params(
+        env: Env,
+        admin: Address,
+        delay_days: u64,
+        reserve_bps: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        if reserve_bps > 10000 || delay_days > 365 {
+            return Err(Error::ValidationFailed);
+        }
+
+        set_withdraw_release_delay_days(&env, delay_days);
+        set_withdraw_reserve_percentage(&env, reserve_bps);
+
+        env.events()
+            .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
 
         Ok(())
     }
@@ -573,6 +668,10 @@ impl ProofOfHeart {
         bump_instance_ttl(&env);
         remove_contribution(&env, campaign_id, &contributor);
         remove_revenue_claimed(&env, campaign_id, &contributor);
+
+        // Decrement contributor count on full refund
+        // (the contributor no longer has any contribution to this campaign)
+        decrement_contributor_count(&env, campaign_id);
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised - amount);
@@ -829,6 +928,60 @@ impl ProofOfHeart {
         voting::admin_verify(&env, campaign_id)
     }
 
+    /// Bulk verify multiple campaigns. Can only be performed by the admin.
+    ///
+    /// Caps the batch at 50 IDs for fee predictability.
+    /// Returns partial success semantics: verifies as many as possible and collects
+    /// errors for those that failed.
+    ///
+    /// # Arguments
+    /// * `campaign_ids` - List of campaign IDs to verify.
+    ///
+    /// # Returns
+    /// A tuple of (verified_count, first_error) where:
+    /// - `verified_count` is the number of campaigns successfully verified
+    /// - `first_error` is the first error encountered (if any)
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn verify_campaigns(
+        env: Env,
+        campaign_ids: soroban_sdk::Vec<u32>,
+    ) -> Result<(u32, Option<Error>), Error> {
+        let admin = get_admin(&env);
+        admin.require_auth();
+        Self::require_not_paused(&env)?;
+
+        // Cap batch size for fee predictability
+        const MAX_BATCH_SIZE: u32 = 50;
+        let batch_size = campaign_ids.len().min(MAX_BATCH_SIZE);
+
+        let mut verified_count = 0u32;
+        let mut first_error: Option<Error> = None;
+
+        // Bump instance TTL once for the entire batch
+        bump_instance_ttl(&env);
+
+        // Process each campaign (up to MAX_BATCH_SIZE)
+        for idx in 0..batch_size {
+            if let Some(campaign_id) = campaign_ids.get(idx) {
+                match voting::admin_verify(&env, campaign_id) {
+                    Ok(()) => verified_count += 1,
+                    Err(e) => {
+                        if first_error.is_none() {
+                            first_error = Some(e);
+                        }
+                    }
+                }
+            }
+        }
+
+        env.events()
+            .publish(("campaigns_bulk_verified",), (verified_count, campaign_ids.len()));
+
+        Ok((verified_count, first_error))
+    }
+
     /// Checks if a campaign meets community verification thresholds and marks it verified.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
         Self::require_not_paused(&env)?;
@@ -857,6 +1010,14 @@ impl ProofOfHeart {
     /// Returns the total amount raised across all campaigns.
     pub fn get_total_raised_global(env: Env) -> i128 {
         get_total_raised_global(&env)
+    }
+
+    /// Returns the total number of distinct contributors for a campaign.
+    ///
+    /// This tracks contributors who have made at least one contribution.
+    /// Incremented on first contribution, decremented on full refund.
+    pub fn get_total_contributors_count(env: Env, campaign_id: u32) -> u32 {
+        get_contributor_count(&env, campaign_id)
     }
 
     /// Returns a paginated list of campaigns owned by a specific creator.
@@ -1006,7 +1167,7 @@ impl ProofOfHeart {
         set_admin(&env, &pending_admin);
         remove_pending_admin(&env);
         env.events()
-            .publish(("admin_updated",), (old_admin, pending_admin));
+            .publish(("admin_updated", old_admin), pending_admin);
 
         Ok(())
     }
@@ -1115,16 +1276,33 @@ impl ProofOfHeart {
 
     /// List active campaigns using the same exclusive-cursor semantics as
     /// `list_campaigns` (`start` = last ID already seen).
-    pub fn list_active_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+    ///
+    /// CRITICAL FIX for issue #176 (DoS risk):
+    /// Caps the scan window to MAX_SCAN_WINDOW to prevent unbounded iteration.
+    /// Returns a continuation cursor when the limit cannot be satisfied within the scan window.
+    ///
+    /// # Returns
+    /// A tuple of (campaigns, next_cursor) where:
+    /// - `campaigns` - List of active campaigns (up to limit)
+    /// - `next_cursor` - Next ID to continue from (0 if no more results)
+    pub fn list_active_campaigns(
+        env: Env,
+        start: u32,
+        limit: u32,
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
         let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);
 
         if start >= total_count || limit == 0 {
-            return campaigns;
+            return (campaigns, 0);
         }
 
+        // Cap scan window to prevent DoS - fixes issue #176
+        // Worst case: scans at most MAX_SCAN_WINDOW storage reads
+        const MAX_SCAN_WINDOW: u32 = 200;
         let mut collected = 0u32;
         let mut current_id = start + 1;
+        let mut next_cursor = 0u32;
 
         while collected < limit && current_id <= total_count {
             if let Some(campaign) = get_campaign(&env, current_id) {
@@ -1134,9 +1312,21 @@ impl ProofOfHeart {
                 }
             }
             current_id += 1;
+
+            // Cap the scan to MAX_SCAN_WINDOW to prevent DoS
+            if current_id > start + MAX_SCAN_WINDOW {
+                // We hit the scan cap - set continuation cursor
+                next_cursor = current_id;
+                break;
+            }
         }
 
-        campaigns
+        // If we finished naturally (no scan cap hit), clear the cursor
+        if next_cursor == 0 && collected < limit {
+            next_cursor = 0;
+        }
+
+        (campaigns, next_cursor)
     }
 
     pub fn get_campaigns_by_category(
@@ -1349,5 +1539,7 @@ mod revenue_share_proptest;
 mod test;
 #[cfg(test)]
 mod update_admin_test;
+#[cfg(test)]
+mod vesting_test;
 #[cfg(test)]
 mod voting_proptest;
