@@ -16,12 +16,7 @@ fn setup_env<'a>() -> (Env, Address, Address, ProofOfHeartClient<'a>) {
     (env, admin, creator, client)
 }
 
-fn create_campaign(
-    env: &Env,
-    client: &ProofOfHeartClient<'_>,
-    creator: &Address,
-    idx: u32,
-) -> u32 {
+fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
         title: String::from_str(env, "Campaign"),
