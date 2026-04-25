@@ -63,10 +63,14 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
+    /// An arithmetic operation overflowed.
+    Overflow = 30,
+    /// The provided address is not a valid SEP-41 token contract.
+    InvalidTokenContract = 31,
     /// The funding goal is below the configured minimum.
-    FundingGoalTooLow = 30,
+    FundingGoalTooLow = 32,
     /// Admin verification was attempted on an already verified campaign.
-    AdminVerificationConflict = 31,
+    AdminVerificationConflict = 33,
     /// Community verification was attempted on an already verified campaign.
-    CommunityVerificationConflict = 32,
+    CommunityVerificationConflict = 34,
 }

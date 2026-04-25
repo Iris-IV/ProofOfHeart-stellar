@@ -51,8 +51,11 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     voter.require_auth();
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    require_unverified_campaign(&campaign)?;
     require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::CampaignNotActive);
+    }
+    require_unverified_campaign(&campaign)?;
 
     let balance = token::Client::new(env, &get_token(env)).balance(&voter);
     if balance <= 0 {

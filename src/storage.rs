@@ -1,6 +1,6 @@
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::types::Campaign;
+use crate::types::{Campaign, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -17,6 +17,8 @@ pub fn bump_instance_ttl(env: &Env) {
 pub enum DataKey {
     /// The global admin address.
     Admin,
+    /// Pending admin during two-step admin transfer.
+    PendingAdmin,
     /// The contract's accepted token address.
     Token,
     /// Platform fee in basis points (e.g. 300 = 3%).
@@ -29,6 +31,8 @@ pub enum DataKey {
     Campaign(u32),
     /// A contributor's total contribution to a campaign, keyed by `(campaign_id, contributor)`.
     Contribution(u32, Address),
+    /// A contributor's lifetime contribution to a campaign, keyed by `(campaign_id, contributor)`.
+    LifetimeContribution(u32, Address),
     /// Total revenue deposited into a campaign's pool, keyed by campaign ID.
     RevenuePool(u32),
     /// Revenue already claimed by a contributor, keyed by `(campaign_id, contributor)`.
@@ -57,6 +61,8 @@ pub enum DataKey {
     Initialized,
     /// Minimum token balance required to vote on campaigns.
     MinVotingBalance,
+    /// Campaign ids grouped by category as append-only creation index.
+    CategoryCampaigns(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
     /// List of campaign IDs owned by a creator.
@@ -65,20 +71,16 @@ pub enum DataKey {
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
     BlockContributionCount,
+    /// Total number of distinct contributors for a campaign.
+    ContributorCount(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
 
-/// Returns the campaign for the given ID, extending its TTL if found.
+/// Returns the campaign for the given ID.
 pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
     let key = DataKey::Campaign(campaign_id);
-    let val = env.storage().persistent().get(&key);
-    if val.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key)
 }
 
 /// Persists a campaign and extends its TTL.
@@ -129,6 +131,23 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
 
+/// Returns the pending admin address if an admin transfer is in progress.
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+/// Stores the pending admin address for two-step admin transfer.
+pub fn set_pending_admin(env: &Env, pending_admin: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdmin, pending_admin);
+}
+
+/// Clears any pending admin transfer.
+pub fn remove_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
+}
+
 /// Returns the accepted token address. Panics if not yet initialized.
 pub fn get_token(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Token).unwrap()
@@ -169,16 +188,10 @@ pub fn set_min_campaign_funding_goal(env: &Env, min_goal: i128) {
 
 // ── Contributions ─────────────────────────────────────────────────────────────
 
-/// Returns a contributor's total contribution to a campaign, extending TTL if non-zero.
+/// Returns a contributor's total contribution to a campaign.
 pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = DataKey::Contribution(campaign_id, contributor.clone());
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores a contributor's contribution amount and extends its TTL.
@@ -190,18 +203,33 @@ pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amou
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Returns a contributor's lifetime (non-decreasing) contribution to a campaign.
+pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
+    let key = DataKey::LifetimeContribution(campaign_id, contributor.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores a contributor's lifetime contribution amount and extends its TTL.
+pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
+    let key = DataKey::LifetimeContribution(campaign_id, contributor.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Removes a contributor's contribution record entirely.
+pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::Contribution(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
 // ── Revenue ───────────────────────────────────────────────────────────────────
 
-/// Returns the revenue pool balance for a campaign, extending TTL if non-zero.
+/// Returns the revenue pool balance for a campaign.
 pub fn get_revenue_pool(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::RevenuePool(campaign_id);
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the revenue pool balance for a campaign and extends its TTL.
@@ -213,16 +241,10 @@ pub fn set_revenue_pool(env: &Env, campaign_id: u32, amount: i128) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns the revenue already claimed by a contributor, extending TTL if non-zero.
+/// Returns the revenue already claimed by a contributor.
 pub fn get_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the revenue claimed amount for a contributor and extends its TTL.
@@ -234,16 +256,16 @@ pub fn set_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address, a
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns the creator's total claimed revenue for a campaign, extending TTL if non-zero.
+/// Removes the revenue claimed record for a contributor in a campaign.
+pub fn remove_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
+/// Returns the creator's total claimed revenue for a campaign.
 pub fn get_creator_revenue_claimed(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::CreatorRevenueClaimed(campaign_id);
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the creator's claimed revenue amount for a campaign and extends its TTL.
@@ -257,16 +279,10 @@ pub fn set_creator_revenue_claimed(env: &Env, campaign_id: u32, amount: i128) {
 
 // ── Voting ────────────────────────────────────────────────────────────────────
 
-/// Returns the number of approval votes for a campaign, extending TTL if non-zero.
+/// Returns the number of approval votes for a campaign.
 pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = DataKey::ApproveVotes(campaign_id);
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the approval vote count for a campaign and extends its TTL.
@@ -278,16 +294,10 @@ pub fn set_approve_votes(env: &Env, campaign_id: u32, count: u32) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns the number of rejection votes for a campaign, extending TTL if non-zero.
+/// Returns the number of rejection votes for a campaign.
 pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = DataKey::RejectVotes(campaign_id);
-    let val = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the rejection vote count for a campaign and extends its TTL.
@@ -301,16 +311,10 @@ pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
 
 // ── Vote weights (token-weighted) ─────────────────────────────────────────────
 
-/// Returns the total approval token-weight for a campaign, extending TTL if non-zero.
+/// Returns the total approval token-weight for a campaign.
 pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::ApproveWeight(campaign_id);
-    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the total approval token-weight for a campaign and extends its TTL.
@@ -322,16 +326,10 @@ pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns the total rejection token-weight for a campaign, extending TTL if non-zero.
+/// Returns the total rejection token-weight for a campaign.
 pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = DataKey::RejectWeight(campaign_id);
-    let val: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-    if val > 0 {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the total rejection token-weight for a campaign and extends its TTL.
@@ -343,16 +341,10 @@ pub fn set_reject_weight(env: &Env, campaign_id: u32, weight: i128) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns whether a voter has already voted on a campaign, extending TTL if true.
+/// Returns whether a voter has already voted on a campaign.
 pub fn get_has_voted(env: &Env, campaign_id: u32, voter: &Address) -> bool {
     let key = DataKey::HasVoted(campaign_id, voter.clone());
-    let val = env.storage().persistent().get(&key).unwrap_or(false);
-    if val {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    env.storage().persistent().get(&key).unwrap_or(false)
 }
 
 /// Records that a voter has voted on a campaign and extends the entry's TTL.
@@ -362,6 +354,22 @@ pub fn set_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Removes the HasVoted record for a voter on a campaign.
+pub fn remove_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::HasVoted(campaign_id, voter.clone()));
+}
+
+/// Removes all aggregate voting keys for a campaign (vote counts and weights).
+pub fn remove_voting_state(env: &Env, campaign_id: u32) {
+    let storage = env.storage().persistent();
+    storage.remove(&DataKey::ApproveVotes(campaign_id));
+    storage.remove(&DataKey::RejectVotes(campaign_id));
+    storage.remove(&DataKey::ApproveWeight(campaign_id));
+    storage.remove(&DataKey::RejectWeight(campaign_id));
 }
 
 /// Returns the minimum vote quorum setting, falling back to `default` if unset.
@@ -407,6 +415,24 @@ pub fn set_min_voting_balance(env: &Env, balance: i128) {
     env.storage()
         .instance()
         .set(&DataKey::MinVotingBalance, &balance);
+}
+
+/// Returns all campaign ids for a category in creation order.
+pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
+    let key = DataKey::CategoryCampaigns(category as u32);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Stores all campaign ids for a category and extends entry TTL.
+pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
+    let key = DataKey::CategoryCampaigns(category as u32);
+    env.storage().persistent().set(&key, ids);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Version ───────────────────────────────────────────────────────────────────
@@ -503,4 +529,35 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
+}
+// ── Contributor count ────────────────────────────────────────────────────────
+
+/// Returns the total number of contributors for a campaign.
+/// Incremented on first contribution, reset to 0 on full refund.
+pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the total number of contributors for a campaign.
+pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Increments the contributor count (only if first contribution).
+pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
+    let current = get_contributor_count(env, campaign_id);
+    set_contributor_count(env, campaign_id, current + 1);
+}
+
+/// Decrements the contributor count (on full refund).
+pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+    let current = get_contributor_count(env, campaign_id);
+    if current > 0 {
+        set_contributor_count(env, campaign_id, current - 1);
+    }
 }

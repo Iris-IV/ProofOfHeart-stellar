@@ -18,6 +18,7 @@ Additional derived conditions used by the contract:
 - Set on `create_campaign`: `is_active = true`, `is_cancelled = false`, `funds_withdrawn = false`, `is_verified = false`.
 - Contributions are blocked until verified: `contribute` returns `CampaignNotVerified` while `is_verified = false`.
 - Creator can still update/cancel while active (subject to each method's rules).
+- Full `update_campaign` edits are only available before verification and before any contributions.
 
 ### 2) Active + Verified
 - Reached by either:
@@ -25,6 +26,7 @@ Additional derived conditions used by the contract:
   - `verify_campaign_with_votes` (community verification after quorum + threshold).
 - Once verified, contributions are allowed until the deadline, as long as `is_active = true` and `is_cancelled = false`.
 - Re-verification errors are intentionally path-specific: `verify_campaign` returns `AdminVerificationConflict` and `verify_campaign_with_votes` returns `CommunityVerificationConflict` when the campaign is already verified. Voting on an already verified campaign still returns `CampaignAlreadyVerified`.
+- After verification, `update_campaign` is blocked so the verified title/description cannot be changed without re-review.
 
 ### 3) Funded (derived)
 - When `amount_raised >= funding_goal`, the campaign is considered funded.
@@ -44,8 +46,8 @@ Additional derived conditions used by the contract:
   - sets `is_cancelled = true`
   - sets `is_active = false`
 - Contributors can claim refunds via `claim_refund` after cancellation (if they contributed).
+- Successful refunds remove the contributor's stored contribution record instead of leaving a zero-value entry behind.
 
 ### 6) Expired / Failed (derived)
 - If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
-
