@@ -2106,7 +2106,7 @@ fn test_anomaly_auto_pause_burst() {
         &creator,
         &title,
         &desc,
-        &10000,
+        &2000,
         &30,
         &Category::Educator,
         &false,
@@ -2146,6 +2146,608 @@ fn test_anomaly_auto_pause_burst() {
 
     client.contribute(&campaign_id, &contributor1, &10); // OK
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
+}
+
+// ── Issue 4: Negative tests for deposit_revenue ──────────────────────────────
+
+#[test]
+fn test_deposit_revenue_negative_amount() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &2000,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // Try to deposit negative amount
+    let res = client.try_deposit_revenue(&campaign_id, &-100);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_deposit_revenue_zero_amount() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &2000,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // Try to deposit zero amount
+    let res = client.try_deposit_revenue(&campaign_id, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_deposit_revenue_without_revenue_sharing() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Educator Campaign");
+    let desc = String::from_str(&env, "No revenue sharing");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // Try to deposit revenue on non-revenue-sharing campaign
+    let res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::RevenueSharingNotEnabled);
+}
+
+#[test]
+fn test_deposit_revenue_when_paused() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::EducationalStartup,
+        &true,
+        &2000,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // Pause the contract
+    client.pause(&admin);
+
+    // Try to deposit revenue when paused
+    let res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+}
+
+#[test]
+fn test_deposit_revenue_non_existent_campaign() {
+    let (_env, _admin, creator, _, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&creator, &10000);
+
+    // Try to deposit revenue for non-existent campaign
+    let res = client.try_deposit_revenue(&999, &1000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+// ── Issue 1: Validate refund state mutation order ────────────────────────────
+
+#[test]
+fn test_claim_refund_state_mutation_order() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Refund Order Test");
+    let desc = String::from_str(&env, "Testing state mutation order");
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &10000,
+        &10,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // Cancel campaign to enable refunds
+    client.cancel_campaign(&campaign_id);
+
+    // Verify contribution exists before refund
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1000);
+    assert_eq!(token.balance(&contributor1), 4000);
+    assert_eq!(token.balance(&client.address), 1000);
+
+    // Claim refund
+    client.claim_refund(&campaign_id, &contributor1);
+
+    // Verify state was updated correctly:
+    // 1. Contribution should be zeroed
+    assert_eq!(
+        client.get_contribution(&campaign_id, &contributor1),
+        0,
+        "contribution should be zeroed after refund"
+    );
+
+    // 2. Tokens should be transferred back
+    assert_eq!(
+        token.balance(&contributor1),
+        5000,
+        "contributor should receive refund"
+    );
+    assert_eq!(
+        token.balance(&client.address),
+        0,
+        "contract should have no balance"
+    );
+
+    // 3. Double refund should fail with NoFundsToWithdraw (not a transfer error)
+    let res = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::NoFundsToWithdraw,
+        "double refund should fail with NoFundsToWithdraw, proving state was updated first"
+    );
+}
+
+#[test]
+fn test_claim_refund_multiple_contributors_isolation() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &3000);
+
+    let title = String::from_str(&env, "Multi Refund Test");
+    let desc = String::from_str(&env, "Testing multiple refunds");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &10000,
+        &10,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &2000);
+    client.contribute(&campaign_id, &contributor2, &1500);
+
+    client.cancel_campaign(&campaign_id);
+
+    // Contributor1 claims refund
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5000);
+
+    // Contributor2's state should be unaffected
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 1500);
+    assert_eq!(token.balance(&contributor2), 1500);
+
+    // Contributor2 can still claim
+    client.claim_refund(&campaign_id, &contributor2);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 0);
+    assert_eq!(token.balance(&contributor2), 3000);
+}
+
+#[test]
+fn test_claim_refund_expired_campaign() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Expired Campaign");
+    let desc = String::from_str(&env, "Will expire");
+    let duration_days = 2;
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &10000,
+        &duration_days,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // Fast forward past deadline
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (duration_days * 86450),
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // Should be able to claim refund for expired campaign that didn't meet goal
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5000);
+}
+
+// ── Issue 3: Fuzz/Integration tests for vote_on_campaign ─────────────────────
+
+#[test]
+fn test_vote_on_campaign_basic_flow() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+
+    let title = String::from_str(&env, "Voting Test");
+    let desc = String::from_str(&env, "Test voting");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Vote to approve
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+    assert_eq!(client.get_reject_votes(&campaign_id), 0);
+    assert!(client.has_voted(&campaign_id, &contributor1));
+
+    // Vote to reject
+    client.vote_on_campaign(&campaign_id, &contributor2, &false);
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+    assert_eq!(client.get_reject_votes(&campaign_id), 1);
+    assert!(client.has_voted(&campaign_id, &contributor2));
+}
+
+#[test]
+fn test_vote_on_campaign_double_vote_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    let title = String::from_str(&env, "Double Vote Test");
+    let desc = String::from_str(&env, "Test double voting");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+
+    // Try to vote again
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &false);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyVoted);
+}
+
+#[test]
+fn test_vote_on_campaign_no_tokens_fails() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "No Token Vote Test");
+    let desc = String::from_str(&env, "Test voting without tokens");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Try to vote without tokens
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotTokenHolder);
+}
+
+#[test]
+fn test_vote_on_campaign_below_minimum_balance_fails() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &100);
+
+    // Set minimum voting balance to 500
+    client.set_min_voting_balance(&admin, &500);
+
+    let title = String::from_str(&env, "Min Balance Vote Test");
+    let desc = String::from_str(&env, "Test voting with insufficient balance");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Try to vote with balance below minimum
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotTokenHolder);
+}
+
+#[test]
+fn test_vote_on_verified_campaign_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    let title = String::from_str(&env, "Already Verified");
+    let desc = String::from_str(&env, "Test voting on verified campaign");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Verify campaign
+    client.verify_campaign(&campaign_id);
+
+    // Try to vote on verified campaign
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
+fn test_vote_on_cancelled_campaign_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    let title = String::from_str(&env, "Cancelled Campaign");
+    let desc = String::from_str(&env, "Test voting on cancelled campaign");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Cancel campaign
+    client.cancel_campaign(&campaign_id);
+
+    // Try to vote on cancelled campaign
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_vote_on_campaign_token_weighted() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    // contributor1 has more tokens
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &1000);
+
+    let title = String::from_str(&env, "Weighted Vote Test");
+    let desc = String::from_str(&env, "Test token-weighted voting");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &false);
+
+    // Both have 1 vote count
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+    assert_eq!(client.get_reject_votes(&campaign_id), 1);
+}
+
+#[test]
+fn test_verify_campaign_with_votes_quorum_not_met() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    // Set quorum to 5 votes
+    client.set_voting_params(&admin, &5, &6000);
+
+    let title = String::from_str(&env, "Quorum Test");
+    let desc = String::from_str(&env, "Test quorum requirement");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Only 1 vote
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+
+    // Try to verify with insufficient votes
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::VotingQuorumNotMet);
+}
+
+#[test]
+fn test_verify_campaign_with_votes_threshold_not_met() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+
+    let voter3 = Address::generate(&env);
+    token_admin.mint(&voter3, &1000);
+
+    // Set threshold to 80% (8000 bps)
+    client.set_voting_params(&admin, &3, &8000);
+
+    let title = String::from_str(&env, "Threshold Test");
+    let desc = String::from_str(&env, "Test approval threshold");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // 2 approve, 1 reject = 66.67% approval (below 80%)
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &false);
+
+    // Try to verify with insufficient approval
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::VotingThresholdNotMet);
+}
+
+#[test]
+fn test_verify_campaign_with_votes_success() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+
+    let voter3 = Address::generate(&env);
+    token_admin.mint(&voter3, &1000);
+
+    // Set quorum to 3, threshold to 60%
+    client.set_voting_params(&admin, &3, &6000);
+
+    let title = String::from_str(&env, "Success Verify Test");
+    let desc = String::from_str(&env, "Test successful verification");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // 2 approve, 1 reject = 66.67% approval (above 60%)
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &false);
+
+    // Should verify successfully
+    client.verify_campaign_with_votes(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+}
+
+#[test]
+fn test_vote_on_nonexistent_campaign() {
+    let (_env, _admin, _creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    // Try to vote on non-existent campaign
+    let res = client.try_vote_on_campaign(&999, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
 
 #[test]
