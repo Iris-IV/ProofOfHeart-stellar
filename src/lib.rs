@@ -121,10 +121,16 @@ impl ProofOfHeart {
         }
         admin.require_auth();
 
-        // Validate token contract using metadata read that does not depend on
-        // admin account state/funding on the token ledger.
-        let token_client = token::Client::new(&env, &token);
-        let _ = token_client.decimals();
+        // Validate that the address is a real SEP-41 token contract by probing
+        // its decimals() function. try_invoke_contract returns Err when the call
+        // traps, so any failure maps to InvalidTokenContract.
+        env.try_invoke_contract::<u32, Error>(
+            &token,
+            &soroban_sdk::Symbol::new(&env, "decimals"),
+            soroban_sdk::Vec::new(&env),
+        )
+        .map_err(|_| Error::InvalidTokenContract)?
+        .map_err(|_| Error::InvalidTokenContract)?;
 
         bump_instance_ttl(&env);
         set_admin(&env, &admin);
@@ -621,7 +627,10 @@ impl ProofOfHeart {
 
         let total_pool = get_revenue_pool(&env, campaign_id);
         let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
-        let total_due = (contribution * contributor_pool) / campaign.amount_raised;
+        let total_due = contribution
+            .checked_mul(contributor_pool)
+            .and_then(|n| n.checked_div(campaign.amount_raised))
+            .ok_or(Error::Overflow)?;
         let already_claimed = get_revenue_claimed(&env, campaign_id, &contributor);
         let claimable = total_due - already_claimed;
 
@@ -1194,6 +1203,42 @@ impl ProofOfHeart {
             (old_creator, pending),
         );
 
+        Ok(())
+    }
+
+    /// Removes voting-related storage keys for a terminal campaign.
+    ///
+    /// Clears `ApproveVotes`, `RejectVotes`, `ApproveWeight`, `RejectWeight`, and
+    /// `HasVoted` entries for each address in `voters`. Must only be called after
+    /// the campaign has reached a terminal state (`funds_withdrawn` or `is_cancelled`).
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `NotAuthorized` - Caller is not the admin.
+    /// * `ValidationFailed` - Campaign is not yet in a terminal state.
+    pub fn purge_voting_state(
+        env: Env,
+        campaign_id: u32,
+        voters: soroban_sdk::Vec<Address>,
+    ) -> Result<(), Error> {
+        let admin = get_admin(&env);
+        admin.require_auth();
+
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        if !campaign.funds_withdrawn && !campaign.is_cancelled {
+            return Err(Error::ValidationFailed);
+        }
+
+        remove_voting_state(&env, campaign_id);
+        for voter in voters.iter() {
+            remove_has_voted(&env, campaign_id, &voter);
+        }
+
+        env.events()
+            .publish(("voting_state_purged", campaign_id), ());
         Ok(())
     }
 
