@@ -378,6 +378,22 @@ pub fn set_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Removes the HasVoted record for a voter on a campaign.
+pub fn remove_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&DataKey::HasVoted(campaign_id, voter.clone()));
+}
+
+/// Removes all aggregate voting keys for a campaign (vote counts and weights).
+pub fn remove_voting_state(env: &Env, campaign_id: u32) {
+    let storage = env.storage().persistent();
+    storage.remove(&DataKey::ApproveVotes(campaign_id));
+    storage.remove(&DataKey::RejectVotes(campaign_id));
+    storage.remove(&DataKey::ApproveWeight(campaign_id));
+    storage.remove(&DataKey::RejectWeight(campaign_id));
+}
+
 /// Returns the minimum vote quorum setting, falling back to `default` if unset.
 pub fn get_min_votes_quorum(env: &Env, default: u32) -> u32 {
     env.storage()
