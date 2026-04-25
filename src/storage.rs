@@ -237,8 +237,6 @@ pub fn set_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address, a
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Returns the creator's total claimed revenue for a campaign.
-
 /// Removes the revenue claimed record for a contributor in a campaign.
 pub fn remove_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
