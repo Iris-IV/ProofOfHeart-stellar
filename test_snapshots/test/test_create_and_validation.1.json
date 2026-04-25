@@ -62,37 +62,86 @@
               "function_name": "create_campaign",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 2000
-                  }
-                },
-                {
-                  "u64": 30
-                },
-                {
-                  "u32": 1
-                },
-                {
-                  "bool": true
-                },
-                {
-                  "u32": 1500
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
-                  }
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "category"
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "description"
+                      },
+                      "val": {
+                        "string": "Teaching science to kids"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "duration_days"
+                      },
+                      "val": {
+                        "u64": 30
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "funding_goal"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 2000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "has_revenue_sharing"
+                      },
+                      "val": {
+                        "bool": true
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_contribution_per_user"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "revenue_share_percentage"
+                      },
+                      "val": {
+                        "u32": 1500
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "title"
+                      },
+                      "val": {
+                        "string": "Science Book"
+                      }
+                    }
+                  ]
                 }
               ]
             }
@@ -1077,38 +1126,83 @@
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "category"
+                  },
+                  "val": {
+                    "u32": 3
                   }
                 },
                 {
-                  "u64": 30
+                  "key": {
+                    "symbol": "creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
-                  "u32": 3
+                  "key": {
+                    "symbol": "description"
+                  },
+                  "val": {
+                    "string": "Teaching science to kids"
+                  }
                 },
                 {
-                  "bool": false
+                  "key": {
+                    "symbol": "duration_days"
+                  },
+                  "val": {
+                    "u64": 30
+                  }
                 },
                 {
-                  "u32": 0
+                  "key": {
+                    "symbol": "funding_goal"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "has_revenue_sharing"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "revenue_share_percentage"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "title"
+                  },
+                  "val": {
+                    "string": "Science Book"
                   }
                 }
               ]
@@ -1196,37 +1290,86 @@
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                    },
-                    {
-                      "string": "Science Book"
-                    },
-                    {
-                      "string": "Teaching science to kids"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 0
-                      }
-                    },
-                    {
-                      "u64": 30
-                    },
-                    {
-                      "u32": 3
-                    },
-                    {
-                      "bool": false
-                    },
-                    {
-                      "u32": 0
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 0
-                      }
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "category"
+                          },
+                          "val": {
+                            "u32": 3
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "creator"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "description"
+                          },
+                          "val": {
+                            "string": "Teaching science to kids"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "duration_days"
+                          },
+                          "val": {
+                            "u64": 30
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "funding_goal"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 0
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "has_revenue_sharing"
+                          },
+                          "val": {
+                            "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "max_contribution_per_user"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 0
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "revenue_share_percentage"
+                          },
+                          "val": {
+                            "u32": 0
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "title"
+                          },
+                          "val": {
+                            "string": "Science Book"
+                          }
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1256,38 +1399,83 @@
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
+                  "key": {
+                    "symbol": "category"
+                  },
+                  "val": {
+                    "u32": 3
                   }
                 },
                 {
-                  "u64": 0
+                  "key": {
+                    "symbol": "creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
-                  "u32": 3
+                  "key": {
+                    "symbol": "description"
+                  },
+                  "val": {
+                    "string": "Teaching science to kids"
+                  }
                 },
                 {
-                  "bool": false
+                  "key": {
+                    "symbol": "duration_days"
+                  },
+                  "val": {
+                    "u64": 0
+                  }
                 },
                 {
-                  "u32": 0
+                  "key": {
+                    "symbol": "funding_goal"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 500
+                    }
+                  }
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "has_revenue_sharing"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "revenue_share_percentage"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "title"
+                  },
+                  "val": {
+                    "string": "Science Book"
                   }
                 }
               ]
@@ -1375,37 +1563,86 @@
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                    },
-                    {
-                      "string": "Science Book"
-                    },
-                    {
-                      "string": "Teaching science to kids"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    },
-                    {
-                      "u64": 0
-                    },
-                    {
-                      "u32": 3
-                    },
-                    {
-                      "bool": false
-                    },
-                    {
-                      "u32": 0
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 0
-                      }
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "category"
+                          },
+                          "val": {
+                            "u32": 3
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "creator"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "description"
+                          },
+                          "val": {
+                            "string": "Teaching science to kids"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "duration_days"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "funding_goal"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 500
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "has_revenue_sharing"
+                          },
+                          "val": {
+                            "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "max_contribution_per_user"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 0
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "revenue_share_percentage"
+                          },
+                          "val": {
+                            "u32": 0
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "title"
+                          },
+                          "val": {
+                            "string": "Science Book"
+                          }
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1435,38 +1672,83 @@
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
+                  "key": {
+                    "symbol": "category"
+                  },
+                  "val": {
+                    "u32": 3
                   }
                 },
                 {
-                  "u64": 400
+                  "key": {
+                    "symbol": "creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
-                  "u32": 3
+                  "key": {
+                    "symbol": "description"
+                  },
+                  "val": {
+                    "string": "Teaching science to kids"
+                  }
                 },
                 {
-                  "bool": false
+                  "key": {
+                    "symbol": "duration_days"
+                  },
+                  "val": {
+                    "u64": 400
+                  }
                 },
                 {
-                  "u32": 0
+                  "key": {
+                    "symbol": "funding_goal"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 500
+                    }
+                  }
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "has_revenue_sharing"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "revenue_share_percentage"
+                  },
+                  "val": {
+                    "u32": 0
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "title"
+                  },
+                  "val": {
+                    "string": "Science Book"
                   }
                 }
               ]
@@ -1554,37 +1836,86 @@
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                    },
-                    {
-                      "string": "Science Book"
-                    },
-                    {
-                      "string": "Teaching science to kids"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    },
-                    {
-                      "u64": 400
-                    },
-                    {
-                      "u32": 3
-                    },
-                    {
-                      "bool": false
-                    },
-                    {
-                      "u32": 0
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 0
-                      }
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "category"
+                          },
+                          "val": {
+                            "u32": 3
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "creator"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "description"
+                          },
+                          "val": {
+                            "string": "Teaching science to kids"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "duration_days"
+                          },
+                          "val": {
+                            "u64": 400
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "funding_goal"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 500
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "has_revenue_sharing"
+                          },
+                          "val": {
+                            "bool": false
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "max_contribution_per_user"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 0
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "revenue_share_percentage"
+                          },
+                          "val": {
+                            "u32": 0
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "title"
+                          },
+                          "val": {
+                            "string": "Science Book"
+                          }
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1614,38 +1945,83 @@
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
+                  "key": {
+                    "symbol": "category"
+                  },
+                  "val": {
+                    "u32": 2
                   }
                 },
                 {
-                  "u64": 30
+                  "key": {
+                    "symbol": "creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
-                  "u32": 2
+                  "key": {
+                    "symbol": "description"
+                  },
+                  "val": {
+                    "string": "Teaching science to kids"
+                  }
                 },
                 {
-                  "bool": true
+                  "key": {
+                    "symbol": "duration_days"
+                  },
+                  "val": {
+                    "u64": 30
+                  }
                 },
                 {
-                  "u32": 1000
+                  "key": {
+                    "symbol": "funding_goal"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 500
+                    }
+                  }
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "has_revenue_sharing"
+                  },
+                  "val": {
+                    "bool": true
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "revenue_share_percentage"
+                  },
+                  "val": {
+                    "u32": 1000
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "title"
+                  },
+                  "val": {
+                    "string": "Science Book"
                   }
                 }
               ]
@@ -1733,37 +2109,86 @@
                 {
                   "vec": [
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                    },
-                    {
-                      "string": "Science Book"
-                    },
-                    {
-                      "string": "Teaching science to kids"
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 500
-                      }
-                    },
-                    {
-                      "u64": 30
-                    },
-                    {
-                      "u32": 2
-                    },
-                    {
-                      "bool": true
-                    },
-                    {
-                      "u32": 1000
-                    },
-                    {
-                      "i128": {
-                        "hi": 0,
-                        "lo": 0
-                      }
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "category"
+                          },
+                          "val": {
+                            "u32": 2
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "creator"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "description"
+                          },
+                          "val": {
+                            "string": "Teaching science to kids"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "duration_days"
+                          },
+                          "val": {
+                            "u64": 30
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "funding_goal"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 500
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "has_revenue_sharing"
+                          },
+                          "val": {
+                            "bool": true
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "max_contribution_per_user"
+                          },
+                          "val": {
+                            "i128": {
+                              "hi": 0,
+                              "lo": 0
+                            }
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "revenue_share_percentage"
+                          },
+                          "val": {
+                            "u32": 1000
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "title"
+                          },
+                          "val": {
+                            "string": "Science Book"
+                          }
+                        }
+                      ]
                     }
                   ]
                 }
@@ -1793,38 +2218,83 @@
               }
             ],
             "data": {
-              "vec": [
+              "map": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "string": "Science Book"
-                },
-                {
-                  "string": "Teaching science to kids"
-                },
-                {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 2000
+                  "key": {
+                    "symbol": "category"
+                  },
+                  "val": {
+                    "u32": 1
                   }
                 },
                 {
-                  "u64": 30
+                  "key": {
+                    "symbol": "creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
-                  "u32": 1
+                  "key": {
+                    "symbol": "description"
+                  },
+                  "val": {
+                    "string": "Teaching science to kids"
+                  }
                 },
                 {
-                  "bool": true
+                  "key": {
+                    "symbol": "duration_days"
+                  },
+                  "val": {
+                    "u64": 30
+                  }
                 },
                 {
-                  "u32": 1500
+                  "key": {
+                    "symbol": "funding_goal"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 2000
+                    }
+                  }
                 },
                 {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 0
+                  "key": {
+                    "symbol": "has_revenue_sharing"
+                  },
+                  "val": {
+                    "bool": true
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "max_contribution_per_user"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "revenue_share_percentage"
+                  },
+                  "val": {
+                    "u32": 1500
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "title"
+                  },
+                  "val": {
+                    "string": "Science Book"
                   }
                 }
               ]
