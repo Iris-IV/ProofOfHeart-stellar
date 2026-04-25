@@ -1282,6 +1282,31 @@ fn test_update_campaign_description_not_found() {
 }
 
 #[test]
+fn test_update_campaign_rejects_verified_campaign_even_before_contributions() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Verified title").clone(),
+        String::from_str(&env, "Verified description").clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Changed title"),
+        &String::from_str(&env, "Changed description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
 fn test_campaign_ownership_transfer_flow() {
     let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
     let new_creator = contributor1;
@@ -2587,6 +2612,43 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     client.claim_refund(&campaign_id, &contributor1);
 
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_claim_refund_removes_contribution_storage_key() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Refund storage cleanup").clone(),
+        String::from_str(&env, "Contribution key should be removed").clone(),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+    client.cancel_campaign(&campaign_id);
+
+    env.as_contract(&client.address, || {
+        assert!(env
+            .storage()
+            .persistent()
+            .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
+    });
+
+    client.claim_refund(&campaign_id, &contributor1);
+
+    env.as_contract(&client.address, || {
+        assert!(!env
+            .storage()
+            .persistent()
+            .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
+    });
 }
 
 // ── Issue 3: Fuzz/Integration tests for vote_on_campaign ─────────────────────
