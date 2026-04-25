@@ -118,6 +118,7 @@ impl ProofOfHeart {
 
         bump_instance_ttl(&env);
         set_admin(&env, &admin);
+        remove_pending_admin(&env);
         set_token(&env, &token);
         set_initialized(&env);
 
@@ -528,6 +529,7 @@ impl ProofOfHeart {
 
         bump_instance_ttl(&env);
         set_contribution(&env, campaign_id, &contributor, 0);
+        remove_revenue_claimed(&env, campaign_id, &contributor);
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised - amount);
@@ -910,11 +912,15 @@ impl ProofOfHeart {
         get_personal_cap(&env, campaign_id, &contributor).unwrap_or(0)
     }
 
-    /// Transfers admin privileges to a new address.
+    /// Initiates transfer of admin privileges to a new address.
     ///
     /// # Authorization
     /// Requires the current admin to authorize the call.
-    pub fn update_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+    pub fn initiate_admin_transfer(
+        env: Env,
+        admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
         admin.require_auth();
         Self::require_not_paused(&env)?;
 
@@ -922,13 +928,63 @@ impl ProofOfHeart {
         if admin != current_admin {
             return Err(Error::NotAuthorized);
         }
+        if new_admin == current_admin {
+            return Err(Error::InvalidNewOwner);
+        }
 
         bump_instance_ttl(&env);
-        set_admin(&env, &new_admin);
+        set_pending_admin(&env, &new_admin);
         env.events()
-            .publish(("admin_updated",), (current_admin, new_admin));
+            .publish(("admin_transfer_initiated",), (current_admin, new_admin));
 
         Ok(())
+    }
+
+    /// Accepts a pending admin transfer. Must be called by the pending admin.
+    pub fn accept_admin_transfer(env: Env) -> Result<(), Error> {
+        Self::require_not_paused(&env)?;
+
+        let pending_admin = get_pending_admin(&env).ok_or(Error::NoTransferPending)?;
+        pending_admin.require_auth();
+
+        bump_instance_ttl(&env);
+        let old_admin = get_admin(&env);
+        set_admin(&env, &pending_admin);
+        remove_pending_admin(&env);
+        env.events()
+            .publish(("admin_updated",), (old_admin, pending_admin));
+
+        Ok(())
+    }
+
+    /// Cancels a pending admin transfer.
+    pub fn cancel_admin_transfer(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Self::require_not_paused(&env)?;
+
+        let current_admin = get_admin(&env);
+        if admin != current_admin {
+            return Err(Error::NotAuthorized);
+        }
+        if get_pending_admin(&env).is_none() {
+            return Err(Error::NoTransferPending);
+        }
+
+        bump_instance_ttl(&env);
+        remove_pending_admin(&env);
+        env.events().publish(("admin_transfer_cancelled",), current_admin);
+
+        Ok(())
+    }
+
+    /// Backwards-compatible wrapper that initiates two-step admin transfer.
+    pub fn update_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), Error> {
+        Self::initiate_admin_transfer(env, admin, new_admin)
+    }
+
+    /// Returns the pending admin address if transfer is in progress.
+    pub fn get_pending_admin(env: Env) -> Option<Address> {
+        get_pending_admin(&env)
     }
 
     /// Gets the number of recorded approval votes for a campaign.
