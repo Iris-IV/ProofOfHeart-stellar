@@ -2147,3 +2147,49 @@ fn test_anomaly_auto_pause_burst() {
     client.contribute(&campaign_id, &contributor1, &10); // OK
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
 }
+
+#[test]
+fn test_min_voting_balance_threshold_enforcement() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    // Mint different token amounts
+    token_admin.mint(&contributor1, &50); // Below threshold
+    token_admin.mint(&contributor2, &200); // Above threshold
+
+    let title = String::from_str(&env, "Min Balance Vote Test");
+    let desc = String::from_str(&env, "Testing minimum voting balance");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Set minimum voting balance to 100 tokens
+    client.set_min_voting_balance(&admin, &100);
+    assert_eq!(client.get_min_voting_balance(), 100);
+
+    // contributor1 (50 tokens) should be rejected
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotTokenHolder);
+
+    // contributor2 (200 tokens) should succeed
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    assert!(client.has_voted(&campaign_id, &contributor2));
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+
+    // Admin can update threshold to 0 (no restriction)
+    client.set_min_voting_balance(&admin, &0);
+    assert_eq!(client.get_min_voting_balance(), 0);
+
+    // Now contributor1 can vote
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert!(client.has_voted(&campaign_id, &contributor1));
+    assert_eq!(client.get_approve_votes(&campaign_id), 2);
+}

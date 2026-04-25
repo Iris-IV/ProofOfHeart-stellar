@@ -16,7 +16,7 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 
 Send a detailed report to:
 
-**Email:** security@proofofheart.io
+**Email:** security@proofofheart.io (domain confirmed: proofofheart.io)
 
 Please include the following in your report:
 
@@ -47,12 +47,12 @@ This policy covers the on-chain Soroban smart contract (`src/`) and any official
 Community verification uses a token-gated voting model:
 
 - **Eligibility:** an address must hold a positive balance of the configured token at the time of voting.
-- **Quorum:** counts *addresses* that voted (approve + reject).
-- **Threshold:** uses *token-weighted* approval vs rejection weight (sum of voter balances at vote time).
+- **Quorum:** counts _addresses_ that voted (approve + reject).
+- **Threshold:** uses _token-weighted_ approval vs rejection weight (sum of voter balances at vote time).
 
 Security assumptions and limitations:
 
-- This mechanism is **not inherently sybil-resistant**: a single token holder can split tokens across many addresses to inflate the *vote count* and reach quorum more easily (even though total voting weight stays similar).
+- This mechanism is **not inherently sybil-resistant**: a single token holder can split tokens across many addresses to inflate the _vote count_ and reach quorum more easily (even though total voting weight stays similar).
 - The model assumes the token's distribution and issuance are outside the contract’s control; if token minting is centralized or cheaply obtainable, governance can be captured.
 - Admin verification (`verify_campaign`) is a privileged path; users should treat the stored admin as a trust assumption for campaign verification.
 
