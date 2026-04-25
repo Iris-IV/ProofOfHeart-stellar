@@ -21,6 +21,8 @@ pub enum DataKey {
     Token,
     /// Platform fee in basis points (e.g. 300 = 3%).
     PlatformFee,
+    /// Minimum funding goal required for new campaigns.
+    MinCampaignFundingGoal,
     /// Total number of campaigns ever created.
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
@@ -148,6 +150,21 @@ pub fn get_platform_fee(env: &Env) -> u32 {
 /// Stores the platform fee in basis points.
 pub fn set_platform_fee(env: &Env, fee: u32) {
     env.storage().instance().set(&DataKey::PlatformFee, &fee);
+}
+
+/// Returns the minimum funding goal, falling back to `default` if unset.
+pub fn get_min_campaign_funding_goal(env: &Env, default: i128) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MinCampaignFundingGoal)
+        .unwrap_or(default)
+}
+
+/// Stores the minimum funding goal.
+pub fn set_min_campaign_funding_goal(env: &Env, min_goal: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MinCampaignFundingGoal, &min_goal);
 }
 
 // ── Contributions ─────────────────────────────────────────────────────────────

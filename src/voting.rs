@@ -95,13 +95,15 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 ///
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
-/// * `CampaignAlreadyVerified` - The campaign is already verified.
+/// * `AdminVerificationConflict` - The campaign is already verified.
 pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let admin = get_admin(env);
     admin.require_auth();
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    require_unverified_campaign(&campaign)?;
+    if campaign.is_verified {
+        return Err(Error::AdminVerificationConflict);
+    }
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
@@ -114,12 +116,14 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 ///
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
-/// * `CampaignAlreadyVerified` - The campaign is already verified.
+/// * `CommunityVerificationConflict` - The campaign is already verified.
 /// * `VotingQuorumNotMet` - Fewer votes than the required quorum.
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
 pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    require_unverified_campaign(&campaign)?;
+    if campaign.is_verified {
+        return Err(Error::CommunityVerificationConflict);
+    }
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);

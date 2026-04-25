@@ -63,4 +63,10 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
+    /// The funding goal is below the configured minimum.
+    FundingGoalTooLow = 30,
+    /// Admin verification was attempted on an already verified campaign.
+    AdminVerificationConflict = 31,
+    /// Community verification was attempted on an already verified campaign.
+    CommunityVerificationConflict = 32,
 }

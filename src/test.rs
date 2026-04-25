@@ -6,7 +6,7 @@ use soroban_sdk::{
     Address, Env, IntoVal, String, Symbol,
 };
 
-fn setup_env<'a>() -> (
+fn setup_env_with_default_min<'a>() -> (
     Env,
     Address,
     Address,
@@ -43,6 +43,23 @@ fn setup_env<'a>() -> (
         token_admin,
         client,
     )
+}
+
+fn setup_env<'a>() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'a>,
+    TokenAdminClient<'a>,
+    ProofOfHeartClient<'a>,
+) {
+    let setup = setup_env_with_default_min();
+    setup.0.as_contract(&setup.7.address, || {
+        set_min_campaign_funding_goal(&setup.0, 1)
+    });
+    setup
 }
 
 #[test]
@@ -130,6 +147,63 @@ fn test_create_and_validation() {
     assert_eq!(campaign.funding_goal, 2000);
     assert!(campaign.is_active);
     assert!(!campaign.is_verified);
+}
+
+#[test]
+fn test_min_campaign_funding_goal_boundary_and_admin_update() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) =
+        setup_env_with_default_min();
+
+    assert_eq!(
+        client.get_min_campaign_funding_goal(),
+        CAMPAIGN_FUNDING_GOAL_MIN
+    );
+
+    let title = String::from_str(&env, "Minimum Goal");
+    let desc = String::from_str(&env, "Checks funding goal floor");
+
+    let below_min = CAMPAIGN_FUNDING_GOAL_MIN - 1;
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &below_min,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &CAMPAIGN_FUNDING_GOAL_MIN,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(campaign_id, 1);
+
+    client.set_min_campaign_funding_goal(&admin, &500);
+    assert_eq!(client.get_min_campaign_funding_goal(), 500);
+
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &499,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
 }
 
 #[test]
@@ -589,7 +663,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 
     client.verify_campaign(&campaign_id);
     let res = client.try_verify_campaign(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AdminVerificationConflict);
 }
 
 #[test]
@@ -627,6 +701,12 @@ fn test_community_voting_verification_success() {
     client.verify_campaign_with_votes(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::CommunityVerificationConflict
+    );
 }
 
 #[test]
@@ -725,7 +805,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
 #[test]
 fn test_update_platform_fee() {
-    let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+    let (env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
     let result = client.try_update_platform_fee(&500);
@@ -733,6 +813,15 @@ fn test_update_platform_fee() {
         result.is_ok(),
         "Admin should be able to update platform fee"
     );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let expected_topics = (String::from_str(&env, "fee_updated"),).into_val(&env);
+    assert_eq!(last_event.1, expected_topics);
+
+    let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data_vec.get(0).unwrap(), 300);
+    assert_eq!(data_vec.get(1).unwrap(), 500);
 
     let result = client.try_update_platform_fee(&5000);
     assert!(result.is_ok(), "Fee update should succeed even when capped");

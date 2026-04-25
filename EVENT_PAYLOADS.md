@@ -140,6 +140,22 @@ Emitted when a token-holding voter casts an approve or reject vote on a campaign
 }
 ```
 
+#### `campaign_verified` (admin)
+Emitted when the stored admin directly verifies a campaign.
+
+- **Topics**: `["campaign_verified", campaign_id]`
+- **Data**: `()`
+- **Emitted By**: `verify_campaign()` via the admin verification path
+- **Note**: This variant has an empty payload because no vote totals are involved.
+
+#### `campaign_verified` (community)
+Emitted when a campaign passes quorum and approval threshold checks.
+
+- **Topics**: `["campaign_verified", campaign_id]`
+- **Data**: `approve_votes`
+- **Emitted By**: `verify_campaign_with_votes()` via the community verification path
+- **Note**: Indexers should use the call path or payload shape to distinguish this from admin verification.
+
 #### `voting_params_updated`
 Emitted when voting parameters are updated by the admin.
 
@@ -169,6 +185,13 @@ Emitted when the platform fee is updated.
 - **Topics**: `["fee_updated"]`
 - **Data**: `(old_fee_bps, new_fee_bps)`
 - **Emitted By**: `update_platform_fee()`
+
+#### `min_campaign_funding_goal_updated`
+Emitted when the admin updates the minimum funding goal for new campaigns.
+
+- **Topics**: `["min_campaign_funding_goal_updated"]`
+- **Data**: `(old_min_goal, new_min_goal)`
+- **Emitted By**: `set_min_campaign_funding_goal()`
 
 #### `admin_updated`
 Emitted when admin privileges are transferred.

@@ -31,6 +31,7 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `get_revenue_claimed(..., contributor)` | no auth |
 | `get_version()` | no auth |
 | `update_platform_fee(new_fee)` | stored `admin` (from `get_admin`) |
+| `set_min_campaign_funding_goal(admin, min_goal)` | stored `admin` (and `admin` must match stored admin) |
 | `update_admin(admin, new_admin)` | stored `admin` (and `admin` must match stored admin) |
 | `get_approve_votes(...)` | no auth |
 | `get_reject_votes(...)` | no auth |
@@ -40,6 +41,7 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `get_admin()` | no auth |
 | `get_token()` | no auth |
 | `get_platform_fee()` | no auth |
+| `get_min_campaign_funding_goal()` | no auth |
 | `list_campaigns(...)` | no auth |
 | `list_active_campaigns(...)` | no auth |
 | `initiate_campaign_transfer(campaign_id, new_creator)` | `campaign.creator` |
