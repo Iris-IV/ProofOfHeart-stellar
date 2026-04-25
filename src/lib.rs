@@ -1133,3 +1133,5 @@ mod revenue_share_proptest;
 mod test;
 #[cfg(test)]
 mod update_admin_test;
+#[cfg(test)]
+mod voting_proptest;
