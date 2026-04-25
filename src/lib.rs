@@ -972,7 +972,8 @@ impl ProofOfHeart {
 
         bump_instance_ttl(&env);
         remove_pending_admin(&env);
-        env.events().publish(("admin_transfer_cancelled",), current_admin);
+        env.events()
+            .publish(("admin_transfer_cancelled",), current_admin);
 
         Ok(())
     }
