@@ -295,7 +295,7 @@ jobs:
       - name: Handle pre-flight detected empty PR (auto-close)
         if: steps.preflight.outputs.auto_fraud == 'true'
         env:
-          GH_TOKEN: ${{ secrets.OWNER_PAT }}
+          GH_TOKEN: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ steps.ctx.outputs.author }}
         run: |
@@ -323,7 +323,7 @@ jobs:
         if: steps.preflight.outputs.auto_fraud != 'true'
         id: act
         env:
-          GH_TOKEN: ${{ secrets.OWNER_PAT }}
+          GH_TOKEN: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ steps.ctx.outputs.author }}
           DECISION: ${{ steps.review.outputs.decision }}
@@ -385,7 +385,7 @@ jobs:
           && steps.review.outputs.decision == 'APPROVE'
           && steps.act.outputs.merge_ok == 'true'
         env:
-          GH_TOKEN: ${{ secrets.OWNER_PAT }}
+          GH_TOKEN: ${{ secrets.OWNER_PAT || secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ steps.ctx.outputs.title }}
         run: |
