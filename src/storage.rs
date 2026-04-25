@@ -55,6 +55,14 @@ pub enum DataKey {
     Initialized,
     /// Minimum token balance required to vote on campaigns.
     MinVotingBalance,
+    /// Total amount raised across all campaigns.
+    TotalRaised,
+    /// List of campaign IDs owned by a creator.
+    CreatorCampaigns(Address),
+    /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
+    PersonalCap(u32, Address),
+    /// Tracking contributions per block for anomaly detection.
+    BlockContributionCount,
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -394,4 +402,88 @@ pub fn set_version(env: &Env, version: u32) {
 /// Returns the stored contract version, defaulting to 0 if unset.
 pub fn get_version(env: &Env) -> u32 {
     env.storage().instance().get(&DataKey::Version).unwrap_or(0)
+}
+
+// ── Total raised global ───────────────────────────────────────────────────────
+
+/// Returns the total amount raised across all campaigns.
+pub fn get_total_raised_global(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::TotalRaised)
+        .unwrap_or(0)
+}
+
+/// Stores the total amount raised across all campaigns.
+pub fn set_total_raised_global(env: &Env, amount: i128) {
+    env.storage().instance().set(&DataKey::TotalRaised, &amount);
+}
+
+// ── Creator campaigns ─────────────────────────────────────────────────────────
+
+/// Returns the list of campaign IDs owned by a creator.
+pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Vec<u32> {
+    let key = DataKey::CreatorCampaigns(creator.clone());
+    let val = env
+        .storage()
+        .persistent()
+        .get::<DataKey, soroban_sdk::Vec<u32>>(&key);
+
+    if let Some(ids) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        ids
+    } else {
+        soroban_sdk::Vec::new(env)
+    }
+}
+
+/// Stores the list of campaign IDs owned by a creator.
+pub fn set_creator_campaign_ids(env: &Env, creator: &Address, ids: &soroban_sdk::Vec<u32>) {
+    let key = DataKey::CreatorCampaigns(creator.clone());
+    env.storage().persistent().set(&key, ids);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+// ── Personal cap ─────────────────────────────────────────────────────────────
+
+/// Returns a contributor's personal cap for a campaign, extending TTL if set.
+pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> Option<i128> {
+    let key = DataKey::PersonalCap(campaign_id, contributor.clone());
+    let val = env.storage().persistent().get(&key);
+    if val.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores a contributor's personal cap for a campaign and extends its TTL.
+pub fn set_personal_cap(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
+    let key = DataKey::PersonalCap(campaign_id, contributor.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+// ── Anomaly detection ─────────────────────────────────────────────────────────
+
+/// Returns (ledger_sequence, contribution_count) for the block tracking.
+pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
+    env.storage()
+        .temporary()
+        .get(&DataKey::BlockContributionCount)
+        .unwrap_or((0, 0))
+}
+
+/// Stores (ledger_sequence, contribution_count) for the block tracking.
+pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
+    env.storage()
+        .temporary()
+        .set(&DataKey::BlockContributionCount, &(sequence, count));
 }
