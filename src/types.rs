@@ -61,3 +61,19 @@ pub struct Campaign {
     /// Maximum tokens a single contributor may contribute in total. 0 means no cap.
     pub max_contribution_per_user: i128,
 }
+
+/// Aggregate platform metrics for dashboard and indexer consumers.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformStats {
+    /// Total campaigns ever created.
+    pub total_campaigns: u32,
+    /// Campaigns currently active and not cancelled.
+    pub active_campaigns: u32,
+    /// Campaigns that were verified (admin or voting).
+    pub verified_campaigns: u32,
+    /// Campaigns cancelled by their creators.
+    pub cancelled_campaigns: u32,
+    /// Sum of `amount_raised` across all campaigns.
+    pub total_amount_raised: i128,
+}

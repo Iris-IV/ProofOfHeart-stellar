@@ -1820,3 +1820,129 @@ fn test_revenue_lifecycle_e2e() {
         "contract should have emitted at least one event"
     );
 }
+
+// ── Issue #187 ────────────────────────────────────────────────────────────────
+#[test]
+fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Cap persistence"),
+        &String::from_str(&env, "lifetime cap test"),
+        &2_000,
+        &1,
+        &Category::Learner,
+        &false,
+        &0,
+        &1_000i128,
+    );
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &900);
+
+    // Make campaign refundable, then reset current contribution via refund.
+    client.cancel_campaign(&campaign_id);
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+
+    // Lifetime amount must not reset when current contribution is refunded.
+    assert_eq!(client.get_lifetime_contribution(&campaign_id, &contributor1), 900);
+}
+
+// ── Issue #198 ────────────────────────────────────────────────────────────────
+#[test]
+fn test_get_campaigns_by_category_with_pagination() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let id1 = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Learner 1"),
+        &String::from_str(&env, "a"),
+        &100,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    let _id2 = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Publisher 1"),
+        &String::from_str(&env, "b"),
+        &100,
+        &30,
+        &Category::Publisher,
+        &false,
+        &0,
+        &0i128,
+    );
+    let id3 = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Learner 2"),
+        &String::from_str(&env, "c"),
+        &100,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    let learner_page_1 = client.get_campaigns_by_category(&Category::Learner, &0, &1);
+    assert_eq!(learner_page_1.len(), 1);
+    assert_eq!(learner_page_1.get(0).unwrap().id, id1);
+
+    let learner_page_2 = client.get_campaigns_by_category(&Category::Learner, &1, &1);
+    assert_eq!(learner_page_2.len(), 1);
+    assert_eq!(learner_page_2.get(0).unwrap().id, id3);
+
+    let publisher = client.get_campaigns_by_category(&Category::Publisher, &0, &10);
+    assert_eq!(publisher.len(), 1);
+    assert_eq!(publisher.get(0).unwrap().category, Category::Publisher);
+}
+
+// ── Issue #206 ────────────────────────────────────────────────────────────────
+#[test]
+fn test_get_platform_stats_returns_aggregates() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let c1 = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Stats 1"),
+        &String::from_str(&env, "s1"),
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    let c2 = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Stats 2"),
+        &String::from_str(&env, "s2"),
+        &500,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    let _ = client.try_verify_campaign(&c1);
+    let _ = client.try_verify_campaign(&c2);
+    client.contribute(&c1, &contributor1, &400);
+    client.contribute(&c2, &contributor2, &300);
+    client.cancel_campaign(&c2);
+
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 1);
+    assert_eq!(stats.verified_campaigns, 2);
+    assert_eq!(stats.cancelled_campaigns, 1);
+    assert_eq!(stats.total_amount_raised, 700);
+}
