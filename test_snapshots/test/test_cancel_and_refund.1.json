@@ -746,6 +746,52 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "BlockContributionCount"
+                }
+              ]
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "BlockContributionCount"
+                    }
+                  ]
+                },
+                "durability": "temporary",
+                "val": {
+                  "vec": [
+                    {
+                      "u32": 0
+                    },
+                    {
+                      "u32": 2
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          15
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "vec": [
+                {
                   "symbol": "Campaign"
                 },
                 {
@@ -1090,6 +1136,55 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "CreatorCampaigns"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "CreatorCampaigns"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "vec": [
+                {
                   "symbol": "LifetimeContribution"
                 },
                 {
@@ -1344,6 +1439,21 @@
                         },
                         "val": {
                           "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "TotalRaised"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "i128": {
+                            "hi": 0,
+                            "lo": 0
+                          }
                         }
                       },
                       {
@@ -1894,12 +2004,10 @@
                 "bytes": "d63a954726751a876d37290072af1ee723d7d761eec3bf4191849d2116acdc73"
               },
               {
-                "symbol": "balance"
+                "symbol": "decimals"
               }
             ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-            }
+            "data": "void"
           }
         }
       },
@@ -1917,14 +2025,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "balance"
+                "symbol": "decimals"
               }
             ],
             "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 0
-              }
+              "u32": 7
             }
           }
         }

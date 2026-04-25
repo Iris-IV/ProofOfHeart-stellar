@@ -1716,6 +1716,70 @@ fn test_set_voting_params_emits_event() {
 }
 
 #[test]
+fn test_list_campaigns_exclusive_cursor_semantics() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for i in 0..3 {
+        let title = String::from_str(&env, "Campaign");
+        let desc = String::from_str(&env, "Desc");
+        let id = client.create_campaign(
+            &creator,
+            &title,
+            &desc,
+            &(1000 + i as i128),
+            &30,
+            &Category::Learner,
+            &false,
+            &0,
+            &0i128,
+        );
+        assert_eq!(id, (i + 1) as u32);
+    }
+
+    let page1 = client.list_campaigns(&0, &2);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap().id, 1);
+    assert_eq!(page1.get(1).unwrap().id, 2);
+
+    let page2 = client.list_campaigns(&2, &2);
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2.get(0).unwrap().id, 3);
+}
+
+#[test]
+fn test_list_active_campaigns_exclusive_cursor_semantics() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for _ in 0..4 {
+        let title = String::from_str(&env, "Campaign");
+        let desc = String::from_str(&env, "Desc");
+        let _ = client.create_campaign(
+            &creator,
+            &title,
+            &desc,
+            &1000,
+            &30,
+            &Category::Learner,
+            &false,
+            &0,
+            &0i128,
+        );
+    }
+
+    // Cancel campaign id 2 so active listing filters it out.
+    client.cancel_campaign(&2);
+
+    let active1 = client.list_active_campaigns(&0, &2);
+    assert_eq!(active1.len(), 2);
+    assert_eq!(active1.get(0).unwrap().id, 1);
+    assert_eq!(active1.get(1).unwrap().id, 3);
+
+    let active2 = client.list_active_campaigns(&3, &2);
+    assert_eq!(active2.len(), 1);
+    assert_eq!(active2.get(0).unwrap().id, 4);
+}
+
+#[test]
 fn test_revenue_lifecycle_e2e() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
@@ -1928,11 +1992,12 @@ fn test_get_platform_stats_returns_aggregates() {
         &String::from_str(&env, "s2"),
         &500,
         &30,
-        &Category::Educator,
+        &Category::Learner,
         &false,
         &0,
         &0i128,
     );
+
     let _ = client.try_verify_campaign(&c1);
     let _ = client.try_verify_campaign(&c2);
     client.contribute(&c1, &contributor1, &400);
@@ -1945,4 +2010,267 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
     assert_eq!(stats.total_amount_raised, 700);
+}
+
+#[test]
+fn test_total_raised_global_tracking() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    let title1 = String::from_str(&env, "Campaign 1");
+    let desc1 = String::from_str(&env, "First");
+    let c1 = client.create_campaign(
+        &creator,
+        &title1,
+        &desc1,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&c1);
+
+    let title2 = String::from_str(&env, "Campaign 2");
+    let desc2 = String::from_str(&env, "Second");
+    let c2 = client.create_campaign(
+        &creator,
+        &title2,
+        &desc2,
+        &2000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&c2);
+
+    // Initial total raised should be 0
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    // Contribute to C1
+    client.contribute(&c1, &contributor1, &500);
+    assert_eq!(client.get_total_raised_global(), 500);
+
+    // Contribute to C2
+    client.contribute(&c2, &contributor2, &1000);
+    assert_eq!(client.get_total_raised_global(), 1500);
+
+    // Refund C2 (Need to cancel it first or let deadline pass)
+    client.cancel_campaign(&c2);
+    client.claim_refund(&c2, &contributor2);
+    assert_eq!(client.get_total_raised_global(), 500);
+
+    // Contribute again to C1
+    client.contribute(&c1, &contributor2, &500);
+    assert_eq!(client.get_total_raised_global(), 1000);
+
+    // Withdraw C1
+    client.withdraw_funds(&c1);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_creator_campaigns_listing_and_transfer() {
+    let (env, _admin, creator1, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let creator2 = Address::generate(&env);
+
+    let title1 = String::from_str(&env, "Campaign 1");
+    let desc1 = String::from_str(&env, "First");
+    let id1 = client.create_campaign(
+        &creator1,
+        &title1,
+        &desc1,
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    let title2 = String::from_str(&env, "Campaign 2");
+    let desc2 = String::from_str(&env, "Second");
+    let id2 = client.create_campaign(
+        &creator1,
+        &title2,
+        &desc2,
+        &2000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Check creator1 list
+    let list1 = client.get_creator_campaigns(&creator1, &0, &10);
+    assert_eq!(list1.len(), 2);
+    assert_eq!(list1.get(0).unwrap().id, id1);
+    assert_eq!(list1.get(1).unwrap().id, id2);
+
+    // Test pagination
+    let paginated1 = client.get_creator_campaigns(&creator1, &0, &1);
+    assert_eq!(paginated1.len(), 1);
+    assert_eq!(paginated1.get(0).unwrap().id, id1);
+
+    let paginated2 = client.get_creator_campaigns(&creator1, &1, &1);
+    assert_eq!(paginated2.len(), 1);
+    assert_eq!(paginated2.get(0).unwrap().id, id2);
+
+    // Check creator2 list (empty)
+    let list2 = client.get_creator_campaigns(&creator2, &0, &10);
+    assert_eq!(list2.len(), 0);
+
+    // Transfer Campaign 1 to creator2
+    client.initiate_campaign_transfer(&id1, &creator2);
+    client.accept_campaign_transfer(&id1);
+
+    // Check lists after transfer
+    let list1_after = client.get_creator_campaigns(&creator1, &0, &10);
+    assert_eq!(list1_after.len(), 1);
+    assert_eq!(list1_after.get(0).unwrap().id, id2);
+
+    let list2_after = client.get_creator_campaigns(&creator2, &0, &10);
+    assert_eq!(list2_after.len(), 1);
+    assert_eq!(list2_after.get(0).unwrap().id, id1);
+}
+
+#[test]
+fn test_personal_cap_enforcement() {
+    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Cap Test");
+    let desc = String::from_str(&env, "Testing caps");
+
+    // Campaign cap = 1000
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &5000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &1000i128,
+    );
+    client.verify_campaign(&campaign_id);
+
+    // Scenario 1: Personal cap = 500 (lower than campaign cap)
+    client.set_personal_cap(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 500);
+
+    client.contribute(&campaign_id, &contributor1, &400); // OK
+    let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 500)
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+
+    // Scenario 2: Personal cap = 2000 (higher than campaign cap)
+    client.set_personal_cap(&campaign_id, &contributor1, &2000);
+
+    // Total contribution currently in contract is 400.
+    // Campaign cap is 1000.
+    // Personal cap is 2000.
+    // Effective cap is min(1000, 2000) = 1000.
+    client.contribute(&campaign_id, &contributor1, &500); // Total now 900, OK
+    let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 1000)
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+}
+
+#[test]
+fn test_anomaly_auto_pause_huge_contribution() {
+    let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10000);
+
+    let title = String::from_str(&env, "Science Book");
+    let desc = String::from_str(&env, "Teaching science to kids");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &2000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+
+    // Contribution > 200% of goal (2000 * 2.0 = 4000). Try 4001.
+    // In Soroban, to persist the "Paused" state, we must return Ok(()).
+    let res = client.try_contribute(&campaign_id, &contributor1, &4001);
+    assert!(res.is_ok()); // Transaction succeeded
+    assert!(client.is_paused());
+
+    // Verify contribution was NOT recorded
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+
+    // Admin unpauses
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+
+    // Normal contribution works
+    client.contribute(&campaign_id, &contributor1, &100);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+}
+
+#[test]
+fn test_anomaly_auto_pause_burst() {
+    let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10000);
+
+    let title = String::from_str(&env, "Burst Test");
+    let desc = String::from_str(&env, "Testing burst");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &10000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    client.verify_campaign(&campaign_id);
+
+    // Make 10 contributions in the same block (threshold is 10)
+    for _ in 0..10 {
+        client.contribute(&campaign_id, &contributor1, &10);
+    }
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+
+    // The 11th should trigger auto-pause (returns Ok for persistence)
+    let res = client.try_contribute(&campaign_id, &contributor1, &10);
+    assert!(res.is_ok());
+    assert!(client.is_paused());
+
+    // Verify 11th contribution was NOT recorded
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+
+    // Admin unpauses
+    client.unpause(&admin);
+
+    // New block (ledger sequence increment) resets the counter
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp(),
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence() + 1,
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    client.contribute(&campaign_id, &contributor1, &10); // OK
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
 }
