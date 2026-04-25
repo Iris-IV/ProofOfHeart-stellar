@@ -958,6 +958,7 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     // Admin flows that must NOT reset the counter
     let new_admin = Address::generate(&env);
     client.update_admin(&admin, &new_admin);
+    client.accept_admin_transfer();
     assert_eq!(client.get_campaign_count(), 3);
 
     client.set_voting_params(&new_admin, &5, &7000);
@@ -2307,6 +2308,37 @@ fn test_deposit_revenue_non_existent_campaign() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
 
+#[test]
+fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Repeated Deposits"),
+        description: String::from_str(&env, "Deposit idempotency"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    let events_before = env.events().all().len();
+    for _ in 0..10 {
+        client.deposit_revenue(&campaign_id, &100);
+    }
+    let events_after = env.events().all().len();
+    assert_eq!(client.get_revenue_pool(&campaign_id), 1000);
+    assert_eq!(events_after - events_before, 20);
+}
+
 // ── Issue 1: Validate refund state mutation order ────────────────────────────
 
 #[test]
@@ -2453,6 +2485,38 @@ fn test_claim_refund_expired_campaign() {
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
     assert_eq!(token.balance(&contributor1), 5000);
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_claim_refund_clears_existing_revenue_claimed_key() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Refund Cleans Revenue Claim"),
+        description: String::from_str(&env, "Ensure RevenueClaimed key is removed"),
+        funding_goal: 5000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.deposit_revenue(&campaign_id, &1000);
+    client.claim_revenue(&campaign_id, &contributor1);
+
+    let claimed_before_refund = client.get_revenue_claimed(&campaign_id, &contributor1);
+    assert!(claimed_before_refund > 0);
+
+    client.cancel_campaign(&campaign_id);
+    client.claim_refund(&campaign_id, &contributor1);
+
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
 }
 
 // ── Issue 3: Fuzz/Integration tests for vote_on_campaign ─────────────────────
@@ -2622,6 +2686,63 @@ fn test_vote_on_cancelled_campaign_fails() {
     client.cancel_campaign(&campaign_id);
 
     // Try to vote on cancelled campaign
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_vote_on_campaign_past_deadline_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Deadline Vote"),
+        description: String::from_str(&env, "Voting deadline gate"),
+        funding_goal: 1000,
+        duration_days: 1,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_vote_on_campaign_after_withdraw_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &2000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Withdrawn Vote"),
+        description: String::from_str(&env, "Voting withdrawn gate"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }

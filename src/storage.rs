@@ -17,6 +17,8 @@ pub fn bump_instance_ttl(env: &Env) {
 pub enum DataKey {
     /// The global admin address.
     Admin,
+    /// Pending admin during two-step admin transfer.
+    PendingAdmin,
     /// The contract's accepted token address.
     Token,
     /// Platform fee in basis points (e.g. 300 = 3%).
@@ -127,6 +129,23 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
 }
 
+/// Returns the pending admin address if an admin transfer is in progress.
+pub fn get_pending_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+/// Stores the pending admin address for two-step admin transfer.
+pub fn set_pending_admin(env: &Env, pending_admin: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdmin, pending_admin);
+}
+
+/// Clears any pending admin transfer.
+pub fn remove_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
+}
+
 /// Returns the accepted token address. Panics if not yet initialized.
 pub fn get_token(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Token).unwrap()
@@ -215,6 +234,12 @@ pub fn set_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address, a
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Removes the revenue claimed record for a contributor in a campaign.
+pub fn remove_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::RevenueClaimed(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
 }
 
 /// Returns the creator's total claimed revenue for a campaign, extending TTL if non-zero.
