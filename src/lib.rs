@@ -1551,11 +1551,19 @@ impl ProofOfHeart {
 }
 
 #[cfg(test)]
+mod admin_transfer_test;
+#[cfg(test)]
+mod benchmark_test;
+#[cfg(test)]
 mod campaign_transfer_test;
+#[cfg(test)]
+mod lifecycle_events_test;
 #[cfg(test)]
 mod pagination_test;
 #[cfg(test)]
 mod revenue_share_proptest;
+#[cfg(test)]
+mod storage_cleanup_test;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
