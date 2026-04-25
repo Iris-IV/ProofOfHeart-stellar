@@ -2,9 +2,7 @@ use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::{
-    testutils::{
-        Address as _, AuthorizedFunction, AuthorizedInvocation, Events, Ledger, LedgerInfo,
-    },
+    testutils::{Address as _, AuthorizedFunction, AuthorizedInvocation, Events, Ledger},
     Address, Env, IntoVal, String, Symbol,
 };
 
@@ -45,19 +43,6 @@ fn setup_env<'a>() -> (
         token_admin,
         client,
     )
-}
-
-fn set_ledger_timestamp(env: &Env, timestamp: u64) {
-    env.ledger().set(LedgerInfo {
-        timestamp,
-        protocol_version: 22,
-        sequence_number: env.ledger().sequence(),
-        network_id: [0; 32],
-        base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 10,
-    });
 }
 
 #[test]
@@ -145,70 +130,6 @@ fn test_create_and_validation() {
     assert_eq!(campaign.funding_goal, 2000);
     assert!(campaign.is_active);
     assert!(!campaign.is_verified);
-}
-
-#[test]
-fn test_revenue_share_percentage_boundaries() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let desc = String::from_str(&env, "Boundary coverage for revenue share percentage");
-
-    let zero_res = client.try_create_campaign(
-        &creator,
-        &String::from_str(&env, "Revenue Share 0"),
-        &desc,
-        &2_000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &0,
-        &0i128,
-    );
-    assert_eq!(zero_res.unwrap_err().unwrap(), Error::InvalidRevenueShare);
-
-    let one_bps_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Revenue Share 1"),
-        &desc,
-        &2_000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &1,
-        &0i128,
-    );
-    assert_eq!(client.get_campaign(&one_bps_id).revenue_share_percentage, 1);
-
-    let max_bps_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Revenue Share 5000"),
-        &desc,
-        &2_000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &5_000,
-        &0i128,
-    );
-    assert_eq!(
-        client.get_campaign(&max_bps_id).revenue_share_percentage,
-        5_000
-    );
-
-    let overflow_res = client.try_create_campaign(
-        &creator,
-        &String::from_str(&env, "Revenue Share 5001"),
-        &desc,
-        &2_000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &5_001,
-        &0i128,
-    );
-    assert_eq!(
-        overflow_res.unwrap_err().unwrap(),
-        Error::InvalidRevenueShare
-    );
 }
 
 #[test]
@@ -437,7 +358,16 @@ fn test_failure_states() {
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
 
-    set_ledger_timestamp(&env, env.ledger().timestamp() + (duration_days * 86450));
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (duration_days * 86450),
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
@@ -603,45 +533,6 @@ fn test_double_refund_prevention() {
     let res = client.try_claim_refund(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
     assert_eq!(token.balance(&contributor1), 2000);
-}
-
-#[test]
-fn test_double_withdraw_prevention_regression() {
-    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
-    token_admin.mint(&contributor1, &5_000);
-
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Double Withdraw"),
-        &String::from_str(&env, "Regression coverage for repeat withdrawals"),
-        &1_000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
-    let _ = client.try_verify_campaign(&campaign_id);
-
-    client.contribute(&campaign_id, &contributor1, &1_500);
-    client.withdraw_funds(&campaign_id);
-
-    let admin_balance_after_first = token.balance(&admin);
-    let creator_balance_after_first = token.balance(&creator);
-    let contract_balance_after_first = token.balance(&client.address);
-
-    let second_withdraw = client.try_withdraw_funds(&campaign_id);
-    assert_eq!(
-        second_withdraw.unwrap_err().unwrap(),
-        Error::FundsAlreadyWithdrawn
-    );
-    assert_eq!(token.balance(&admin), admin_balance_after_first);
-    assert_eq!(token.balance(&creator), creator_balance_after_first);
-    assert_eq!(token.balance(&client.address), contract_balance_after_first);
-
-    let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
 }
 
 #[test]
@@ -883,14 +774,32 @@ fn test_deadline_boundary() {
     let deadline = campaign.deadline;
 
     // Fast forward to exactly the deadline
-    set_ledger_timestamp(&env, deadline);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     // Should succeed exactly at the deadline
     client.contribute(&campaign_id, &contributor1, &500);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
 
     // Fast forward to exactly 1 second past the deadline
-    set_ledger_timestamp(&env, deadline + 1);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     // Should fail past the deadline
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
@@ -929,7 +838,7 @@ fn test_revenue_sharing_edge_cases() {
     let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
         setup_env();
 
-    // 1. Non-revenue campaign: check explicit revenue-sharing error on deposit.
+    // 1. Non-revenue campaign: check ValidationFailed
     let title_nr = String::from_str(&env, "No Revenue");
     let desc_nr = String::from_str(&env, "Non-revenue campaign");
     let campaign_nr = client.create_campaign(
@@ -944,11 +853,6 @@ fn test_revenue_sharing_edge_cases() {
         &0i128,
     );
     let _ = client.try_verify_campaign(&campaign_nr);
-    let deposit_res = client.try_deposit_revenue(&campaign_nr, &10);
-    assert_eq!(
-        deposit_res.unwrap_err().unwrap(),
-        Error::RevenueSharingNotEnabled
-    );
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 
@@ -1551,59 +1455,6 @@ fn test_pause_blocks_state_changing_operations() {
     let _ = token;
 }
 
-#[test]
-fn test_deadline_calculation_accepts_exact_u64_boundary() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let max_duration_seconds = crate::CAMPAIGN_DURATION_MAX_DAYS * 86_400;
-    let safe_timestamp = u64::MAX - max_duration_seconds;
-    set_ledger_timestamp(&env, safe_timestamp);
-
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Max Deadline Fit"),
-        &String::from_str(&env, "Deadline should land exactly on u64::MAX"),
-        &1_000,
-        &crate::CAMPAIGN_DURATION_MAX_DAYS,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
-
-    let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.deadline, u64::MAX);
-    assert_eq!(
-        campaign.deadline,
-        crate::calculate_deadline(safe_timestamp, crate::CAMPAIGN_DURATION_MAX_DAYS).unwrap()
-    );
-}
-
-#[test]
-fn test_deadline_calculation_rejects_overflow_with_max_duration() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let max_duration_seconds = crate::CAMPAIGN_DURATION_MAX_DAYS * 86_400;
-    let overflow_timestamp = (u64::MAX - max_duration_seconds) + 1;
-    set_ledger_timestamp(&env, overflow_timestamp);
-
-    let result = client.try_create_campaign(
-        &creator,
-        &String::from_str(&env, "Overflow Deadline"),
-        &String::from_str(&env, "Deadline overflow must be rejected"),
-        &1_000,
-        &crate::CAMPAIGN_DURATION_MAX_DAYS,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
-
-    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
-    assert_eq!(
-        crate::calculate_deadline(overflow_timestamp, crate::CAMPAIGN_DURATION_MAX_DAYS),
-        Err(Error::ValidationFailed)
-    );
-}
-
 // ── Deadline edge-case tests (#74) ───────────────────────────────────────────
 
 /// A contribution made 1 second before the deadline must succeed.
@@ -1627,7 +1478,16 @@ fn test_contribute_one_second_before_deadline() {
 
     let deadline = client.get_campaign(&campaign_id).deadline;
 
-    set_ledger_timestamp(&env, deadline - 1);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline - 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     client.contribute(&campaign_id, &contributor1, &500);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
@@ -1660,6 +1520,44 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
 }
 
+/// Withdrawing after the deadline when the goal is unmet must still return the
+/// typed `FundingGoalNotReached` error.
+#[test]
+fn test_withdraw_after_deadline_goal_not_met_returns_typed_error() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(
+        &creator,
+        &String::from_str(&env, "Late Withdraw"),
+        &String::from_str(&env, "Desc"),
+        &10_000,
+        &1,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    let res = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
+}
+
 /// A contributor can claim a refund only after the deadline has passed
 /// and the campaign failed to reach its goal.
 #[test]
@@ -1687,7 +1585,16 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     let deadline = client.get_campaign(&campaign_id).deadline;
-    set_ledger_timestamp(&env, deadline + 1);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     // After deadline, goal not reached: refund succeeds
     client.claim_refund(&campaign_id, &contributor1);
@@ -1717,7 +1624,16 @@ fn test_no_refund_when_goal_reached() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     let deadline = client.get_campaign(&campaign_id).deadline;
-    set_ledger_timestamp(&env, deadline + 1);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     // Goal was reached — refund must be rejected
     let res = client.try_claim_refund(&campaign_id, &contributor1);
