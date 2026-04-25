@@ -704,9 +704,13 @@ impl ProofOfHeart {
         let old_quorum = get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
         let old_threshold =
             get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+        let caller = admin.clone();
         voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)?;
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "voting_params_updated"),),
+            (
+                soroban_sdk::Symbol::new(&env, "voting_params_updated"),
+                caller,
+            ),
             (
                 old_quorum,
                 min_votes_quorum,
@@ -740,7 +744,10 @@ impl ProofOfHeart {
         let old_balance = get_min_voting_balance(&env);
         set_min_voting_balance(&env, min_balance);
         env.events().publish(
-            (soroban_sdk::Symbol::new(&env, "min_voting_balance_updated"),),
+            (
+                soroban_sdk::Symbol::new(&env, "min_voting_balance_updated"),
+                admin,
+            ),
             (old_balance, min_balance),
         );
         Ok(())
