@@ -17,6 +17,8 @@ const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
 const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
 const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
 const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
+const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000; // 200%
+const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
 
 mod errors;
 mod storage;
@@ -126,6 +128,7 @@ impl ProofOfHeart {
         };
         set_platform_fee(&env, valid_fee);
         set_campaign_count(&env, 0);
+        set_total_raised_global(&env, 0);
         set_version(&env, CONTRACT_VERSION);
         set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
         set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
@@ -225,6 +228,10 @@ impl ProofOfHeart {
         set_campaign_count(&env, count);
         set_revenue_pool(&env, count, 0);
 
+        let mut creator_ids = get_creator_campaign_ids(&env, &creator);
+        creator_ids.push_back(count);
+        set_creator_campaign_ids(&env, &creator, &creator_ids);
+
         env.events()
             .publish(("campaign_created", count, creator), title);
 
@@ -274,11 +281,43 @@ impl ProofOfHeart {
 
         let current = get_contribution(&env, campaign_id, &contributor);
 
-        // Enforce per-contributor cap if set (0 means unlimited).
+        // Enforce campaign-wide per-contributor cap if set (0 means unlimited).
         if campaign.max_contribution_per_user > 0
             && current + amount > campaign.max_contribution_per_user
         {
             return Err(Error::ContributionCapExceeded);
+        }
+
+        // Enforce personal cap if set.
+        if let Some(cap) = get_personal_cap(&env, campaign_id, &contributor) {
+            if current + amount > cap {
+                return Err(Error::ContributionCapExceeded);
+            }
+        }
+
+        // Anomaly detection: Huge single contribution (> 50% of goal)
+        if amount * 10000 > campaign.funding_goal * AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD {
+            env.storage().instance().set(&DataKey::Paused, &true);
+            env.events()
+                .publish(("auto_paused",), ("huge_contribution", amount));
+            return Ok(());
+        }
+
+        // Anomaly detection: Burst (> 10 tx/block)
+        let current_ledger = env.ledger().sequence();
+        let (last_ledger, mut block_count) = get_block_contribution_count(&env);
+        if current_ledger == last_ledger {
+            block_count += 1;
+        } else {
+            block_count = 1;
+        }
+        set_block_contribution_count(&env, current_ledger, block_count);
+
+        if block_count > AUTO_PAUSE_BURST_THRESHOLD {
+            env.storage().instance().set(&DataKey::Paused, &true);
+            env.events()
+                .publish(("auto_paused",), ("burst", block_count));
+            return Ok(());
         }
 
         bump_instance_ttl(&env);
@@ -289,6 +328,9 @@ impl ProofOfHeart {
         campaign.amount_raised += amount;
         set_campaign(&env, campaign_id, &campaign);
         set_contribution(&env, campaign_id, &contributor, current + amount);
+
+        let total_raised = get_total_raised_global(&env);
+        set_total_raised_global(&env, total_raised + amount);
 
         env.events()
             .publish(("contribution_made", campaign_id, contributor), amount);
@@ -333,6 +375,9 @@ impl ProofOfHeart {
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+
+        let total_raised = get_total_raised_global(&env);
+        set_total_raised_global(&env, total_raised - campaign.amount_raised);
 
         let admin_addr = get_admin(&env);
         let client = Self::token_client(&env);
@@ -483,6 +528,9 @@ impl ProofOfHeart {
 
         bump_instance_ttl(&env);
         set_contribution(&env, campaign_id, &contributor, 0);
+
+        let total_raised = get_total_raised_global(&env);
+        set_total_raised_global(&env, total_raised - amount);
 
         let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -752,10 +800,43 @@ impl ProofOfHeart {
 
     /// Returns the total number of campaigns created.
     pub fn get_campaign_count(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::CampaignCount)
-            .unwrap_or(0)
+        get_campaign_count(&env)
+    }
+
+    /// Returns the total amount raised across all campaigns.
+    pub fn get_total_raised_global(env: Env) -> i128 {
+        get_total_raised_global(&env)
+    }
+
+    /// Returns a paginated list of campaigns owned by a specific creator.
+    pub fn get_creator_campaigns(
+        env: Env,
+        creator: Address,
+        start: u32,
+        limit: u32,
+    ) -> soroban_sdk::Vec<Campaign> {
+        let ids = get_creator_campaign_ids(&env, &creator);
+        let mut campaigns = soroban_sdk::Vec::new(&env);
+
+        if start >= ids.len() || limit == 0 {
+            return campaigns;
+        }
+
+        let end = if start + limit > ids.len() {
+            ids.len()
+        } else {
+            start + limit
+        };
+
+        for i in start..end {
+            if let Some(campaign_id) = ids.get(i) {
+                if let Some(campaign) = get_campaign(&env, campaign_id) {
+                    campaigns.push_back(campaign);
+                }
+            }
+        }
+
+        campaigns
     }
 
     /// Gets the contributor's contribution amount for a specific campaign.
@@ -797,6 +878,36 @@ impl ProofOfHeart {
         set_platform_fee(&env, valid_fee);
         env.events().publish(("fee_updated",), (old_fee, valid_fee));
         Ok(())
+    }
+
+    /// Sets a personal contribution cap for a specific campaign.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - The ID of the campaign.
+    /// * `contributor` - The address of the contributor setting the cap.
+    /// * `amount` - The maximum lifetime contribution amount for this campaign.
+    ///
+    /// # Authorization
+    /// Requires `contributor.require_auth()`.
+    pub fn set_personal_cap(
+        env: Env,
+        campaign_id: u32,
+        contributor: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        contributor.require_auth();
+        if amount < 0 {
+            return Err(Error::ValidationFailed);
+        }
+        let _campaign = get_campaign_or_error(&env, campaign_id)?;
+        bump_instance_ttl(&env);
+        set_personal_cap(&env, campaign_id, &contributor, amount);
+        Ok(())
+    }
+
+    /// Gets the personal contribution cap for a contributor on a campaign.
+    pub fn get_personal_cap(env: Env, campaign_id: u32, contributor: Address) -> i128 {
+        get_personal_cap(&env, campaign_id, &contributor).unwrap_or(0)
     }
 
     /// Transfers admin privileges to a new address.
@@ -968,6 +1079,18 @@ impl ProofOfHeart {
 
         bump_instance_ttl(&env);
         let old_creator = campaign.creator.clone();
+
+        // Update creator lists
+        let mut old_ids = get_creator_campaign_ids(&env, &old_creator);
+        if let Some(index) = old_ids.first_index_of(campaign_id) {
+            old_ids.remove(index);
+            set_creator_campaign_ids(&env, &old_creator, &old_ids);
+        }
+
+        let mut new_ids = get_creator_campaign_ids(&env, &pending);
+        new_ids.push_back(campaign_id);
+        set_creator_campaign_ids(&env, &pending, &new_ids);
+
         campaign.creator = pending.clone();
         campaign.pending_creator = MaybePendingCreator::None;
 
