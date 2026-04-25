@@ -1885,7 +1885,6 @@ fn test_revenue_lifecycle_e2e() {
     );
 }
 
-
 #[test]
 fn test_total_raised_global_tracking() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
@@ -2750,4 +2749,3 @@ fn test_vote_on_nonexistent_campaign() {
     let res = client.try_vote_on_campaign(&999, &contributor1, &true);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
-
