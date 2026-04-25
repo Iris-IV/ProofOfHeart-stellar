@@ -6,6 +6,33 @@ use soroban_sdk::{
     Address, Env, IntoVal, String, Symbol,
 };
 
+/// Test helper: build `CreateCampaignParams` with the same positional convention
+/// the old 9-argument `create_campaign` used, keeping test bodies readable.
+#[allow(clippy::too_many_arguments)]
+fn make_params(
+    creator: Address,
+    title: String,
+    description: String,
+    funding_goal: i128,
+    duration_days: u64,
+    category: Category,
+    has_revenue_sharing: bool,
+    revenue_share_percentage: u32,
+    max_contribution_per_user: i128,
+) -> CreateCampaignParams {
+    CreateCampaignParams {
+        creator,
+        title,
+        description,
+        funding_goal,
+        duration_days,
+        category,
+        has_revenue_sharing,
+        revenue_share_percentage,
+        max_contribution_per_user,
+    }
+}
+
 fn setup_env<'a>() -> (
     Env,
     Address,
@@ -59,70 +86,70 @@ fn test_create_and_validation() {
     let title = String::from_str(&env, "Science Book");
     let desc = String::from_str(&env, "Teaching science to kids");
 
-    let res = client.try_create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &0,
-        &30,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        0,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalMustBePositive);
 
     // Test duration validation
-    let res = client.try_create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &500,
-        &0,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        500,
+        0,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
-    let res = client.try_create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &500,
-        &400,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        500,
+        400,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
-    let res = client.try_create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &500,
-        &30,
-        &Category::Educator,
-        &true,
-        &1000,
-        &0i128,
-    );
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        500,
+        30,
+        Category::Educator,
+        true,
+        1000,
+        0i128,
+    ));
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueShareOnlyForStartup);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &2000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &1500,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        2000,
+        30,
+        Category::EducationalStartup,
+        true,
+        1500,
+        0i128,
+    ));
     assert_eq!(campaign_id, 1);
 
     let campaign = client.get_campaign(&campaign_id);
@@ -140,17 +167,17 @@ fn test_contribute_and_withdraw_success() {
 
     let title = String::from_str(&env, "Code Camp");
     let desc = String::from_str(&env, "Learn Rust");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -176,17 +203,17 @@ fn test_creator_cannot_contribute_to_own_campaign() {
 
     let title = String::from_str(&env, "Self Funding Block");
     let desc = String::from_str(&env, "Creator should not contribute");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_contribute(&campaign_id, &creator, &100);
@@ -203,17 +230,17 @@ fn test_cancel_and_refund() {
 
     let title = String::from_str(&env, "Failed Idea");
     let desc = String::from_str(&env, "Desc");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &5000,
-        &10,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -240,17 +267,17 @@ fn test_claim_refund_requires_contributor_auth() {
 
     let title = String::from_str(&env, "Auth Refund");
     let desc = String::from_str(&env, "Only contributor can claim");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &5000,
-        &10,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -288,17 +315,17 @@ fn test_pull_based_revenue_distribution() {
 
     let title = String::from_str(&env, "Next Gen AI");
     let desc = String::from_str(&env, "Build AI");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &2000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        2000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -337,17 +364,17 @@ fn test_failure_states() {
     let title = String::from_str(&env, "Deadline Test");
     let desc = String::from_str(&env, "Desc");
     let duration_days = 2;
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &duration_days,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        duration_days,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_withdraw_funds(&campaign_id);
@@ -394,47 +421,47 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
 
     let c1_title = String::from_str(&env, "Campaign 1");
     let c1_desc = String::from_str(&env, "Educator campaign");
-    let campaign_1 = client.create_campaign(
-        &creator1,
-        &c1_title,
-        &c1_desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_1 = client.create_campaign(&make_params(
+        creator1.clone(),
+        c1_title.clone(),
+        c1_desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_1);
 
     let c2_title = String::from_str(&env, "Campaign 2");
     let c2_desc = String::from_str(&env, "Learner campaign");
-    let campaign_2 = client.create_campaign(
-        &creator2,
-        &c2_title,
-        &c2_desc,
-        &1500,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_2 = client.create_campaign(&make_params(
+        creator2.clone(),
+        c2_title.clone(),
+        c2_desc.clone(),
+        1500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_2);
 
     let c3_title = String::from_str(&env, "Campaign 3");
     let c3_desc = String::from_str(&env, "Startup campaign");
-    let campaign_3 = client.create_campaign(
-        &creator3,
-        &c3_title,
-        &c3_desc,
-        &2000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &1500,
-        &0i128,
-    );
+    let campaign_3 = client.create_campaign(&make_params(
+        creator3.clone(),
+        c3_title.clone(),
+        c3_desc.clone(),
+        2000,
+        30,
+        Category::EducationalStartup,
+        true,
+        1500,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_3);
 
     assert_eq!(campaign_1, 1);
@@ -511,17 +538,17 @@ fn test_double_refund_prevention() {
 
     let title = String::from_str(&env, "Double Refund");
     let desc = String::from_str(&env, "Test double refund");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &5000,
-        &10,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -551,17 +578,17 @@ fn test_admin_verify_campaign_success() {
 
     let title = String::from_str(&env, "Admin Verification");
     let desc = String::from_str(&env, "Admin verifies campaign");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
 
     client.verify_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
@@ -575,17 +602,17 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 
     let title = String::from_str(&env, "Duplicate Verification");
     let desc = String::from_str(&env, "Cannot verify twice");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
 
     client.verify_campaign(&campaign_id);
     let res = client.try_verify_campaign(&campaign_id);
@@ -604,17 +631,17 @@ fn test_community_voting_verification_success() {
 
     let title = String::from_str(&env, "Community Verified");
     let desc = String::from_str(&env, "Verify by voting");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &true);
@@ -638,17 +665,17 @@ fn test_vote_prevents_double_voting_and_requires_token_holder() {
 
     let title = String::from_str(&env, "Vote Safety");
     let desc = String::from_str(&env, "No duplicate votes");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &500,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
 
@@ -677,17 +704,17 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
     let title1 = String::from_str(&env, "Quorum Campaign");
     let desc1 = String::from_str(&env, "Needs 4 votes");
-    let campaign_id_1 = client.create_campaign(
-        &creator,
-        &title1,
-        &desc1,
-        &700,
-        &30,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id_1 = client.create_campaign(&make_params(
+        creator.clone(),
+        title1.clone(),
+        desc1.clone(),
+        700,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id_1, &contributor1, &true);
     client.vote_on_campaign(&campaign_id_1, &contributor2, &true);
@@ -702,17 +729,17 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
     let title2 = String::from_str(&env, "Threshold Campaign");
     let desc2 = String::from_str(&env, "Fails threshold");
-    let campaign_id_2 = client.create_campaign(
-        &creator,
-        &title2,
-        &desc2,
-        &700,
-        &30,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id_2 = client.create_campaign(&make_params(
+        creator.clone(),
+        title2.clone(),
+        desc2.clone(),
+        700,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id_2, &contributor1, &true);
     client.vote_on_campaign(&campaign_id_2, &contributor2, &true);
@@ -757,17 +784,17 @@ fn test_deadline_boundary() {
     let duration_days = 2;
     let funding_goal = 1000;
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &funding_goal,
-        &duration_days,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        funding_goal,
+        duration_days,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let campaign = client.get_campaign(&campaign_id);
@@ -841,17 +868,17 @@ fn test_revenue_sharing_edge_cases() {
     // 1. Non-revenue campaign: check ValidationFailed
     let title_nr = String::from_str(&env, "No Revenue");
     let desc_nr = String::from_str(&env, "Non-revenue campaign");
-    let campaign_nr = client.create_campaign(
-        &creator,
-        &title_nr,
-        &desc_nr,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_nr = client.create_campaign(&make_params(
+        creator.clone(),
+        title_nr.clone(),
+        desc_nr.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_nr);
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -863,17 +890,17 @@ fn test_revenue_sharing_edge_cases() {
     let title = String::from_str(&env, "Rounding Test");
     let desc = String::from_str(&env, "Test rounding and pool edge cases");
     // 50% revenue share to contributors (5000 bps = max allowed)
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &3,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &5000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        3,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1);
@@ -913,17 +940,17 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     for i in 1u32..=3 {
         let title = String::from_str(&env, "Campaign");
         let desc = String::from_str(&env, "Description");
-        let id = client.create_campaign(
-            &creator,
-            &title,
-            &desc,
-            &1000,
-            &30,
-            &Category::Educator,
-            &false,
-            &0,
-            &0i128,
-        );
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            title.clone(),
+            desc.clone(),
+            1000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
         assert_eq!(id, i);
     }
     assert_eq!(client.get_campaign_count(), 3);
@@ -984,17 +1011,17 @@ fn test_contribution_accounting_invariant() {
 
     let title = String::from_str(&env, "Invariant Campaign");
     let desc = String::from_str(&env, "Accounting invariant check");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &5000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        5000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     // Each contributor makes two separate contributions
@@ -1044,17 +1071,17 @@ fn test_view_functions_error_handling() {
     // Create a valid campaign for relative testing
     let title = String::from_str(&env, "View Test");
     let desc = String::from_str(&env, "Testing view functions");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let stranger = Address::generate(&env);
@@ -1094,17 +1121,17 @@ fn test_update_campaign_description_success() {
 
     token_admin.mint(&contributor1, &10_000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Original Title"),
-        &String::from_str(&env, "Original description"),
-        &1_000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title").clone(),
+        String::from_str(&env, "Original description").clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     // Contribute so amount_raised > 0 (update_campaign would reject this)
@@ -1125,17 +1152,17 @@ fn test_update_campaign_description_success() {
 fn test_update_campaign_description_rejects_cancelled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &1_000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.cancel_campaign(&campaign_id);
@@ -1200,17 +1227,17 @@ fn test_init_cannot_overwrite_after_campaign_created() {
     let (env, admin, creator, _c1, _c2, token, _token_admin, client) = setup_env();
 
     // Advance state: create a campaign so campaign_count > 0
-    let _ = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Test Campaign"),
-        &String::from_str(&env, "Testing init idempotency after state change"),
-        &1_000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let _ = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Test Campaign").clone(),
+        String::from_str(&env, "Testing init idempotency after state change").clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     assert_eq!(client.get_campaign_count(), 1);
 
     // Attempt re-init must still be rejected
@@ -1228,17 +1255,17 @@ fn test_init_cannot_overwrite_after_campaign_created() {
 fn test_update_campaign_description_rejects_empty() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Title"),
-        &String::from_str(&env, "Desc"),
-        &1_000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
@@ -1258,17 +1285,17 @@ fn test_campaign_ownership_transfer_flow() {
     let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
     let new_creator = contributor1;
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Transfer Test"),
-        &String::from_str(&env, "Desc"),
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer Test").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
@@ -1303,17 +1330,17 @@ fn test_campaign_ownership_transfer_flow() {
         }
     );
 
-    let campaign_id_2 = client.create_campaign(
-        &new_creator,
-        &String::from_str(&env, "Cancel Test"),
-        &String::from_str(&env, "Desc"),
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id_2 = client.create_campaign(&make_params(
+        new_creator.clone(),
+        String::from_str(&env, "Cancel Test").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id_2);
     client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
     client.cancel_campaign_transfer(&campaign_id_2);
@@ -1325,17 +1352,17 @@ fn test_campaign_ownership_transfer_flow() {
 fn test_campaign_transfer_validations() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Transfer Guardrails"),
-        &String::from_str(&env, "Desc"),
-        &1000,
-        &30,
-        &Category::Publisher,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer Guardrails").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1000,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
@@ -1391,17 +1418,17 @@ fn test_pause_blocks_state_changing_operations() {
     let desc = String::from_str(&env, "Testing pause functionality");
 
     // Create campaign before pause
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     // Pause
@@ -1409,17 +1436,17 @@ fn test_pause_blocks_state_changing_operations() {
     assert!(client.is_paused());
 
     // Try state-changing operations, should fail
-    let res = client.try_create_campaign(
-        &creator,
-        &String::from_str(&env, "New Campaign"),
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "New Campaign").clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
@@ -1463,17 +1490,17 @@ fn test_contribute_one_second_before_deadline() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Almost Deadline"),
-        &String::from_str(&env, "Desc"),
-        &1000,
-        &1,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Almost Deadline").clone(),
+        String::from_str(&env, "Desc").clone(),
+        1000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let deadline = client.get_campaign(&campaign_id).deadline;
@@ -1500,17 +1527,17 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Early Withdraw"),
-        &String::from_str(&env, "Desc"),
-        &10_000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Early Withdraw").clone(),
+        String::from_str(&env, "Desc").clone(),
+        10_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1527,17 +1554,17 @@ fn test_withdraw_after_deadline_goal_not_met_returns_typed_error() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Late Withdraw"),
-        &String::from_str(&env, "Desc"),
-        &10_000,
-        &1,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Late Withdraw").clone(),
+        String::from_str(&env, "Desc").clone(),
+        10_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1565,17 +1592,17 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Failed Campaign"),
-        &String::from_str(&env, "Desc"),
-        &10_000,
-        &1,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Failed Campaign").clone(),
+        String::from_str(&env, "Desc").clone(),
+        10_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &500);
@@ -1607,17 +1634,17 @@ fn test_no_refund_when_goal_reached() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Successful Campaign"),
-        &String::from_str(&env, "Desc"),
-        &500,
-        &1,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Successful Campaign").clone(),
+        String::from_str(&env, "Desc").clone(),
+        500,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     // Meet the funding goal exactly
@@ -1648,17 +1675,17 @@ fn test_claim_revenue_requires_contributor_auth() {
 
     let title = String::from_str(&env, "Revenue Claim Auth");
     let desc = String::from_str(&env, "Testing claim revenue auth");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &10,
-        &Category::EducationalStartup,
-        &true,
-        &1000, // 10%
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        10,
+        Category::EducationalStartup,
+        true,
+        1000,
+        0i128,
+    ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -1722,17 +1749,17 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
     for i in 0..3 {
         let title = String::from_str(&env, "Campaign");
         let desc = String::from_str(&env, "Desc");
-        let id = client.create_campaign(
-            &creator,
-            &title,
-            &desc,
-            &(1000 + i as i128),
-            &30,
-            &Category::Learner,
-            &false,
-            &0,
-            &0i128,
-        );
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            title.clone(),
+            desc.clone(),
+            1000 + i as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
         assert_eq!(id, (i + 1) as u32);
     }
 
@@ -1753,17 +1780,17 @@ fn test_list_active_campaigns_exclusive_cursor_semantics() {
     for _ in 0..4 {
         let title = String::from_str(&env, "Campaign");
         let desc = String::from_str(&env, "Desc");
-        let _ = client.create_campaign(
-            &creator,
-            &title,
-            &desc,
-            &1000,
-            &30,
-            &Category::Learner,
-            &false,
-            &0,
-            &0i128,
-        );
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            title.clone(),
+            desc.clone(),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
     }
 
     // Cancel campaign id 2 so active listing filters it out.
@@ -1794,17 +1821,17 @@ fn test_revenue_lifecycle_e2e() {
         &env,
         "Full lifecycle test: create, fund, withdraw, deposit revenue, claim",
     );
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &6000, // funding goal
-        &30,   // duration in days
-        &Category::EducationalStartup,
-        &true,  // has revenue sharing
-        &2000,  // revenue_share_percentage = 20% (basis points)
-        &0i128, // no per-user cap
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        6000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
 
     // Verify campaign so contributions are allowed
     let _ = client.try_verify_campaign(&campaign_id);
@@ -1895,32 +1922,32 @@ fn test_total_raised_global_tracking() {
 
     let title1 = String::from_str(&env, "Campaign 1");
     let desc1 = String::from_str(&env, "First");
-    let c1 = client.create_campaign(
-        &creator,
-        &title1,
-        &desc1,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        title1.clone(),
+        desc1.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&c1);
 
     let title2 = String::from_str(&env, "Campaign 2");
     let desc2 = String::from_str(&env, "Second");
-    let c2 = client.create_campaign(
-        &creator,
-        &title2,
-        &desc2,
-        &2000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        title2.clone(),
+        desc2.clone(),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&c2);
 
     // Initial total raised should be 0
@@ -1955,31 +1982,31 @@ fn test_creator_campaigns_listing_and_transfer() {
 
     let title1 = String::from_str(&env, "Campaign 1");
     let desc1 = String::from_str(&env, "First");
-    let id1 = client.create_campaign(
-        &creator1,
-        &title1,
-        &desc1,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let id1 = client.create_campaign(&make_params(
+        creator1.clone(),
+        title1.clone(),
+        desc1.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
 
     let title2 = String::from_str(&env, "Campaign 2");
     let desc2 = String::from_str(&env, "Second");
-    let id2 = client.create_campaign(
-        &creator1,
-        &title2,
-        &desc2,
-        &2000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let id2 = client.create_campaign(&make_params(
+        creator1.clone(),
+        title2.clone(),
+        desc2.clone(),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Check creator1 list
     let list1 = client.get_creator_campaigns(&creator1, &0, &10);
@@ -2024,17 +2051,17 @@ fn test_personal_cap_enforcement() {
     let desc = String::from_str(&env, "Testing caps");
 
     // Campaign cap = 1000
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &5000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &1000i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        5000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1000i128,
+    ));
     client.verify_campaign(&campaign_id);
 
     // Scenario 1: Personal cap = 500 (lower than campaign cap)
@@ -2064,17 +2091,17 @@ fn test_anomaly_auto_pause_huge_contribution() {
 
     let title = String::from_str(&env, "Science Book");
     let desc = String::from_str(&env, "Teaching science to kids");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &2000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
 
     // Contribution > 200% of goal (2000 * 2.0 = 4000). Try 4001.
@@ -2102,17 +2129,17 @@ fn test_anomaly_auto_pause_burst() {
 
     let title = String::from_str(&env, "Burst Test");
     let desc = String::from_str(&env, "Testing burst");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &2000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
 
     // Make 10 contributions in the same block (threshold is 10)
@@ -2159,17 +2186,17 @@ fn test_deposit_revenue_negative_amount() {
 
     let title = String::from_str(&env, "Startup");
     let desc = String::from_str(&env, "Revenue sharing startup");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
@@ -2188,17 +2215,17 @@ fn test_deposit_revenue_zero_amount() {
 
     let title = String::from_str(&env, "Startup");
     let desc = String::from_str(&env, "Revenue sharing startup");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
@@ -2217,17 +2244,17 @@ fn test_deposit_revenue_without_revenue_sharing() {
 
     let title = String::from_str(&env, "Educator Campaign");
     let desc = String::from_str(&env, "No revenue sharing");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
@@ -2246,17 +2273,17 @@ fn test_deposit_revenue_when_paused() {
 
     let title = String::from_str(&env, "Startup");
     let desc = String::from_str(&env, "Revenue sharing startup");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
@@ -2291,17 +2318,17 @@ fn test_claim_refund_state_mutation_order() {
     let title = String::from_str(&env, "Refund Order Test");
     let desc = String::from_str(&env, "Testing state mutation order");
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &10000,
-        &10,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
 
@@ -2355,17 +2382,17 @@ fn test_claim_refund_multiple_contributors_isolation() {
 
     let title = String::from_str(&env, "Multi Refund Test");
     let desc = String::from_str(&env, "Testing multiple refunds");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &10000,
-        &10,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &2000);
     client.contribute(&campaign_id, &contributor2, &1500);
@@ -2396,17 +2423,17 @@ fn test_claim_refund_expired_campaign() {
     let title = String::from_str(&env, "Expired Campaign");
     let desc = String::from_str(&env, "Will expire");
     let duration_days = 2;
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &10000,
-        &duration_days,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        10000,
+        duration_days,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
 
@@ -2440,17 +2467,17 @@ fn test_vote_on_campaign_basic_flow() {
 
     let title = String::from_str(&env, "Voting Test");
     let desc = String::from_str(&env, "Test voting");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Vote to approve
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2473,17 +2500,17 @@ fn test_vote_on_campaign_double_vote_fails() {
 
     let title = String::from_str(&env, "Double Vote Test");
     let desc = String::from_str(&env, "Test double voting");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
 
@@ -2498,17 +2525,17 @@ fn test_vote_on_campaign_no_tokens_fails() {
 
     let title = String::from_str(&env, "No Token Vote Test");
     let desc = String::from_str(&env, "Test voting without tokens");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Try to vote without tokens
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2526,17 +2553,17 @@ fn test_vote_on_campaign_below_minimum_balance_fails() {
 
     let title = String::from_str(&env, "Min Balance Vote Test");
     let desc = String::from_str(&env, "Test voting with insufficient balance");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Try to vote with balance below minimum
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2551,17 +2578,17 @@ fn test_vote_on_verified_campaign_fails() {
 
     let title = String::from_str(&env, "Already Verified");
     let desc = String::from_str(&env, "Test voting on verified campaign");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Verify campaign
     client.verify_campaign(&campaign_id);
@@ -2579,17 +2606,17 @@ fn test_vote_on_cancelled_campaign_fails() {
 
     let title = String::from_str(&env, "Cancelled Campaign");
     let desc = String::from_str(&env, "Test voting on cancelled campaign");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Cancel campaign
     client.cancel_campaign(&campaign_id);
@@ -2610,17 +2637,17 @@ fn test_vote_on_campaign_token_weighted() {
 
     let title = String::from_str(&env, "Weighted Vote Test");
     let desc = String::from_str(&env, "Test token-weighted voting");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &false);
@@ -2641,17 +2668,17 @@ fn test_verify_campaign_with_votes_quorum_not_met() {
 
     let title = String::from_str(&env, "Quorum Test");
     let desc = String::from_str(&env, "Test quorum requirement");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // Only 1 vote
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2677,17 +2704,17 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
 
     let title = String::from_str(&env, "Threshold Test");
     let desc = String::from_str(&env, "Test approval threshold");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // 2 approve, 1 reject = 66.67% approval (below 80%)
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2715,17 +2742,17 @@ fn test_verify_campaign_with_votes_success() {
 
     let title = String::from_str(&env, "Success Verify Test");
     let desc = String::from_str(&env, "Test successful verification");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
     // 2 approve, 1 reject = 66.67% approval (above 60%)
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -2761,17 +2788,17 @@ fn test_min_voting_balance_threshold_enforcement() {
 
     let title = String::from_str(&env, "Min Balance Vote Test");
     let desc = String::from_str(&env, "Testing minimum voting balance");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
 
     // Set minimum voting balance to 100 tokens
     client.set_min_voting_balance(&admin, &100);
@@ -2794,4 +2821,138 @@ fn test_min_voting_balance_threshold_enforcement() {
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     assert!(client.has_voted(&campaign_id, &contributor1));
     assert_eq!(client.get_approve_votes(&campaign_id), 2);
+}
+
+// ── Tests for #169: withdraw_funds requires is_verified ─────────────────────
+
+#[test]
+fn test_withdraw_funds_requires_verified_campaign() {
+    let (env, _admin, creator, _contributor1, _, _token, token_admin, client) = setup_env();
+
+    let title = String::from_str(&env, "Unverified Campaign");
+    let desc = String::from_str(&env, "Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Seed the contract with tokens and manipulate storage directly to simulate
+    // a funded but unverified campaign — the defense-in-depth guard in
+    // withdraw_funds must catch this even though contribute also enforces it.
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    token_admin.mint(&contract_id, &1500);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.amount_raised = 1500;
+        // Explicitly keep is_verified = false
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+
+    // withdraw_funds should fail because campaign is not verified
+    let result = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::CampaignNotVerified);
+}
+
+#[test]
+fn test_withdraw_funds_succeeds_when_verified() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Verified Campaign");
+    let desc = String::from_str(&env, "Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1500);
+
+    // Should succeed now that campaign is verified
+    assert!(client.try_withdraw_funds(&campaign_id).is_ok());
+}
+
+// ── Tests for #188: revenue_share_percentage normalised to 0 ────────────────
+
+#[test]
+fn test_revenue_share_percentage_normalised_to_zero_when_disabled() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "No Revenue Campaign");
+    let desc = String::from_str(&env, "Description");
+    // Pass a non-zero percentage with has_revenue_sharing=false
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        12345,
+        0i128,
+    ));
+
+    let campaign = client.get_campaign(&campaign_id);
+    // The stored percentage must be 0 regardless of what was passed
+    assert_eq!(campaign.revenue_share_percentage, 0);
+    assert!(!campaign.has_revenue_sharing);
+}
+
+#[test]
+fn test_revenue_share_above_max_rejected_even_without_flag() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "Bad Revenue");
+    let desc = String::from_str(&env, "Description");
+    // Pass a percentage above REVENUE_SHARE_MAX_BPS (5000) with flag=false
+    // After normalisation to 0, the > REVENUE_SHARE_MAX_BPS check passes (0 <= 5000).
+    // This confirms the normalisation happens before the validation.
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        9999,
+        0i128,
+    ));
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.revenue_share_percentage, 0);
+}
+
+#[test]
+fn test_revenue_share_with_flag_true_above_max_rejected() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "Too High Revenue");
+    let desc = String::from_str(&env, "Description");
+    let result = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5001,
+        0i128,
+    ));
+    assert_eq!(result.unwrap_err().unwrap(), Error::InvalidRevenueShare);
 }
