@@ -1952,11 +1952,11 @@ fn test_description_length_boundaries() {
     assert!(res.is_ok(), "description of length 1 should be valid");
 
     // Length 1000: must succeed (exactly at the upper bound)
-    let desc_1000: std::string::String = std::iter::repeat('a').take(1000).collect();
+    let desc_1000 = "a".repeat(1000);
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
         title.clone(),
-        String::from_str(&env, desc_1000.as_str()),
+        String::from_str(&env, &desc_1000),
         1000,
         30,
         Category::Educator,
@@ -1967,11 +1967,11 @@ fn test_description_length_boundaries() {
     assert!(res.is_ok(), "description of length 1000 should be valid");
 
     // Length 1001: must fail ValidationFailed (one over the upper bound)
-    let desc_1001: std::string::String = std::iter::repeat('a').take(1001).collect();
+    let desc_1001 = "a".repeat(1001);
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
         title.clone(),
-        String::from_str(&env, desc_1001.as_str()),
+        String::from_str(&env, &desc_1001),
         1000,
         30,
         Category::Educator,
