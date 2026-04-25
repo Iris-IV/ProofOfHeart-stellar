@@ -123,6 +123,23 @@ Emitted when a creator claims their retained share of the revenue pool.
 
 ### Voting & Verification Events
 
+#### `campaign_vote_cast`
+Emitted when a token-holding voter casts an approve or reject vote on a campaign.
+
+- **Topics**: `["campaign_vote_cast", campaign_id, voter_address]`
+- **Data**: `approve` (bool — `true` = approve, `false` = reject)
+- **Emitted By**: `vote_on_campaign()`
+- **Indexing Tip**: Filter by `campaign_id` to tally live vote counts, or by `voter_address` to audit a voter's history.
+
+**Sample payload**:
+```json
+{
+  "type": "contract",
+  "topics": ["campaign_vote_cast", 42, "GVOTER...ADDRESS"],
+  "data": true
+}
+```
+
 #### `voting_params_updated`
 Emitted when voting parameters are updated by the admin.
 
