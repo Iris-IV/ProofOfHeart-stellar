@@ -149,9 +149,19 @@ impl ProofOfHeart {
         set_version(&env, CONTRACT_VERSION);
         set_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
         set_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+        set_withdraw_release_delay_days(&env, 0);
+        set_withdraw_reserve_percentage(&env, 0);
 
-        env.events()
-            .publish(("initialized", admin.clone()), (token.clone(), valid_fee));
+        env.events().publish(
+            ("initialized", admin.clone()),
+            (
+                token.clone(),
+                valid_fee,
+                voting::DEFAULT_MIN_VOTES_QUORUM,
+                voting::DEFAULT_APPROVAL_THRESHOLD_BPS,
+                CONTRACT_VERSION,
+            ),
+        );
         Ok(())
     }
 
@@ -416,11 +426,31 @@ impl ProofOfHeart {
         bump_instance_ttl(&env);
         let platform_fee = get_platform_fee(&env);
         let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
-        let creator_amount = campaign.amount_raised - fee_amount;
+        let total_after_fee = campaign.amount_raised - fee_amount;
+
+        let reserve_bps = get_withdraw_reserve_percentage(&env);
+        let reserve_amount = (total_after_fee * (reserve_bps as i128)) / 10000;
+        let creator_amount = total_after_fee - reserve_amount;
 
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+
+        if reserve_amount > 0 {
+            let delay_days = get_withdraw_release_delay_days(&env);
+            let release_timestamp = env
+                .ledger()
+                .timestamp()
+                .checked_add(delay_days * 86400)
+                .ok_or(Error::Overflow)?;
+
+            let reserve = CampaignReserve {
+                amount: reserve_amount,
+                release_timestamp,
+                released: false,
+            };
+            set_campaign_reserve(&env, campaign_id, &reserve);
+        }
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised - campaign.amount_raised);
@@ -439,6 +469,66 @@ impl ProofOfHeart {
             ("withdrawal", campaign_id, campaign.creator.clone()),
             creator_amount,
         );
+
+        if reserve_amount > 0 {
+            env.events()
+                .publish(("reserve_withheld", campaign_id), reserve_amount);
+        }
+
+        Ok(())
+    }
+
+    /// Releases the held reserve funds to the campaign creator after the delay.
+    pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
+        let mut reserve = get_campaign_reserve(&env, campaign_id).ok_or(Error::NoFundsToWithdraw)?;
+        if reserve.released {
+            return Err(Error::FundsAlreadyWithdrawn);
+        }
+        if env.ledger().timestamp() < reserve.release_timestamp {
+            return Err(Error::ValidationFailed);
+        }
+
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        campaign.creator.require_auth();
+
+        reserve.released = true;
+        set_campaign_reserve(&env, campaign_id, &reserve);
+
+        let client = Self::token_client(&env);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &reserve.amount,
+        );
+
+        env.events().publish(
+            ("reserve_released", campaign_id, campaign.creator),
+            reserve.amount,
+        );
+
+        Ok(())
+    }
+
+    /// Updates the global withdrawal vesting parameters.
+    pub fn set_vesting_params(
+        env: Env,
+        admin: Address,
+        delay_days: u64,
+        reserve_bps: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        if reserve_bps > 10000 || delay_days > 365 {
+            return Err(Error::ValidationFailed);
+        }
+
+        set_withdraw_release_delay_days(&env, delay_days);
+        set_withdraw_reserve_percentage(&env, reserve_bps);
+
+        env.events()
+            .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
 
         Ok(())
     }
@@ -1079,7 +1169,7 @@ impl ProofOfHeart {
         set_admin(&env, &pending_admin);
         remove_pending_admin(&env);
         env.events()
-            .publish(("admin_updated",), (old_admin, pending_admin));
+            .publish(("admin_updated", old_admin), pending_admin);
 
         Ok(())
     }
@@ -1450,5 +1540,7 @@ mod revenue_share_proptest;
 mod test;
 #[cfg(test)]
 mod update_admin_test;
+#[cfg(test)]
+mod vesting_test;
 #[cfg(test)]
 mod voting_proptest;

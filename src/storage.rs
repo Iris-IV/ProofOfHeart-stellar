@@ -69,8 +69,12 @@ pub enum DataKey {
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
     BlockContributionCount,
-    /// Total number of distinct contributors for a campaign.
-    ContributorCount(u32),
+    /// Delay in days before the reserve can be released.
+    WithdrawReleaseDelayDays,
+    /// Percentage of funds held in reserve (basis points).
+    WithdrawReservePercentage,
+    /// Held reserve for a campaign, keyed by campaign ID.
+    CampaignReserve(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -513,39 +517,45 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
 }
-// ── Contributor count ────────────────────────────────────────────────────────
 
-/// Returns the total number of contributors for a campaign.
-/// Incremented on first contribution, reset to 0 on full refund.
-pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
-    let key = DataKey::ContributorCount(campaign_id);
+// ── Withdrawal Vesting ───────────────────────────────────────────────────────
+use crate::types::CampaignReserve;
+
+pub fn get_withdraw_release_delay_days(env: &Env) -> u64 {
     env.storage()
-        .persistent()
-        .get(&key)
+        .instance()
+        .get(&DataKey::WithdrawReleaseDelayDays)
         .unwrap_or(0)
 }
 
-/// Stores the total number of contributors for a campaign.
-pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
-    let key = DataKey::ContributorCount(campaign_id);
+pub fn set_withdraw_release_delay_days(env: &Env, days: u64) {
     env.storage()
-        .persistent()
-        .set(&key, &count);
+        .instance()
+        .set(&DataKey::WithdrawReleaseDelayDays, &days);
+}
+
+pub fn get_withdraw_reserve_percentage(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::WithdrawReservePercentage)
+        .unwrap_or(0)
+}
+
+pub fn set_withdraw_reserve_percentage(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawReservePercentage, &bps);
+}
+
+pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReserve> {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().set(&key, reserve);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-}
-
-/// Increments the contributor count (only if first contribution).
-pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
-    let current = get_contributor_count(env, campaign_id);
-    set_contributor_count(env, campaign_id, current + 1);
-}
-
-/// Decrements the contributor count (on full refund).
-pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
-    let current = get_contributor_count(env, campaign_id);
-    if current > 0 {
-        set_contributor_count(env, campaign_id, current - 1);
-    }
 }

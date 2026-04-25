@@ -33,7 +33,7 @@ fn make_params(
     }
 }
 
-fn setup_env<'a>() -> (
+pub(crate) fn setup_env<'a>() -> (
     Env,
     Address,
     Address,

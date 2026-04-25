@@ -755,6 +755,30 @@
                         "val": {
                           "u32": 1
                         }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WithdrawReleaseDelayDays"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u64": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "WithdrawReservePercentage"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
                       }
                     ]
                   }
@@ -1127,6 +1151,15 @@
                 },
                 {
                   "u32": 300
+                },
+                {
+                  "u32": 3
+                },
+                {
+                  "u32": 6000
+                },
+                {
+                  "u32": 1
                 }
               ]
             }
