@@ -1732,9 +1732,11 @@ fn test_set_voting_params_emits_event() {
 
     std::println!("Last event: {:?}", last_event);
 
+    // topics: (symbol, caller)
     let topics = &last_event.1;
-    assert_eq!(topics.len(), 1);
+    assert_eq!(topics.len(), 2);
 
+    // data: (old_quorum, new_quorum, old_threshold, new_threshold)
     let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
     assert_eq!(data_vec.get(0).unwrap(), 3);
     assert_eq!(data_vec.get(1).unwrap(), 5);
@@ -1910,6 +1912,74 @@ fn test_revenue_lifecycle_e2e() {
         !events.is_empty(),
         "contract should have emitted at least one event"
     );
+}
+
+// ── Issue #105 ────────────────────────────────────────────────────────────────
+// Boundary tests: description length values 0, 1, 1000, and 1001.
+#[test]
+fn test_description_length_boundaries() {
+    extern crate std;
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "Title");
+
+    // Length 0: must fail ValidationFailed
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &String::from_str(&env, ""),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Length 1: must succeed (lower bound)
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &String::from_str(&env, "a"),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert!(res.is_ok(), "description of length 1 should be valid");
+
+    // Length 1000: must succeed (exactly at the upper bound)
+    let desc_1000: std::string::String = std::iter::repeat('a').take(1000).collect();
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &String::from_str(&env, desc_1000.as_str()),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert!(res.is_ok(), "description of length 1000 should be valid");
+
+    // Length 1001: must fail ValidationFailed (one over the upper bound)
+    let desc_1001: std::string::String = std::iter::repeat('a').take(1001).collect();
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &String::from_str(&env, desc_1001.as_str()),
+        &1000,
+        &30,
+        &Category::Educator,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
 #[test]
