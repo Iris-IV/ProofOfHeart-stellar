@@ -37,8 +37,18 @@ fn get_campaign_or_error(env: &Env, campaign_id: u32) -> Result<Campaign, Error>
 
 fn get_creator_campaign(env: &Env, campaign_id: u32) -> Result<Campaign, Error> {
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    campaign.creator.require_auth();
+    assert_creator(&campaign)?;
     Ok(campaign)
+}
+
+/// Asserts that the campaign's creator is the authorized caller.
+///
+/// Centralises creator authorization so every creator-gated entrypoint uses
+/// the same check and future changes (e.g., adding role delegation) only need
+/// to be made here.
+fn assert_creator(campaign: &Campaign) -> Result<(), Error> {
+    campaign.creator.require_auth();
+    Ok(())
 }
 
 fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
@@ -156,21 +166,21 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `creator.require_auth()`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_campaign(
-        env: Env,
-        creator: Address,
-        title: String,
-        description: String,
-        funding_goal: i128,
-        duration_days: u64,
-        category: Category,
-        has_revenue_sharing: bool,
-        revenue_share_percentage: u32,
-        max_contribution_per_user: i128,
-    ) -> Result<u32, Error> {
-        creator.require_auth();
+    pub fn create_campaign(env: Env, params: CreateCampaignParams) -> Result<u32, Error> {
+        params.creator.require_auth();
         Self::require_not_paused(&env)?;
+
+        let CreateCampaignParams {
+            creator,
+            title,
+            description,
+            funding_goal,
+            duration_days,
+            category,
+            has_revenue_sharing,
+            revenue_share_percentage,
+            max_contribution_per_user,
+        } = params;
 
         if funding_goal <= 0 {
             return Err(Error::FundingGoalMustBePositive);
@@ -190,9 +200,21 @@ impl ProofOfHeart {
             return Err(Error::RevenueShareOnlyForStartup);
         }
 
-        if has_revenue_sharing
-            && (revenue_share_percentage == 0 || revenue_share_percentage > REVENUE_SHARE_MAX_BPS)
-        {
+        // Normalise: force percentage to 0 when revenue sharing is disabled so
+        // the stored (has_revenue_sharing, percentage) pair is always coherent.
+        // This prevents a stored non-zero percentage from being misread later by
+        // any code path that checks the field without first inspecting the flag.
+        let revenue_share_percentage = if !has_revenue_sharing {
+            0u32
+        } else {
+            revenue_share_percentage
+        };
+
+        // Always validate the upper bound regardless of the flag.
+        if revenue_share_percentage > REVENUE_SHARE_MAX_BPS {
+            return Err(Error::InvalidRevenueShare);
+        }
+        if has_revenue_sharing && revenue_share_percentage == 0 {
             return Err(Error::InvalidRevenueShare);
         }
         if max_contribution_per_user < 0 {
@@ -352,6 +374,13 @@ impl ProofOfHeart {
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
+
+        // Defense-in-depth: re-check verification even though `contribute`
+        // already requires it, in case a future code path seeds an unverified
+        // campaign directly (admin grant, migration, etc.).
+        if !campaign.is_verified {
+            return Err(Error::CampaignNotVerified);
+        }
 
         if campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
