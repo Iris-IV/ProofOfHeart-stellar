@@ -1716,6 +1716,70 @@ fn test_set_voting_params_emits_event() {
 }
 
 #[test]
+fn test_list_campaigns_exclusive_cursor_semantics() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for i in 0..3 {
+        let title = String::from_str(&env, "Campaign");
+        let desc = String::from_str(&env, "Desc");
+        let id = client.create_campaign(
+            &creator,
+            &title,
+            &desc,
+            &(1000 + i as i128),
+            &30,
+            &Category::Learner,
+            &false,
+            &0,
+            &0i128,
+        );
+        assert_eq!(id, (i + 1) as u32);
+    }
+
+    let page1 = client.list_campaigns(&0, &2);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap().id, 1);
+    assert_eq!(page1.get(1).unwrap().id, 2);
+
+    let page2 = client.list_campaigns(&2, &2);
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2.get(0).unwrap().id, 3);
+}
+
+#[test]
+fn test_list_active_campaigns_exclusive_cursor_semantics() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for _ in 0..4 {
+        let title = String::from_str(&env, "Campaign");
+        let desc = String::from_str(&env, "Desc");
+        let _ = client.create_campaign(
+            &creator,
+            &title,
+            &desc,
+            &1000,
+            &30,
+            &Category::Learner,
+            &false,
+            &0,
+            &0i128,
+        );
+    }
+
+    // Cancel campaign id 2 so active listing filters it out.
+    client.cancel_campaign(&2);
+
+    let active1 = client.list_active_campaigns(&0, &2);
+    assert_eq!(active1.len(), 2);
+    assert_eq!(active1.get(0).unwrap().id, 1);
+    assert_eq!(active1.get(1).unwrap().id, 3);
+
+    let active2 = client.list_active_campaigns(&3, &2);
+    assert_eq!(active2.len(), 1);
+    assert_eq!(active2.get(0).unwrap().id, 4);
+}
+
+#[test]
 fn test_revenue_lifecycle_e2e() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
