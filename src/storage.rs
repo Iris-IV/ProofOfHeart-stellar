@@ -69,6 +69,8 @@ pub enum DataKey {
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
     BlockContributionCount,
+    /// Total number of distinct contributors for a campaign.
+    ContributorCount(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -510,4 +512,40 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
+}
+// ── Contributor count ────────────────────────────────────────────────────────
+
+/// Returns the total number of contributors for a campaign.
+/// Incremented on first contribution, reset to 0 on full refund.
+pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(0)
+}
+
+/// Stores the total number of contributors for a campaign.
+pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage()
+        .persistent()
+        .set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Increments the contributor count (only if first contribution).
+pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
+    let current = get_contributor_count(env, campaign_id);
+    set_contributor_count(env, campaign_id, current + 1);
+}
+
+/// Decrements the contributor count (on full refund).
+pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+    let current = get_contributor_count(env, campaign_id);
+    if current > 0 {
+        set_contributor_count(env, campaign_id, current - 1);
+    }
 }
