@@ -465,6 +465,7 @@ impl ProofOfHeart {
         description: String,
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
+        require_unverified_campaign(&campaign)?;
 
         if campaign.amount_raised > 0 {
             return Err(Error::ValidationFailed);
@@ -557,7 +558,7 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        set_contribution(&env, campaign_id, &contributor, 0);
+        remove_contribution(&env, campaign_id, &contributor);
         remove_revenue_claimed(&env, campaign_id, &contributor);
 
         let total_raised = get_total_raised_global(&env);
@@ -1083,11 +1084,7 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let end = if start + limit > total_count {
-            total_count
-        } else {
-            start + limit
-        };
+        let end = start.saturating_add(limit).min(total_count);
 
         for id in (start + 1)..=end {
             if let Some(campaign) = get_campaign(&env, id) {
@@ -1220,6 +1217,10 @@ impl ProofOfHeart {
     }
 }
 
+#[cfg(test)]
+mod campaign_transfer_test;
+#[cfg(test)]
+mod pagination_test;
 #[cfg(test)]
 mod revenue_share_proptest;
 #[cfg(test)]

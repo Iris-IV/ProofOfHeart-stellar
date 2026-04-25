@@ -192,6 +192,12 @@ pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amou
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Removes a contributor's contribution record entirely.
+pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::Contribution(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
 // ── Revenue ───────────────────────────────────────────────────────────────────
 
 /// Returns the revenue pool balance for a campaign, extending TTL if non-zero.
