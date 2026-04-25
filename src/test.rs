@@ -2288,17 +2288,17 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10_000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Repeated Deposits"),
-        &String::from_str(&env, "Deposit idempotency"),
-        &1000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Repeated Deposits"),
+        description: String::from_str(&env, "Deposit idempotency"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
@@ -2467,17 +2467,17 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10_000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Refund Cleans Revenue Claim"),
-        &String::from_str(&env, "Ensure RevenueClaimed key is removed"),
-        &5000,
-        &30,
-        &Category::EducationalStartup,
-        &true,
-        &2000,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Refund Cleans Revenue Claim"),
+        description: String::from_str(&env, "Ensure RevenueClaimed key is removed"),
+        funding_goal: 5000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.deposit_revenue(&campaign_id, &1000);
@@ -2668,17 +2668,17 @@ fn test_vote_on_campaign_past_deadline_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &1000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Deadline Vote"),
-        &String::from_str(&env, "Voting deadline gate"),
-        &1000,
-        &1,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Deadline Vote"),
+        description: String::from_str(&env, "Voting deadline gate"),
+        funding_goal: 1000,
+        duration_days: 1,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
 
     let deadline = client.get_campaign(&campaign_id).deadline;
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
@@ -2701,17 +2701,17 @@ fn test_vote_on_campaign_after_withdraw_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &2000);
 
-    let campaign_id = client.create_campaign(
-        &creator,
-        &String::from_str(&env, "Withdrawn Vote"),
-        &String::from_str(&env, "Voting withdrawn gate"),
-        &1000,
-        &30,
-        &Category::Learner,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Withdrawn Vote"),
+        description: String::from_str(&env, "Voting withdrawn gate"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
