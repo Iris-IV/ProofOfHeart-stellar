@@ -109,9 +109,10 @@ impl ProofOfHeart {
         }
         admin.require_auth();
 
-        // Validate token contract by attempting to use it
+        // Validate token contract using metadata read that does not depend on
+        // admin account state/funding on the token ledger.
         let token_client = token::Client::new(&env, &token);
-        let _ = token_client.balance(&admin);
+        let _ = token_client.decimals();
 
         bump_instance_ttl(&env);
         set_admin(&env, &admin);
@@ -864,6 +865,12 @@ impl ProofOfHeart {
         get_min_voting_balance(&env)
     }
 
+    /// List campaigns in ID order.
+    ///
+    /// Pagination semantics:
+    /// - `start` is the last campaign ID already seen (exclusive cursor).
+    /// - pass `start = 0` for the first page.
+    /// - pass the last returned campaign ID as `start` for the next page.
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
         let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);
@@ -887,6 +894,8 @@ impl ProofOfHeart {
         campaigns
     }
 
+    /// List active campaigns using the same exclusive-cursor semantics as
+    /// `list_campaigns` (`start` = last ID already seen).
     pub fn list_active_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
         let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);

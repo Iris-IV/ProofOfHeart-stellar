@@ -73,7 +73,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ```bash
 # Clone the repository
-git clone https://github.com/dmystical-coder/ProofOfHeart-stellar.git
+git clone https://github.com/Iris-IV/ProofOfHeart-stellar.git
 cd ProofOfHeart-stellar
 
 # Build the contract
@@ -111,7 +111,7 @@ ProofOfHeart-stellar/
 
 | Repository | Description |
 | --- | --- |
-| [ProofOfHeart-frontend](https://github.com/dmystical-coder/ProofOfHeart-frontend) | Next.js frontend application |
+| [ProofOfHeart-frontend](https://github.com/Iris-IV/ProofOfHeart-frontend) | Next.js frontend application |
 
 ## Contributing
 
