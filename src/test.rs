@@ -1952,10 +1952,10 @@ fn test_total_raised_global_tracking() {
 #[test]
 fn test_creator_campaigns_listing_and_transfer() {
     let (env, _admin, creator1, _c1, _c2, _token, _token_admin, client) = setup_env();
-    let creator2 = Address.generate(&env);
+    let creator2 = Address::generate(&env);
 
-    let title1 = String.from_str(&env, "Campaign 1");
-    let desc1 = String.from_str(&env, "First");
+    let title1 = String::from_str(&env, "Campaign 1");
+    let desc1 = String::from_str(&env, "First");
     let id1 = client.create_campaign(
         &creator1,
         &title1,
@@ -1968,8 +1968,8 @@ fn test_creator_campaigns_listing_and_transfer() {
         &0i128,
     );
 
-    let title2 = String.from_str(&env, "Campaign 2");
-    let desc2 = String.from_str(&env, "Second");
+    let title2 = String::from_str(&env, "Campaign 2");
+    let desc2 = String::from_str(&env, "Second");
     let id2 = client.create_campaign(
         &creator1,
         &title2,
@@ -2021,8 +2021,8 @@ fn test_personal_cap_enforcement() {
         setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let title = String.from_str(&env, "Cap Test");
-    let desc = String.from_str(&env, "Testing caps");
+    let title = String::from_str(&env, "Cap Test");
+    let desc = String::from_str(&env, "Testing caps");
 
     // Campaign cap = 1000
     let campaign_id = client.create_campaign(
@@ -2063,8 +2063,8 @@ fn test_anomaly_auto_pause_huge_contribution() {
     let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
-    let title = String.from_str(&env, "Science Book");
-    let desc = String.from_str(&env, "Teaching science to kids");
+    let title = String::from_str(&env, "Science Book");
+    let desc = String::from_str(&env, "Teaching science to kids");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2101,8 +2101,8 @@ fn test_anomaly_auto_pause_burst() {
     let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
-    let title = String.from_str(&env, "Burst Test");
-    let desc = String.from_str(&env, "Testing burst");
+    let title = String::from_str(&env, "Burst Test");
+    let desc = String::from_str(&env, "Testing burst");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2158,8 +2158,8 @@ fn test_deposit_revenue_negative_amount() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10000);
 
-    let title = String.from_str(&env, "Startup");
-    let desc = String.from_str(&env, "Revenue sharing startup");
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2187,8 +2187,8 @@ fn test_deposit_revenue_zero_amount() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10000);
 
-    let title = String.from_str(&env, "Startup");
-    let desc = String.from_str(&env, "Revenue sharing startup");
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2216,8 +2216,8 @@ fn test_deposit_revenue_without_revenue_sharing() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10000);
 
-    let title = String.from_str(&env, "Educator Campaign");
-    let desc = String.from_str(&env, "No revenue sharing");
+    let title = String::from_str(&env, "Educator Campaign");
+    let desc = String::from_str(&env, "No revenue sharing");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2235,7 +2235,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
 
     // Try to deposit revenue on non-revenue-sharing campaign
     let res = client.try_deposit_revenue(&campaign_id, &1000);
-    assert_eq!(res.unwrap_err().unwrap(), Error.RevenueSharingNotEnabled);
+    assert_eq!(res.unwrap_err().unwrap(), Error::RevenueSharingNotEnabled);
 }
 
 #[test]
@@ -2245,8 +2245,8 @@ fn test_deposit_revenue_when_paused() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10000);
 
-    let title = String.from_str(&env, "Startup");
-    let desc = String.from_str(&env, "Revenue sharing startup");
+    let title = String::from_str(&env, "Startup");
+    let desc = String::from_str(&env, "Revenue sharing startup");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2289,8 +2289,8 @@ fn test_claim_refund_state_mutation_order() {
 
     token_admin.mint(&contributor1, &5000);
 
-    let title = String.from_str(&env, "Refund Order Test");
-    let desc = String.from_str(&env, "Testing state mutation order");
+    let title = String::from_str(&env, "Refund Order Test");
+    let desc = String::from_str(&env, "Testing state mutation order");
 
     let campaign_id = client.create_campaign(
         &creator,
@@ -2354,8 +2354,8 @@ fn test_claim_refund_multiple_contributors_isolation() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&contributor2, &3000);
 
-    let title = String.from_str(&env, "Multi Refund Test");
-    let desc = String.from_str(&env, "Testing multiple refunds");
+    let title = String::from_str(&env, "Multi Refund Test");
+    let desc = String::from_str(&env, "Testing multiple refunds");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2394,8 +2394,8 @@ fn test_claim_refund_expired_campaign() {
 
     token_admin.mint(&contributor1, &5000);
 
-    let title = String.from_str(&env, "Expired Campaign");
-    let desc = String.from_str(&env, "Will expire");
+    let title = String::from_str(&env, "Expired Campaign");
+    let desc = String::from_str(&env, "Will expire");
     let duration_days = 2;
     let campaign_id = client.create_campaign(
         &creator,
@@ -2440,7 +2440,7 @@ fn test_vote_on_campaign_basic_flow() {
     token_admin.mint(&contributor2, &1000);
 
     let title = String::from_str(&env, "Voting Test");
-    let desc = String.from_str(&env, "Test voting");
+    let desc = String::from_str(&env, "Test voting");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2473,7 +2473,7 @@ fn test_vote_on_campaign_double_vote_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let title = String::from_str(&env, "Double Vote Test");
-    let desc = String.from_str(&env, "Test double voting");
+    let desc = String::from_str(&env, "Test double voting");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2498,7 +2498,7 @@ fn test_vote_on_campaign_no_tokens_fails() {
     let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
 
     let title = String::from_str(&env, "No Token Vote Test");
-    let desc = String.from_str(&env, "Test voting without tokens");
+    let desc = String::from_str(&env, "Test voting without tokens");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2526,7 +2526,7 @@ fn test_vote_on_campaign_below_minimum_balance_fails() {
     client.set_min_voting_balance(&admin, &500);
 
     let title = String::from_str(&env, "Min Balance Vote Test");
-    let desc = String.from_str(&env, "Test voting with insufficient balance");
+    let desc = String::from_str(&env, "Test voting with insufficient balance");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2551,7 +2551,7 @@ fn test_vote_on_verified_campaign_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let title = String::from_str(&env, "Already Verified");
-    let desc = String.from_str(&env, "Test voting on verified campaign");
+    let desc = String::from_str(&env, "Test voting on verified campaign");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2578,8 +2578,8 @@ fn test_vote_on_cancelled_campaign_fails() {
 
     token_admin.mint(&contributor1, &1000);
 
-    let title = String.from_str(&env, "Cancelled Campaign");
-    let desc = String.from_str(&env, "Test voting on cancelled campaign");
+    let title = String::from_str(&env, "Cancelled Campaign");
+    let desc = String::from_str(&env, "Test voting on cancelled campaign");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2609,8 +2609,8 @@ fn test_vote_on_campaign_token_weighted() {
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&contributor2, &1000);
 
-    let title = String.from_str(&env, "Weighted Vote Test");
-    let desc = String.from_str(&env, "Test token-weighted voting");
+    let title = String::from_str(&env, "Weighted Vote Test");
+    let desc = String::from_str(&env, "Test token-weighted voting");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2677,7 +2677,7 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
     client.set_voting_params(&admin, &3, &8000);
 
     let title = String::from_str(&env, "Threshold Test");
-    let desc = String.from_str(&env, "Test approval threshold");
+    let desc = String::from_str(&env, "Test approval threshold");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2715,7 +2715,7 @@ fn test_verify_campaign_with_votes_success() {
     client.set_voting_params(&admin, &3, &6000);
 
     let title = String::from_str(&env, "Success Verify Test");
-    let desc = String.from_str(&env, "Test successful verification");
+    let desc = String::from_str(&env, "Test successful verification");
     let campaign_id = client.create_campaign(
         &creator,
         &title,
@@ -2751,4 +2751,3 @@ fn test_vote_on_nonexistent_campaign() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
 
-}
