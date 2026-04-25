@@ -51,6 +51,19 @@ fn assert_creator(campaign: &Campaign) -> Result<(), Error> {
     Ok(())
 }
 
+/// Asserts that `caller` is the stored admin and requires their authorization.
+///
+/// Single source of truth for admin checks — avoids the repeated pattern of
+/// `get_admin` + `require_auth` + inequality guard scattered across entrypoints.
+fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
+    let admin = get_admin(env);
+    if *caller != admin {
+        return Err(Error::NotAuthorized);
+    }
+    caller.require_auth();
+    Ok(())
+}
+
 fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
     if campaign.is_cancelled || !campaign.is_active {
         return Err(Error::CampaignNotActive);
@@ -627,6 +640,9 @@ impl ProofOfHeart {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
 
         require_active_campaign(&campaign)?;
+        if campaign.amount_raised > 0 {
+            return Err(Error::ValidationFailed);
+        }
         if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
             || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
@@ -771,6 +787,10 @@ impl ProofOfHeart {
 
         require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
+        if campaign.revenue_share_percentage > 10000 {
+            return Err(Error::ValidationFailed);
+        }
+
         let total_pool = get_revenue_pool(&env, campaign_id);
         let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
         let creator_share_total = total_pool - contributor_pool;
@@ -815,6 +835,7 @@ impl ProofOfHeart {
         min_votes_quorum: u32,
         approval_threshold_bps: u32,
     ) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
         Self::require_not_paused(&env)?;
         bump_instance_ttl(&env);
         let old_quorum = get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM);
@@ -875,7 +896,7 @@ impl ProofOfHeart {
     /// Requires the stored admin's authorization.
     pub fn pause(env: Env) -> Result<(), Error> {
         let admin = get_admin(&env);
-        admin.require_auth();
+        assert_admin(&env, &admin)?;
         bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(("contract_paused", admin), ());
@@ -888,7 +909,7 @@ impl ProofOfHeart {
     /// Requires the stored admin's authorization.
     pub fn unpause(env: Env) -> Result<(), Error> {
         let admin = get_admin(&env);
-        admin.require_auth();
+        assert_admin(&env, &admin)?;
         bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(("contract_unpaused", admin), ());
