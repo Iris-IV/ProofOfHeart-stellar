@@ -50,13 +50,18 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 ### View Functions
 - `get_campaign` — Retrieve campaign details by ID.
 - `get_contribution` — Check a contributor's amount for a given campaign.
+- `get_lifetime_contribution` — Check a contributor's lifetime amount used for cap enforcement.
 - `get_revenue_pool` — View the total revenue pool for a campaign.
 - `get_revenue_claimed` — Check how much revenue a contributor has already claimed.
+- `get_campaigns_by_category` — List campaigns by category with pagination.
+- `get_platform_stats` — Return aggregate platform metrics.
 
 ## Documentation
 
 - Authorization requirements for every public method: `docs/AUTHORIZATION.md`
 - Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
+- Contribution cap semantics: `docs/CONTRIBUTION_CAP_POLICY.md`
+- Storage TTL behavior: `docs/STORAGE_TTL_POLICY.md`
 
 ## Getting Started
 

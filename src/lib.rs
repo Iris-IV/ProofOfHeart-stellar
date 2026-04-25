@@ -256,6 +256,9 @@ impl ProofOfHeart {
         set_campaign(&env, count, &campaign);
         set_campaign_count(&env, count);
         set_revenue_pool(&env, count, 0);
+        let mut category_campaigns = get_category_campaigns(&env, category);
+        category_campaigns.push_back(count);
+        set_category_campaigns(&env, category, &category_campaigns);
 
         let mut creator_ids = get_creator_campaign_ids(&env, &creator);
         creator_ids.push_back(count);
@@ -309,10 +312,11 @@ impl ProofOfHeart {
         }
 
         let current = get_contribution(&env, campaign_id, &contributor);
+        let lifetime = get_lifetime_contribution(&env, campaign_id, &contributor);
 
-        // Enforce campaign-wide per-contributor cap if set (0 means unlimited).
+        // Enforce campaign-wide per-contributor lifetime cap if set (0 means unlimited).
         if campaign.max_contribution_per_user > 0
-            && current + amount > campaign.max_contribution_per_user
+            && lifetime + amount > campaign.max_contribution_per_user
         {
             return Err(Error::ContributionCapExceeded);
         }
@@ -357,6 +361,7 @@ impl ProofOfHeart {
         campaign.amount_raised += amount;
         set_campaign(&env, campaign_id, &campaign);
         set_contribution(&env, campaign_id, &contributor, current + amount);
+        set_lifetime_contribution(&env, campaign_id, &contributor, lifetime + amount);
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised + amount);
@@ -892,6 +897,11 @@ impl ProofOfHeart {
         get_contribution(&env, campaign_id, &contributor)
     }
 
+    /// Gets the contributor's lifetime (non-decreasing) contribution amount.
+    pub fn get_lifetime_contribution(env: Env, campaign_id: u32, contributor: Address) -> i128 {
+        get_lifetime_contribution(&env, campaign_id, &contributor)
+    }
+
     /// Gets the total revenue pool for a given campaign.
     pub fn get_revenue_pool(env: Env, campaign_id: u32) -> i128 {
         get_revenue_pool(&env, campaign_id)
@@ -1128,6 +1138,74 @@ impl ProofOfHeart {
         }
 
         campaigns
+    }
+
+    pub fn get_campaigns_by_category(
+        env: Env,
+        category: Category,
+        start: u32,
+        limit: u32,
+    ) -> soroban_sdk::Vec<Campaign> {
+        let mut campaigns = soroban_sdk::Vec::new(&env);
+        if limit == 0 {
+            return campaigns;
+        }
+
+        let ids = get_category_campaigns(&env, category);
+        let total = ids.len();
+        if start >= total {
+            return campaigns;
+        }
+
+        let end = if start + limit > total {
+            total
+        } else {
+            start + limit
+        };
+
+        let mut idx = start;
+        while idx < end {
+            let campaign_id = ids.get(idx).unwrap();
+            if let Some(campaign) = get_campaign(&env, campaign_id) {
+                campaigns.push_back(campaign);
+            }
+            idx += 1;
+        }
+
+        campaigns
+    }
+
+    pub fn get_platform_stats(env: Env) -> PlatformStats {
+        let total_campaigns = get_campaign_count(&env);
+        let mut active_campaigns = 0u32;
+        let mut verified_campaigns = 0u32;
+        let mut cancelled_campaigns = 0u32;
+        let mut total_amount_raised = 0i128;
+
+        let mut id = 1u32;
+        while id <= total_campaigns {
+            if let Some(campaign) = get_campaign(&env, id) {
+                if campaign.is_active && !campaign.is_cancelled {
+                    active_campaigns += 1;
+                }
+                if campaign.is_verified {
+                    verified_campaigns += 1;
+                }
+                if campaign.is_cancelled {
+                    cancelled_campaigns += 1;
+                }
+                total_amount_raised += campaign.amount_raised;
+            }
+            id += 1;
+        }
+
+        PlatformStats {
+            total_campaigns,
+            active_campaigns,
+            verified_campaigns,
+            cancelled_campaigns,
+            total_amount_raised,
+        }
     }
 
     /// Initiates a transfer of campaign ownership to a new address.
