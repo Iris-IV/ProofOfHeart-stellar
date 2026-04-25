@@ -26,11 +26,11 @@ pub fn set_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    admin.require_auth();
     let stored_admin = get_admin(env);
     if admin != stored_admin {
         return Err(Error::NotAuthorized);
     }
+    admin.require_auth();
     if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
         return Err(Error::ValidationFailed);
     }
