@@ -67,10 +67,12 @@ pub enum Error {
     Overflow = 30,
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
+    /// Campaign creation is disabled by the admin.
+    CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
-    FundingGoalTooLow = 32,
+    FundingGoalTooLow = 33,
     /// Admin verification was attempted on an already verified campaign.
-    AdminVerificationConflict = 33,
+    AdminVerificationConflict = 34,
     /// Community verification was attempted on an already verified campaign.
-    CommunityVerificationConflict = 34,
+    CommunityVerificationConflict = 35,
 }

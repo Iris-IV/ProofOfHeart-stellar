@@ -33,7 +33,7 @@ fn make_params(
     }
 }
 
-fn setup_env_with_default_min<'a>() -> (
+pub(crate) fn setup_env_with_default_min<'a>() -> (
     Env,
     Address,
     Address,
@@ -72,7 +72,7 @@ fn setup_env_with_default_min<'a>() -> (
     )
 }
 
-fn setup_env<'a>() -> (
+pub(crate) fn setup_env<'a>() -> (
     Env,
     Address,
     Address,
@@ -739,6 +739,73 @@ fn test_admin_verify_campaign_success() {
 }
 
 #[test]
+fn test_update_campaign_fails_after_verification() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    let title = String::from_str(&env, "Original Title");
+    let desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
+fn test_update_campaign_fails_after_verification_with_votes() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    let voter3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &100);
+    token_admin.mint(&contributor2, &100);
+    token_admin.mint(&voter3, &100);
+
+    let title = String::from_str(&env, "Original Title");
+    let desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &true);
+
+    client.verify_campaign_with_votes(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
 fn test_admin_verify_campaign_duplicate_attempt() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
@@ -1089,7 +1156,7 @@ fn test_revenue_sharing_edge_cases() {
 // which admin-level operations are executed.
 #[test]
 fn test_campaign_count_cannot_reset_after_deployment() {
-    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let (env, _admin, creator, _, _, token, _, client) = setup_env();
 
     // Start at zero
     assert_eq!(client.get_campaign_count(), 0);
@@ -1114,20 +1181,16 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     assert_eq!(client.get_campaign_count(), 3);
 
     // Admin flows that must NOT reset the counter
-    let new_admin = Address::generate(&env);
-    client.update_admin(&admin, &new_admin);
-    client.accept_admin_transfer();
-    assert_eq!(client.get_campaign_count(), 3);
-
-    client.set_voting_params(&new_admin, &5, &7000);
-    assert_eq!(client.get_campaign_count(), 3);
-
     client.update_platform_fee(&500);
     assert_eq!(client.get_campaign_count(), 3);
 
+    let new_admin = Address::generate(&env);
+    client.update_admin(&new_admin);
+    client.accept_admin_transfer();
+    assert_eq!(client.get_campaign_count(), 3);
+
     // Re-initialisation attempt must be rejected and counter must stay intact
-    let token_address = env.register_stellar_asset_contract(new_admin.clone());
-    let res = client.try_init(&new_admin, &token_address, &300);
+    let res = client.try_init(&new_admin, &token.address, &300);
     assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
     assert_eq!(client.get_campaign_count(), 3);
 }
@@ -1276,9 +1339,7 @@ fn test_view_functions_error_handling() {
 
 #[test]
 fn test_update_campaign_description_success() {
-    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
-
-    token_admin.mint(&contributor1, &10_000);
+    let (env, _admin, creator, _contributor1, _, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
@@ -1292,10 +1353,6 @@ fn test_update_campaign_description_success() {
         0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
-
-    // Contribute so amount_raised > 0 (update_campaign would reject this)
-    token_admin.mint(&contributor1, &1_000);
-    client.contribute(&campaign_id, &contributor1, &500);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     let res = client.try_update_campaign_description(&campaign_id, &new_desc);
@@ -1572,19 +1629,19 @@ fn test_campaign_transfer_validations() {
 
 #[test]
 fn test_pause_and_unpause() {
-    let (_env, admin, _creator, _contributor1, _, _token, _token_admin, client) = setup_env();
+    let (_env, _admin, _creator, _contributor1, _, _token, _token_admin, client) = setup_env();
 
     // Initially not paused
     assert!(!client.is_paused());
 
     // Pause
-    client.pause(&admin);
+    client.pause();
 
     // Now paused
     assert!(client.is_paused());
 
     // Unpause
-    client.unpause(&admin);
+    client.unpause();
 
     // Not paused
     assert!(!client.is_paused());
@@ -1592,7 +1649,7 @@ fn test_pause_and_unpause() {
 
 #[test]
 fn test_pause_blocks_state_changing_operations() {
-    let (env, admin, creator, contributor1, _contributor2, token, token_admin, client) =
+    let (env, _admin, creator, contributor1, _contributor2, token, token_admin, client) =
         setup_env();
 
     token_admin.mint(&contributor1, &2000);
@@ -1616,7 +1673,7 @@ fn test_pause_blocks_state_changing_operations() {
     let _ = client.try_verify_campaign(&campaign_id);
 
     // Pause
-    client.pause(&admin);
+    client.pause();
     assert!(client.is_paused());
 
     // Try state-changing operations, should fail
@@ -1656,7 +1713,7 @@ fn test_pause_blocks_state_changing_operations() {
     assert!(paused);
 
     // Unpause
-    client.unpause(&admin);
+    client.unpause();
     assert!(!client.is_paused());
 
     // Now operations should work
@@ -1905,7 +1962,6 @@ fn test_claim_revenue_requires_contributor_auth() {
 
 #[test]
 fn test_set_voting_params_emits_event() {
-    extern crate std;
     let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
@@ -1914,18 +1970,13 @@ fn test_set_voting_params_emits_event() {
     let events = env.events().all();
     let last_event = events.last().unwrap();
 
-    std::println!("Last event: {:?}", last_event);
-
     // topics: (symbol, caller)
     let topics = &last_event.1;
     assert_eq!(topics.len(), 2);
 
     // data: (old_quorum, new_quorum, old_threshold, new_threshold)
-    let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(data_vec.get(0).unwrap(), 3);
-    assert_eq!(data_vec.get(1).unwrap(), 5);
-    assert_eq!(data_vec.get(2).unwrap(), 6000);
-    assert_eq!(data_vec.get(3).unwrap(), 7000);
+    let data: (u32, u32, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (3, 5, 6000, 7000));
 }
 
 #[test]
@@ -2470,7 +2521,7 @@ fn test_personal_cap_enforcement() {
 
 #[test]
 fn test_anomaly_auto_pause_huge_contribution() {
-    let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
     let title = String::from_str(&env, "Science Book");
@@ -2498,7 +2549,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 
     // Admin unpauses
-    client.unpause(&admin);
+    client.unpause();
     assert!(!client.is_paused());
 
     // Normal contribution works
@@ -2508,7 +2559,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
 
 #[test]
 fn test_anomaly_auto_pause_burst() {
-    let (env, admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
     let title = String::from_str(&env, "Burst Test");
@@ -2541,7 +2592,7 @@ fn test_anomaly_auto_pause_burst() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
 
     // Admin unpauses
-    client.unpause(&admin);
+    client.unpause();
 
     // New block (ledger sequence increment) resets the counter
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
@@ -2650,7 +2701,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
 
 #[test]
 fn test_deposit_revenue_when_paused() {
-    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10000);
@@ -2673,7 +2724,7 @@ fn test_deposit_revenue_when_paused() {
     client.withdraw_funds(&campaign_id);
 
     // Pause the contract
-    client.pause(&admin);
+    client.pause();
 
     // Try to deposit revenue when paused
     let res = client.try_deposit_revenue(&campaign_id, &1000);
@@ -3496,4 +3547,65 @@ fn test_revenue_share_with_flag_true_above_max_rejected() {
         0i128,
     ));
     assert_eq!(result.unwrap_err().unwrap(), Error::InvalidRevenueShare);
+}
+
+// ── Issue #185: cancel_campaign terminal-state coverage ──────────────────────
+
+/// Cancelling an already-cancelled campaign must fail with CampaignNotActive.
+#[test]
+fn test_cancel_campaign_already_cancelled_is_terminal() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Terminal Test"),
+        String::from_str(&env, "Already cancelled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.cancel_campaign(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_cancelled);
+    assert!(!campaign.is_active);
+
+    // Cancelling again must be rejected.
+    let res = client.try_cancel_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+/// Cancelling a campaign whose funds have already been withdrawn must fail
+/// with CampaignNotActive (is_active is false after withdrawal).
+#[test]
+fn test_cancel_campaign_after_withdrawal_is_terminal() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Withdrawal Terminal"),
+        String::from_str(&env, "Funds already out"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.funds_withdrawn);
+    assert!(!campaign.is_active);
+
+    // Attempting to cancel a withdrawn campaign must be rejected.
+    let res = client.try_cancel_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }

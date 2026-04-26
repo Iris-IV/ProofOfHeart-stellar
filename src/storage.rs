@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::types::{Campaign, Category};
+use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -71,7 +71,15 @@ pub enum DataKey {
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
     BlockContributionCount,
-    /// Total number of distinct contributors for a campaign.
+    /// Delay in days before the reserve can be released.
+    WithdrawReleaseDelayDays,
+    /// Percentage of funds held in reserve (basis points).
+    WithdrawReservePercentage,
+    /// Held reserve for a campaign, keyed by campaign ID.
+    CampaignReserve(u32),
+    /// Whether campaign creation is disabled.
+    CreationDisabled,
+    /// Contributor count for a campaign.
     ContributorCount(u32),
 }
 
@@ -222,6 +230,33 @@ pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
 pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::Contribution(campaign_id, contributor.clone());
     env.storage().persistent().remove(&key);
+}
+
+// ── Contributor count ───────────────────────────────────────────────────────────
+
+pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
+    let count = get_contributor_count(env, campaign_id);
+    set_contributor_count(env, campaign_id, count + 1);
+}
+
+pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+    let count = get_contributor_count(env, campaign_id);
+    if count > 0 {
+        set_contributor_count(env, campaign_id, count - 1);
+    }
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
@@ -530,34 +565,59 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
 }
-// ── Contributor count ────────────────────────────────────────────────────────
 
-/// Returns the total number of contributors for a campaign.
-/// Incremented on first contribution, reset to 0 on full refund.
-pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
-    let key = DataKey::ContributorCount(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+// ── Withdrawal Vesting ───────────────────────────────────────────────────────
+
+pub fn get_withdraw_release_delay_days(env: &Env) -> u64 {
+    env.storage()
+        .instance()
+        .get(&DataKey::WithdrawReleaseDelayDays)
+        .unwrap_or(0)
 }
 
-/// Stores the total number of contributors for a campaign.
-pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
-    let key = DataKey::ContributorCount(campaign_id);
-    env.storage().persistent().set(&key, &count);
+pub fn set_withdraw_release_delay_days(env: &Env, days: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawReleaseDelayDays, &days);
+}
+
+pub fn get_withdraw_reserve_percentage(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::WithdrawReservePercentage)
+        .unwrap_or(0)
+}
+
+pub fn set_withdraw_reserve_percentage(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::WithdrawReservePercentage, &bps);
+}
+
+pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReserve> {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
+    let key = DataKey::CampaignReserve(campaign_id);
+    env.storage().persistent().set(&key, reserve);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Increments the contributor count (only if first contribution).
-pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
-    let current = get_contributor_count(env, campaign_id);
-    set_contributor_count(env, campaign_id, current + 1);
+// ── Creation disabled flag ───────────────────────────────────────────────────
+
+pub fn get_creation_disabled(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::CreationDisabled)
+        .unwrap_or(false)
 }
 
-/// Decrements the contributor count (on full refund).
-pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
-    let current = get_contributor_count(env, campaign_id);
-    if current > 0 {
-        set_contributor_count(env, campaign_id, current - 1);
-    }
+pub fn set_creation_disabled(env: &Env, disabled: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::CreationDisabled, &disabled);
 }

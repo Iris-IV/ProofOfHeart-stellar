@@ -100,6 +100,27 @@ test: deadline boundary coverage
 3. Ensure CI is green — all four checks in the Code Style section must pass
 4. One issue per PR
 
+## Changelog
+
+Every PR that changes behaviour (bug fix, feature, refactor, security) **must** add a bullet under the `[Unreleased]` section of `CHANGELOG.md` before merging.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/):
+
+```markdown
+## [Unreleased]
+
+### Fixed
+- Short description of the fix (#issue-number).
+
+### Added
+- Short description of the new feature (#issue-number).
+
+### Changed / Refactored
+- Short description of the change (#issue-number).
+```
+
+Pure documentation or tooling PRs that do not affect contract behaviour may skip the changelog entry.
+
 ## Issue Labels
 
 | Label | What it means |

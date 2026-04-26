@@ -14,7 +14,7 @@ All events follow the Soroban event format with `topics` and a `data` field. Top
 Emitted when the contract is initialized.
 
 - **Topics**: `["initialized", admin_address]`
-- **Data**: `[token_address, platform_fee_bps]`
+- **Data**: `[token_address, platform_fee_bps, min_quorum, approval_threshold_bps, version]`
 - **Emitted By**: `init()`
 - **Example Usage**: Track contract setup and initial admin/token configuration.
 
@@ -196,8 +196,8 @@ Emitted when the admin updates the minimum funding goal for new campaigns.
 #### `admin_updated`
 Emitted when admin privileges are transferred.
 
-- **Topics**: `["admin_updated"]`
-- **Data**: `(old_admin_address, new_admin_address)`
+- **Topics**: `["admin_updated", current_admin_address]`
+- **Data**: `new_admin_address`
 - **Emitted By**: `update_admin()`
 
 ## Client-Side Indexing Patterns

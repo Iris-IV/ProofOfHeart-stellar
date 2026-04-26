@@ -22,15 +22,10 @@ pub const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 /// * `ValidationFailed` - Quorum or threshold values are out of range.
 pub fn set_params(
     env: &Env,
-    admin: Address,
+    _admin: Address,
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    admin.require_auth();
-    let stored_admin = get_admin(env);
-    if admin != stored_admin {
-        return Err(Error::NotAuthorized);
-    }
     if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
         return Err(Error::ValidationFailed);
     }
