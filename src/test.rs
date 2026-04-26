@@ -739,7 +739,7 @@ fn test_admin_verify_campaign_success() {
 }
 
 #[test]
-fn test_update_campaign_fails_after_verification() {
+fn test_update_campaign_allows_verified_campaign_before_contributions() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
@@ -764,11 +764,15 @@ fn test_update_campaign_fails_after_verification() {
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+    assert!(res.is_ok());
+
+    let updated_campaign = client.get_campaign(&campaign_id);
+    assert_eq!(updated_campaign.title, new_title);
+    assert_eq!(updated_campaign.description, new_desc);
 }
 
 #[test]
-fn test_update_campaign_fails_after_verification_with_votes() {
+fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let voter3 = Address::generate(&env);
@@ -802,7 +806,11 @@ fn test_update_campaign_fails_after_verification_with_votes() {
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+    assert!(res.is_ok());
+
+    let updated_campaign = client.get_campaign(&campaign_id);
+    assert_eq!(updated_campaign.title, new_title);
+    assert_eq!(updated_campaign.description, new_desc);
 }
 
 #[test]
@@ -1497,31 +1505,6 @@ fn test_update_campaign_description_not_found() {
 }
 
 #[test]
-fn test_update_campaign_rejects_verified_campaign_even_before_contributions() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-
-    let campaign_id = client.create_campaign(&make_params(
-        creator.clone(),
-        String::from_str(&env, "Verified title").clone(),
-        String::from_str(&env, "Verified description").clone(),
-        1_000,
-        30,
-        Category::Learner,
-        false,
-        0,
-        0i128,
-    ));
-    client.verify_campaign(&campaign_id);
-
-    let res = client.try_update_campaign(
-        &campaign_id,
-        &String::from_str(&env, "Changed title"),
-        &String::from_str(&env, "Changed description"),
-    );
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
-}
-
-#[test]
 fn test_campaign_ownership_transfer_flow() {
     let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
     let new_creator = contributor1;
@@ -2207,6 +2190,72 @@ fn test_description_length_boundaries() {
         creator.clone(),
         title.clone(),
         String::from_str(&env, &desc_1001),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_title_length_boundaries() {
+    extern crate std;
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let desc = String::from_str(&env, "Description");
+
+    // Length 0: must fail ValidationFailed
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, ""),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Length 1: must succeed (lower bound)
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "a"),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert!(res.is_ok(), "title of length 1 should be valid");
+
+    // Length 100: must succeed (exactly at the upper bound)
+    let title_100 = "a".repeat(100);
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, &title_100),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert!(res.is_ok(), "title of length 100 should be valid");
+
+    // Length 101: must fail ValidationFailed (one over the upper bound)
+    let title_101 = "a".repeat(101);
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, &title_101),
+        desc.clone(),
         1000,
         30,
         Category::Educator,

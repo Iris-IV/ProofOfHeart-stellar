@@ -586,6 +586,8 @@ impl ProofOfHeart {
     }
 
     /// Updates the title and description of a campaign if no contributions have been made yet.
+    /// Verified campaigns are still allowed to update metadata as long as the campaign
+    /// has not received any contributions.
     ///
     /// # Authorization
     /// Requires `creator.require_auth()`.
@@ -596,7 +598,6 @@ impl ProofOfHeart {
         description: String,
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
-        require_unverified_campaign(&campaign)?;
 
         if campaign.amount_raised > 0 {
             return Err(Error::ValidationFailed);
