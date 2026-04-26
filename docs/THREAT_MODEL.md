@@ -15,7 +15,7 @@ This document outlines known security considerations and limitations of the Proo
 4. Attacker votes with Address B (weight: 1,000,000).
 5. The process can be repeated across any number of addresses.
 
-**Mitigation Status**: 
+**Mitigation Status**:
 This is a **known limitation** of the current implementation. A robust fix would require a consistent "ledger snapshot" of token balances at a specific point in time (e.g., campaign creation), which is not natively supported by standard SEP-41 token contracts without a specialized history oracle or custom token logic.
 
 **Risk Management**:

@@ -13,8 +13,8 @@
 //!   (no tokens are lost or created).
 //! * All results remain non-negative.
 
-use proptest::prelude::*;
 use proptest::collection::vec as prop_vec;
+use proptest::prelude::*;
 
 // ── Pure arithmetic helpers ──────────────────────────────────────────────────
 //

@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, Vec};
 
-use crate::types::{Campaign, Category};
+use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -23,6 +23,8 @@ pub enum DataKey {
     Token,
     /// Platform fee in basis points (e.g. 300 = 3%).
     PlatformFee,
+    /// Minimum funding goal required for new campaigns.
+    MinCampaignFundingGoal,
     /// Total number of campaigns ever created.
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
@@ -177,6 +179,21 @@ pub fn set_platform_fee(env: &Env, fee: u32) {
     env.storage().instance().set(&DataKey::PlatformFee, &fee);
 }
 
+/// Returns the minimum funding goal, falling back to `default` if unset.
+pub fn get_min_campaign_funding_goal(env: &Env, default: i128) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MinCampaignFundingGoal)
+        .unwrap_or(default)
+}
+
+/// Stores the minimum funding goal.
+pub fn set_min_campaign_funding_goal(env: &Env, min_goal: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MinCampaignFundingGoal, &min_goal);
+}
+
 // ── Contributions ─────────────────────────────────────────────────────────────
 
 /// Returns a contributor's total contribution to a campaign.
@@ -219,10 +236,7 @@ pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
 
 pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
     let key = DataKey::ContributorCount(campaign_id);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(0)
+    env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
@@ -553,7 +567,6 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
 }
 
 // ── Withdrawal Vesting ───────────────────────────────────────────────────────
-use crate::types::CampaignReserve;
 
 pub fn get_withdraw_release_delay_days(env: &Env) -> u64 {
     env.storage()

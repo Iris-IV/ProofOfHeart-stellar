@@ -25,6 +25,7 @@ Additional derived conditions used by the contract:
   - `verify_campaign` (admin verification), or
   - `verify_campaign_with_votes` (community verification after quorum + threshold).
 - Once verified, contributions are allowed until the deadline, as long as `is_active = true` and `is_cancelled = false`.
+- Re-verification errors are intentionally path-specific: `verify_campaign` returns `AdminVerificationConflict` and `verify_campaign_with_votes` returns `CommunityVerificationConflict` when the campaign is already verified. Voting on an already verified campaign still returns `CampaignAlreadyVerified`.
 - After verification, `update_campaign` is blocked so the verified title/description cannot be changed without re-review.
 
 ### 3) Funded (derived)

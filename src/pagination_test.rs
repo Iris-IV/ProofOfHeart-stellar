@@ -12,6 +12,7 @@ fn setup_env<'a>() -> (Env, Address, Address, ProofOfHeartClient<'a>) {
     let contract_id = env.register_contract(None, ProofOfHeart);
     let client = ProofOfHeartClient::new(&env, &contract_id);
     client.init(&admin, &token_address, &300);
+    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
 
     (env, admin, creator, client)
 }
@@ -67,23 +68,23 @@ fn list_active_campaigns_boundary_cases_and_sparse_results() {
     client.cancel_campaign(&4);
 
     let first_page = client.list_active_campaigns(&0, &2);
-    assert_eq!(first_page.len(), 2);
-    assert_eq!(first_page.get(0).unwrap().id, 1);
-    assert_eq!(first_page.get(1).unwrap().id, 3);
+    assert_eq!(first_page.0.len(), 2);
+    assert_eq!(first_page.0.get(0).unwrap().id, 1);
+    assert_eq!(first_page.0.get(1).unwrap().id, 3);
 
     let sparse_page = client.list_active_campaigns(&1, &2);
-    assert_eq!(sparse_page.len(), 2);
-    assert_eq!(sparse_page.get(0).unwrap().id, 3);
-    assert_eq!(sparse_page.get(1).unwrap().id, 5);
+    assert_eq!(sparse_page.0.len(), 2);
+    assert_eq!(sparse_page.0.get(0).unwrap().id, 3);
+    assert_eq!(sparse_page.0.get(1).unwrap().id, 5);
 
     let all = client.list_active_campaigns(&0, &u32::MAX);
-    assert_eq!(all.len(), 3);
-    assert_eq!(all.get(0).unwrap().id, 1);
-    assert_eq!(all.get(1).unwrap().id, 3);
-    assert_eq!(all.get(2).unwrap().id, 5);
+    assert_eq!(all.0.len(), 3);
+    assert_eq!(all.0.get(0).unwrap().id, 1);
+    assert_eq!(all.0.get(1).unwrap().id, 3);
+    assert_eq!(all.0.get(2).unwrap().id, 5);
 
     let total = client.get_campaign_count();
-    assert_eq!(client.list_active_campaigns(&total, &5).len(), 0);
-    assert_eq!(client.list_active_campaigns(&(total + 1), &5).len(), 0);
-    assert_eq!(client.list_active_campaigns(&0, &0).len(), 0);
+    assert_eq!(client.list_active_campaigns(&total, &5).0.len(), 0);
+    assert_eq!(client.list_active_campaigns(&(total + 1), &5).0.len(), 0);
+    assert_eq!(client.list_active_campaigns(&0, &0).0.len(), 0);
 }

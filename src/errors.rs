@@ -69,4 +69,10 @@ pub enum Error {
     InvalidTokenContract = 31,
     /// Campaign creation is disabled by the admin.
     CreationDisabled = 32,
+    /// The funding goal is below the configured minimum.
+    FundingGoalTooLow = 33,
+    /// Admin verification was attempted on an already verified campaign.
+    AdminVerificationConflict = 34,
+    /// Community verification was attempted on an already verified campaign.
+    CommunityVerificationConflict = 35,
 }

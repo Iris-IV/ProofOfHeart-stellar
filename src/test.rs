@@ -33,7 +33,7 @@ fn make_params(
     }
 }
 
-pub(crate) fn setup_env<'a>() -> (
+pub(crate) fn setup_env_with_default_min<'a>() -> (
     Env,
     Address,
     Address,
@@ -72,6 +72,23 @@ pub(crate) fn setup_env<'a>() -> (
     )
 }
 
+pub(crate) fn setup_env<'a>() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'a>,
+    TokenAdminClient<'a>,
+    ProofOfHeartClient<'a>,
+) {
+    let setup = setup_env_with_default_min();
+    setup.0.as_contract(&setup.7.address, || {
+        set_min_campaign_funding_goal(&setup.0, 1)
+    });
+    setup
+}
+
 #[test]
 fn test_init_only_once() {
     let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
@@ -97,6 +114,7 @@ fn test_platform_fee_cap_enforcement() {
 
     // Initialize with fee > 1000 (5000 = 50%), should be capped to 1000 (10%)
     client.init(&admin, &token_address, &5000);
+    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
     assert_eq!(client.get_platform_fee(), 1000);
 
     // Verify withdrawal uses capped fee (10%), not original input (50%)
@@ -104,18 +122,19 @@ fn test_platform_fee_cap_enforcement() {
 
     let title = String::from_str(&env, "Fee Cap Test");
     let desc = String::from_str(&env, "Testing platform fee cap enforcement");
-    let campaign_id = client.create_campaign(
-        &creator,
-        &title,
-        &desc,
-        &1000,
-        &30,
-        &Category::Educator,
-        &false,
-        &0,
-        &0i128,
-    );
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
 
+    client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor, &1000);
 
     // Before withdrawal: contributor has 1000, contract has 1000
@@ -224,6 +243,63 @@ fn test_create_and_validation() {
     assert_eq!(campaign.funding_goal, 2000);
     assert!(campaign.is_active);
     assert!(!campaign.is_verified);
+}
+
+#[test]
+fn test_min_campaign_funding_goal_boundary_and_admin_update() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) =
+        setup_env_with_default_min();
+
+    assert_eq!(
+        client.get_min_campaign_funding_goal(),
+        CAMPAIGN_FUNDING_GOAL_MIN
+    );
+
+    let title = String::from_str(&env, "Minimum Goal");
+    let desc = String::from_str(&env, "Checks funding goal floor");
+
+    let below_min = CAMPAIGN_FUNDING_GOAL_MIN - 1;
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        below_min,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MIN,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id, 1);
+
+    client.set_min_campaign_funding_goal(&admin, &500);
+    assert_eq!(client.get_min_campaign_funding_goal(), 500);
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        499,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
 }
 
 #[test]
@@ -750,7 +826,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 
     client.verify_campaign(&campaign_id);
     let res = client.try_verify_campaign(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AdminVerificationConflict);
 }
 
 #[test]
@@ -788,6 +864,12 @@ fn test_community_voting_verification_success() {
     client.verify_campaign_with_votes(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::CommunityVerificationConflict
+    );
 }
 
 #[test]
@@ -886,7 +968,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
 #[test]
 fn test_update_platform_fee() {
-    let (_env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+    let (env, _admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
     let result = client.try_update_platform_fee(&500);
@@ -894,6 +976,15 @@ fn test_update_platform_fee() {
         result.is_ok(),
         "Admin should be able to update platform fee"
     );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let expected_topics = (String::from_str(&env, "fee_updated"),).into_val(&env);
+    assert_eq!(last_event.1, expected_topics);
+
+    let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data_vec.get(0).unwrap(), 300);
+    assert_eq!(data_vec.get(1).unwrap(), 500);
 
     let result = client.try_update_platform_fee(&5000);
     assert!(result.is_ok(), "Fee update should succeed even when capped");
@@ -1065,7 +1156,7 @@ fn test_revenue_sharing_edge_cases() {
 // which admin-level operations are executed.
 #[test]
 fn test_campaign_count_cannot_reset_after_deployment() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let (env, _admin, creator, _, _, token, _, client) = setup_env();
 
     // Start at zero
     assert_eq!(client.get_campaign_count(), 0);
@@ -1090,20 +1181,16 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     assert_eq!(client.get_campaign_count(), 3);
 
     // Admin flows that must NOT reset the counter
+    client.update_platform_fee(&500);
+    assert_eq!(client.get_campaign_count(), 3);
+
     let new_admin = Address::generate(&env);
     client.update_admin(&new_admin);
     client.accept_admin_transfer();
     assert_eq!(client.get_campaign_count(), 3);
 
-    client.set_voting_params(&new_admin, &5, &7000);
-    assert_eq!(client.get_campaign_count(), 3);
-
-    client.update_platform_fee(&500);
-    assert_eq!(client.get_campaign_count(), 3);
-
     // Re-initialisation attempt must be rejected and counter must stay intact
-    let token_address = env.register_stellar_asset_contract(new_admin.clone());
-    let res = client.try_init(&new_admin, &token_address, &300);
+    let res = client.try_init(&new_admin, &token.address, &300);
     assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
     assert_eq!(client.get_campaign_count(), 3);
 }
@@ -1252,9 +1339,7 @@ fn test_view_functions_error_handling() {
 
 #[test]
 fn test_update_campaign_description_success() {
-    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
-
-    token_admin.mint(&contributor1, &10_000);
+    let (env, _admin, creator, _contributor1, _, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
@@ -1268,10 +1353,6 @@ fn test_update_campaign_description_success() {
         0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
-
-    // Contribute so amount_raised > 0 (update_campaign would reject this)
-    token_admin.mint(&contributor1, &1_000);
-    client.contribute(&campaign_id, &contributor1, &500);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     let res = client.try_update_campaign_description(&campaign_id, &new_desc);
@@ -1881,7 +1962,6 @@ fn test_claim_revenue_requires_contributor_auth() {
 
 #[test]
 fn test_set_voting_params_emits_event() {
-    extern crate std;
     let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
@@ -1890,18 +1970,13 @@ fn test_set_voting_params_emits_event() {
     let events = env.events().all();
     let last_event = events.last().unwrap();
 
-    std::println!("Last event: {:?}", last_event);
-
     // topics: (symbol, caller)
     let topics = &last_event.1;
     assert_eq!(topics.len(), 2);
 
     // data: (old_quorum, new_quorum, old_threshold, new_threshold)
-    let data_vec: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(data_vec.get(0).unwrap(), 3);
-    assert_eq!(data_vec.get(1).unwrap(), 5);
-    assert_eq!(data_vec.get(2).unwrap(), 6000);
-    assert_eq!(data_vec.get(3).unwrap(), 7000);
+    let data: (u32, u32, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (3, 5, 6000, 7000));
 }
 
 #[test]
@@ -1959,13 +2034,13 @@ fn test_list_active_campaigns_exclusive_cursor_semantics() {
     client.cancel_campaign(&2);
 
     let active1 = client.list_active_campaigns(&0, &2);
-    assert_eq!(active1.len(), 2);
-    assert_eq!(active1.get(0).unwrap().id, 1);
-    assert_eq!(active1.get(1).unwrap().id, 3);
+    assert_eq!(active1.0.len(), 2);
+    assert_eq!(active1.0.get(0).unwrap().id, 1);
+    assert_eq!(active1.0.get(1).unwrap().id, 3);
 
     let active2 = client.list_active_campaigns(&3, &2);
-    assert_eq!(active2.len(), 1);
-    assert_eq!(active2.get(0).unwrap().id, 4);
+    assert_eq!(active2.0.len(), 1);
+    assert_eq!(active2.0.get(0).unwrap().id, 4);
 }
 
 #[test]

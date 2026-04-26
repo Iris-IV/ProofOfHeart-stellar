@@ -1,5 +1,5 @@
 // Tests for issue #217: benchmark tests asserting per-call instruction budgets.
-// Uses env.cost_estimate().budget() to assert contribute/withdraw_funds/claim_revenue
+// Uses env.budget() to assert contribute/withdraw_funds/claim_revenue
 // stay below documented CPU instruction thresholds.
 use super::*;
 use crate::test::setup_env;
@@ -40,11 +40,10 @@ fn test_contribute_instruction_budget() {
     client.verify_campaign(&id);
 
     // Reset budget immediately before the call under test
-    let mut budget = env.cost_estimate().budget();
-    budget.reset_default();
+    env.budget().reset_default();
     client.contribute(&id, &contributor1, &500);
 
-    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let cpu = env.budget().cpu_instruction_cost();
     assert!(
         cpu < CONTRIBUTE_CPU_LIMIT,
         "contribute() used {} CPU instructions, limit is {}",
@@ -65,11 +64,10 @@ fn test_withdraw_funds_instruction_budget() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1_000);
 
-    let mut budget = env.cost_estimate().budget();
-    budget.reset_default();
+    env.budget().reset_default();
     client.withdraw_funds(&id);
 
-    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let cpu = env.budget().cpu_instruction_cost();
     assert!(
         cpu < WITHDRAW_CPU_LIMIT,
         "withdraw_funds() used {} CPU instructions, limit is {}",
@@ -92,11 +90,10 @@ fn test_claim_revenue_instruction_budget() {
     client.contribute(&id, &contributor1, &1_000);
     client.deposit_revenue(&id, &2_000);
 
-    let mut budget = env.cost_estimate().budget();
-    budget.reset_default();
+    env.budget().reset_default();
     client.claim_revenue(&id, &contributor1);
 
-    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let cpu = env.budget().cpu_instruction_cost();
     assert!(
         cpu < CLAIM_REVENUE_CPU_LIMIT,
         "claim_revenue() used {} CPU instructions, limit is {}",

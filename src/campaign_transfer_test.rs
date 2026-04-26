@@ -12,6 +12,7 @@ fn setup_env<'a>() -> (Env, Address, Address, ProofOfHeartClient<'a>) {
     let contract_id = env.register_contract(None, ProofOfHeart);
     let client = ProofOfHeartClient::new(&env, &contract_id);
     client.init(&admin, &token_address, &300);
+    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
 
     (env, admin, creator, client)
 }
