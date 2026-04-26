@@ -663,6 +663,73 @@ fn test_admin_verify_campaign_success() {
 }
 
 #[test]
+fn test_update_campaign_fails_after_verification() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    let title = String::from_str(&env, "Original Title");
+    let desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
+fn test_update_campaign_fails_after_verification_with_votes() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    let voter3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &100);
+    token_admin.mint(&contributor2, &100);
+    token_admin.mint(&voter3, &100);
+
+    let title = String::from_str(&env, "Original Title");
+    let desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &true);
+
+    client.verify_campaign_with_votes(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
 fn test_admin_verify_campaign_duplicate_attempt() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();

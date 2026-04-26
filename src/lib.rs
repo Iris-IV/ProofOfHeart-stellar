@@ -19,6 +19,7 @@ const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
 const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000; // 200%
 const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
+const LIST_MAX_LIMIT: u32 = 50;
 
 mod errors;
 mod storage;
@@ -99,7 +100,6 @@ fn calculate_deadline(current_time: u64, duration_days: u64) -> Result<u64, Erro
 #[contract]
 pub struct ProofOfHeart;
 
-#[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
     fn token_client(env: &Env) -> token::Client<'_> {
@@ -196,9 +196,13 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `creator.require_auth()`.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(env: Env, params: CreateCampaignParams) -> Result<u32, Error> {
         params.creator.require_auth();
         Self::require_not_paused(&env)?;
+        if get_creation_disabled(&env) {
+            return Err(Error::CreationDisabled);
+        }
 
         let CreateCampaignParams {
             creator,
@@ -924,6 +928,25 @@ impl ProofOfHeart {
             .unwrap_or(false)
     }
 
+    /// Disables new campaign creation (admin-only kill switch).
+    ///
+    /// # Authorization
+    /// Requires the stored admin's authorization.
+    pub fn set_creation_disabled(env: Env, disabled: bool) -> Result<(), Error> {
+        let admin = get_admin(&env);
+        assert_admin(&env, &admin)?;
+        bump_instance_ttl(&env);
+        set_creation_disabled(&env, disabled);
+        env.events()
+            .publish(("creation_disabled_updated", admin), disabled);
+        Ok(())
+    }
+
+    /// Returns whether campaign creation is disabled.
+    pub fn is_creation_disabled(env: Env) -> bool {
+        get_creation_disabled(&env)
+    }
+
     /// Cast a vote on a campaign (approve or reject) to move it towards community verification.
     ///
     /// # Authorization
@@ -1276,6 +1299,8 @@ impl ProofOfHeart {
     /// - `start` is the last campaign ID already seen (exclusive cursor).
     /// - pass `start = 0` for the first page.
     /// - pass the last returned campaign ID as `start` for the next page.
+    ///
+    /// Caps the limit at LIST_MAX_LIMIT (50) to prevent pathological calls.
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
         let total_count = get_campaign_count(&env);
         let mut campaigns = soroban_sdk::Vec::new(&env);
@@ -1284,7 +1309,8 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let end = start.saturating_add(limit).min(total_count);
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
+        let end = start.saturating_add(capped_limit).min(total_count);
 
         for id in (start + 1)..=end {
             if let Some(campaign) = get_campaign(&env, id) {
@@ -1301,6 +1327,8 @@ impl ProofOfHeart {
     /// CRITICAL FIX for issue #176 (DoS risk):
     /// Caps the scan window to MAX_SCAN_WINDOW to prevent unbounded iteration.
     /// Returns a continuation cursor when the limit cannot be satisfied within the scan window.
+    ///
+    /// Also Caps the limit at LIST_MAX_LIMIT (50) to prevent pathological calls.
     ///
     /// # Returns
     /// A tuple of (campaigns, next_cursor) where:
@@ -1321,11 +1349,12 @@ impl ProofOfHeart {
         // Cap scan window to prevent DoS - fixes issue #176
         // Worst case: scans at most MAX_SCAN_WINDOW storage reads
         const MAX_SCAN_WINDOW: u32 = 200;
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
         let mut collected = 0u32;
         let mut current_id = start + 1;
         let mut next_cursor = 0u32;
 
-        while collected < limit && current_id <= total_count {
+        while collected < capped_limit && current_id <= total_count {
             if let Some(campaign) = get_campaign(&env, current_id) {
                 if campaign.is_active && !campaign.is_cancelled {
                     campaigns.push_back(campaign);

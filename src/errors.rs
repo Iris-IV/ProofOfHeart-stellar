@@ -67,4 +67,6 @@ pub enum Error {
     Overflow = 30,
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
+    /// Campaign creation is disabled by the admin.
+    CreationDisabled = 32,
 }

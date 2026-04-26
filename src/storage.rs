@@ -75,6 +75,10 @@ pub enum DataKey {
     WithdrawReservePercentage,
     /// Held reserve for a campaign, keyed by campaign ID.
     CampaignReserve(u32),
+    /// Whether campaign creation is disabled.
+    CreationDisabled,
+    /// Contributor count for a campaign.
+    ContributorCount(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -209,6 +213,36 @@ pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
 pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::Contribution(campaign_id, contributor.clone());
     env.storage().persistent().remove(&key);
+}
+
+// ── Contributor count ───────────────────────────────────────────────────────────
+
+pub fn get_contributor_count(env: &Env, campaign_id: u32) -> u32 {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(0)
+}
+
+pub fn set_contributor_count(env: &Env, campaign_id: u32, count: u32) {
+    let key = DataKey::ContributorCount(campaign_id);
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
+    let count = get_contributor_count(env, campaign_id);
+    set_contributor_count(env, campaign_id, count + 1);
+}
+
+pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+    let count = get_contributor_count(env, campaign_id);
+    if count > 0 {
+        set_contributor_count(env, campaign_id, count - 1);
+    }
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
@@ -558,4 +592,19 @@ pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReser
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+// ── Creation disabled flag ───────────────────────────────────────────────────
+
+pub fn get_creation_disabled(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::CreationDisabled)
+        .unwrap_or(false)
+}
+
+pub fn set_creation_disabled(env: &Env, disabled: bool) {
+    env.storage()
+        .instance()
+        .set(&DataKey::CreationDisabled, &disabled);
 }
