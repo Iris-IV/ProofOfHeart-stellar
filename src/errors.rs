@@ -75,4 +75,8 @@ pub enum Error {
     AdminVerificationConflict = 34,
     /// Community verification was attempted on an already verified campaign.
     CommunityVerificationConflict = 35,
+    /// The campaign deadline has already been extended once.
+    DeadlineAlreadyExtended = 36,
+    /// Extension would push the deadline past the allowed maximum.
+    ExtensionTooLong = 37,
 }
