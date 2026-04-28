@@ -303,6 +303,67 @@ fn test_min_campaign_funding_goal_boundary_and_admin_update() {
 }
 
 #[test]
+fn test_max_campaign_funding_goal_boundary_and_admin_update() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) =
+        setup_env_with_default_min();
+
+    assert_eq!(
+        client.get_max_campaign_funding_goal(),
+        CAMPAIGN_FUNDING_GOAL_MAX
+    );
+
+    let title = String::from_str(&env, "Max Goal");
+    let desc = String::from_str(&env, "Checks funding goal ceiling");
+
+    // Exactly at the cap must succeed.
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id, 1);
+
+    // One above the cap must fail.
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooHigh);
+
+    // Admin raises the cap.
+    let new_max = CAMPAIGN_FUNDING_GOAL_MAX * 2;
+    client.set_max_campaign_funding_goal(&admin, &new_max);
+    assert_eq!(client.get_max_campaign_funding_goal(), new_max);
+
+    // Previously-rejected goal now succeeds.
+    let campaign_id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id2, 2);
+}
+
+#[test]
 fn test_contribute_and_withdraw_success() {
     let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
 

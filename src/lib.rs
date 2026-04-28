@@ -16,6 +16,7 @@ const CAMPAIGN_DESCRIPTION_MAX_LEN: u32 = 1000;
 const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
 const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
 const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
+const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
 const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000; // 200%
@@ -223,6 +224,9 @@ impl ProofOfHeart {
         }
         if funding_goal < get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN) {
             return Err(Error::FundingGoalTooLow);
+        }
+        if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
+            return Err(Error::FundingGoalTooHigh);
         }
         if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
             return Err(Error::InvalidDuration);
@@ -1330,6 +1334,42 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Returns the current maximum funding goal cap for new campaigns.
+    pub fn get_max_campaign_funding_goal(env: Env) -> i128 {
+        get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX)
+    }
+
+    /// Updates the maximum funding goal cap for newly created campaigns.
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn set_max_campaign_funding_goal(
+        env: Env,
+        admin: Address,
+        max_goal: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Self::require_not_paused(&env)?;
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        if max_goal <= 0 {
+            return Err(Error::FundingGoalMustBePositive);
+        }
+        if max_goal < get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN) {
+            return Err(Error::ValidationFailed);
+        }
+
+        let old_max_goal = get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX);
+        bump_instance_ttl(&env);
+        set_max_campaign_funding_goal(&env, max_goal);
+        env.events().publish(
+            ("max_campaign_funding_goal_updated",),
+            (old_max_goal, max_goal),
+        );
+        Ok(())
+    }
+
     /// Returns the minimum token balance required to vote on campaigns.
     pub fn get_min_voting_balance(env: Env) -> i128 {
         get_min_voting_balance(&env)
@@ -1627,6 +1667,8 @@ mod admin_transfer_test;
 mod benchmark_test;
 #[cfg(test)]
 mod campaign_transfer_test;
+#[cfg(test)]
+mod create_campaign_proptest;
 #[cfg(test)]
 mod lifecycle_events_test;
 #[cfg(test)]
