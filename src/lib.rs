@@ -225,6 +225,9 @@ impl ProofOfHeart {
         if funding_goal < get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN) {
             return Err(Error::FundingGoalTooLow);
         }
+        let duration_max = get_category_duration_cap(&env, category)
+            .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
+        if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
         if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
             return Err(Error::FundingGoalTooHigh);
         }
@@ -287,6 +290,8 @@ impl ProofOfHeart {
             has_revenue_sharing,
             revenue_share_percentage,
             max_contribution_per_user,
+            fee_override: None,
+            deadline_extended: false,
         };
 
         set_campaign(&env, count, &campaign);
@@ -450,7 +455,9 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        let platform_fee = get_platform_fee(&env);
+        let platform_fee = campaign
+            .fee_override
+            .unwrap_or_else(|| get_platform_fee(&env));
         let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
         let total_after_fee = campaign.amount_raised - fee_amount;
 
@@ -1154,6 +1161,99 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    /// Sets a per-campaign platform fee override (admin only).
+    ///
+    /// Pass `fee_bps = 0` for a 0% fee. Falls back to the global fee when no
+    /// override is set. The override is stored on the Campaign struct so it
+    /// survives even if the global fee changes later.
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn set_campaign_fee_override(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        fee_bps: u32,
+    ) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        let mut campaign = get_campaign_or_error(&env, campaign_id)?;
+        if fee_bps > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::ValidationFailed);
+        }
+        bump_instance_ttl(&env);
+        campaign.fee_override = Some(fee_bps);
+        set_campaign(&env, campaign_id, &campaign);
+        env.events()
+            .publish(("campaign_fee_override_set", campaign_id), fee_bps);
+        Ok(())
+    }
+
+    /// Sets the maximum campaign duration (in days) for a category (admin only).
+    ///
+    /// Campaigns in this category will be rejected if `duration_days` exceeds
+    /// `max_days`. Omit (by not calling this) to keep the default 365-day cap.
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn set_category_duration_cap(
+        env: Env,
+        admin: Address,
+        category: Category,
+        max_days: u64,
+    ) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        if max_days < CAMPAIGN_DURATION_MIN_DAYS || max_days > CAMPAIGN_DURATION_MAX_DAYS {
+            return Err(Error::ValidationFailed);
+        }
+        bump_instance_ttl(&env);
+        storage::set_category_duration_cap(&env, category, max_days);
+        env.events()
+            .publish(("category_duration_cap_set", category as u32), max_days);
+        Ok(())
+    }
+
+    /// Extends the deadline of a campaign by `additional_days` (creator only).
+    ///
+    /// Rules: max one extension per campaign, max 30 extra days, only before
+    /// the original deadline.
+    ///
+    /// # Authorization
+    /// Requires `campaign.creator.require_auth()`.
+    pub fn extend_campaign_deadline(
+        env: Env,
+        campaign_id: u32,
+        additional_days: u64,
+    ) -> Result<(), Error> {
+        let mut campaign = get_creator_campaign(&env, campaign_id)?;
+        Self::require_not_paused(&env)?;
+
+        if campaign.deadline_extended {
+            return Err(Error::DeadlineAlreadyExtended);
+        }
+        if env.ledger().timestamp() >= campaign.deadline {
+            return Err(Error::DeadlinePassed);
+        }
+        if additional_days == 0 || additional_days > 30 {
+            return Err(Error::ExtensionTooLong);
+        }
+
+        let new_deadline = campaign
+            .deadline
+            .checked_add(additional_days * 86400)
+            .ok_or(Error::Overflow)?;
+
+        bump_instance_ttl(&env);
+        campaign.deadline = new_deadline;
+        campaign.deadline_extended = true;
+        set_campaign(&env, campaign_id, &campaign);
+
+        env.events().publish(
+            ("campaign_deadline_extended", campaign_id),
+            additional_days,
+        );
+        Ok(())
+    }
+
     /// Sets a personal contribution cap for a specific campaign.
     ///
     /// # Arguments
@@ -1661,6 +1761,8 @@ impl ProofOfHeart {
     }
 }
 
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 mod admin_transfer_test;
 #[cfg(test)]

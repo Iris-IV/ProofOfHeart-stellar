@@ -83,6 +83,8 @@ pub enum DataKey {
     CreationDisabled,
     /// Contributor count for a campaign.
     ContributorCount(u32),
+    /// Per-category maximum duration cap in days, keyed by category discriminant.
+    CategoryDurationCap(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -637,4 +639,16 @@ pub fn set_creation_disabled(env: &Env, disabled: bool) {
     env.storage()
         .instance()
         .set(&DataKey::CreationDisabled, &disabled);
+}
+
+// ── Per-category duration cap ─────────────────────────────────────────────────
+
+pub fn get_category_duration_cap(env: &Env, category: Category) -> Option<u64> {
+    let key = DataKey::CategoryDurationCap(category as u32);
+    env.storage().instance().get(&key)
+}
+
+pub fn set_category_duration_cap(env: &Env, category: Category, max_days: u64) {
+    let key = DataKey::CategoryDurationCap(category as u32);
+    env.storage().instance().set(&key, &max_days);
 }

@@ -60,6 +60,10 @@ pub struct Campaign {
     pub revenue_share_percentage: u32,
     /// Maximum tokens a single contributor may contribute in total. 0 means no cap.
     pub max_contribution_per_user: i128,
+    /// Per-campaign platform fee override in basis points. None = use global fee.
+    pub fee_override: Option<u32>,
+    /// Whether the deadline has already been extended once.
+    pub deadline_extended: bool,
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.
