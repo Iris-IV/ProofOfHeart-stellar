@@ -79,4 +79,6 @@ pub enum Error {
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
+    /// The funding goal exceeds the configured maximum (anti-spam cap).
+    FundingGoalTooHigh = 36,
 }

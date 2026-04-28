@@ -25,6 +25,8 @@ pub enum DataKey {
     PlatformFee,
     /// Minimum funding goal required for new campaigns.
     MinCampaignFundingGoal,
+    /// Maximum funding goal allowed for new campaigns (anti-spam cap).
+    MaxCampaignFundingGoal,
     /// Total number of campaigns ever created.
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
@@ -194,6 +196,21 @@ pub fn set_min_campaign_funding_goal(env: &Env, min_goal: i128) {
     env.storage()
         .instance()
         .set(&DataKey::MinCampaignFundingGoal, &min_goal);
+}
+
+/// Returns the maximum funding goal, falling back to `default` if not set.
+pub fn get_max_campaign_funding_goal(env: &Env, default: i128) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::MaxCampaignFundingGoal)
+        .unwrap_or(default)
+}
+
+/// Stores the maximum funding goal.
+pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MaxCampaignFundingGoal, &max_goal);
 }
 
 // ── Contributions ─────────────────────────────────────────────────────────────
