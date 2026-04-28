@@ -75,4 +75,6 @@ pub enum Error {
     AdminVerificationConflict = 34,
     /// Community verification was attempted on an already verified campaign.
     CommunityVerificationConflict = 35,
+    /// The funding goal exceeds the configured maximum (anti-spam cap).
+    FundingGoalTooHigh = 36,
 }
