@@ -1,5 +1,4 @@
 use super::helpers::*;
-use crate::{Category};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
@@ -264,4 +263,171 @@ fn test_creator_campaigns_listing_and_transfer() {
     let list2_after = client.get_creator_campaigns(&creator2, &0, &10);
     assert_eq!(list2_after.len(), 1);
     assert_eq!(list2_after.get(0).unwrap().id, id1);
+}
+
+#[test]
+fn test_creator_campaigns_pagination_within_bucket() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // Create 50 campaigns — all within a single bucket
+    for i in 0..50 {
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000 + i as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    let page0 = client.get_creator_campaigns(&creator, &0, &20);
+    assert_eq!(page0.len(), 20);
+    assert_eq!(page0.get(0).unwrap().id, 1);
+    assert_eq!(page0.get(19).unwrap().id, 20);
+
+    let page1 = client.get_creator_campaigns(&creator, &20, &30);
+    assert_eq!(page1.len(), 30);
+    assert_eq!(page1.get(0).unwrap().id, 21);
+
+    // Beyond bounds
+    let out = client.get_creator_campaigns(&creator, &50, &10);
+    assert_eq!(out.len(), 0);
+}
+
+#[test]
+fn test_creator_campaigns_limit_capped_at_list_max_limit() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // Create 60 campaigns (> LIST_MAX_LIMIT)
+    for i in 0..60 {
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000 + i as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    // Request 100, but should be capped at LIST_MAX_LIMIT (50)
+    let result = client.get_creator_campaigns(&creator, &0, &100);
+    assert_eq!(result.len(), 50);
+    assert_eq!(result.get(0).unwrap().id, 1);
+    assert_eq!(result.get(49).unwrap().id, 50);
+}
+
+#[test]
+fn test_creator_campaigns_transfer_within_bucket() {
+    let (env, _admin, creator1, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let creator2 = Address::generate(&env);
+
+    for i in 0..10 {
+        let _ = client.create_campaign(&make_params(
+            creator1.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000 + i as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    assert_eq!(client.get_creator_campaigns(&creator1, &0, &20).len(), 10);
+
+    // Transfer campaign 1
+    client.initiate_campaign_transfer(&1, &creator2);
+    client.accept_campaign_transfer(&1);
+
+    // creator1 now has 9
+    let list_after = client.get_creator_campaigns(&creator1, &0, &20);
+    assert_eq!(list_after.len(), 9);
+
+    // creator2 has 1
+    let list_new = client.get_creator_campaigns(&creator2, &0, &10);
+    assert_eq!(list_new.len(), 1);
+    assert_eq!(list_new.get(0).unwrap().id, 1);
+}
+
+#[test]
+fn test_creator_campaigns_bucket_logic() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let creator = Address::generate(&env);
+    let token_address = env.register_stellar_asset_contract(Address::generate(&env));
+    let contract_id = env.register_contract(None, crate::ProofOfHeart);
+    let client = crate::ProofOfHeartClient::new(&env, &contract_id);
+    client.init(&Address::generate(&env), &token_address, &300);
+    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
+
+    // Create campaigns via the normal contract path, staying within the test
+    // env's storage budget (~60 entries).
+    let count = 10u32;
+    for i in 0..count {
+        let title = if i == 0 {
+            soroban_sdk::String::from_str(&env, "C0")
+        } else {
+            soroban_sdk::String::from_str(&env, "C1")
+        };
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            title,
+            soroban_sdk::String::from_str(&env, "D"),
+            1000 + i as i128,
+            30,
+            crate::types::Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    // Verify bucket 0 has exactly `count` entries
+    env.as_contract(&client.address, || {
+        let b0 = crate::storage::get_creator_campaigns_bucket(&env, &creator, 0);
+        assert_eq!(b0.len(), count);
+
+        let count_stored = crate::storage::get_creator_campaign_count(&env, &creator);
+        assert_eq!(count_stored, count);
+    });
+
+    // Paginate from start
+    let page0 = client.get_creator_campaigns(&creator, &0, &5);
+    assert_eq!(page0.len(), 5);
+    assert_eq!(page0.get(0).unwrap().id, 1);
+
+    // Remaining 5
+    let page1 = client.get_creator_campaigns(&creator, &5, &10);
+    assert_eq!(page1.len(), 5);
+    assert_eq!(page1.get(0).unwrap().id, 6);
+
+    // Verify push_creator_campaign_id properly increments count
+    env.as_contract(&client.address, || {
+        crate::storage::push_creator_campaign_id(&env, &creator, count + 1);
+        let count_stored = crate::storage::get_creator_campaign_count(&env, &creator);
+        assert_eq!(count_stored, count + 1);
+        let b0 = crate::storage::get_creator_campaigns_bucket(&env, &creator, 0);
+        assert_eq!(b0.len(), count + 1);
+    });
+
+    // Verify remove_creator_campaign_id
+    env.as_contract(&client.address, || {
+        let removed = crate::storage::remove_creator_campaign_id(&env, &creator, 5);
+        assert!(removed);
+        let count_stored = crate::storage::get_creator_campaign_count(&env, &creator);
+        assert_eq!(count_stored, count);
+        let b0 = crate::storage::get_creator_campaigns_bucket(&env, &creator, 0);
+        assert_eq!(b0.len(), count);
+    });
 }

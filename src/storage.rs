@@ -5,6 +5,7 @@ use crate::types::{Campaign, CampaignReserve, Category};
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+pub const CREATOR_BUCKET_SIZE: u32 = 500;
 
 pub fn bump_instance_ttl(env: &Env) {
     env.storage()
@@ -67,8 +68,10 @@ pub enum DataKey {
     CategoryCampaigns(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
-    /// List of campaign IDs owned by a creator.
-    CreatorCampaigns(Address),
+    /// Bucketed list of campaign IDs owned by a creator.
+    CreatorCampaignsBucket(Address, u32),
+    /// Total count of campaigns owned by a creator.
+    CreatorCampaignCount(Address),
     /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
@@ -516,11 +519,33 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage().instance().set(&DataKey::TotalRaised, &amount);
 }
 
-// ── Creator campaigns ─────────────────────────────────────────────────────────
+// ── Creator campaigns (bucketed) ───────────────────────────────────────────────
 
-/// Returns the list of campaign IDs owned by a creator.
-pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Vec<u32> {
-    let key = DataKey::CreatorCampaigns(creator.clone());
+/// Returns the total number of campaign IDs stored for a creator.
+pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    let val = env.storage().persistent().get(&key);
+    if let Some(count) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        count
+    } else {
+        0
+    }
+}
+
+fn set_creator_campaign_count(env: &Env, creator: &Address, count: u32) {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    env.storage().persistent().set(&key, &count);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns the campaign IDs in a specific bucket for a creator.
+pub fn get_creator_campaigns_bucket(env: &Env, creator: &Address, bucket_idx: u32) -> soroban_sdk::Vec<u32> {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_idx);
     let val = env
         .storage()
         .persistent()
@@ -536,13 +561,44 @@ pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Ve
     }
 }
 
-/// Stores the list of campaign IDs owned by a creator.
-pub fn set_creator_campaign_ids(env: &Env, creator: &Address, ids: &soroban_sdk::Vec<u32>) {
-    let key = DataKey::CreatorCampaigns(creator.clone());
+fn set_creator_campaigns_bucket(env: &Env, creator: &Address, bucket_idx: u32, ids: &soroban_sdk::Vec<u32>) {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_idx);
     env.storage().persistent().set(&key, ids);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Appends a campaign ID to the creator's list, creating a new bucket if the
+/// current bucket is full. No single bucket ever exceeds CREATOR_BUCKET_SIZE.
+pub fn push_creator_campaign_id(env: &Env, creator: &Address, campaign_id: u32) {
+    let count = get_creator_campaign_count(env, creator);
+    let bucket_idx = count / CREATOR_BUCKET_SIZE;
+    let mut bucket = get_creator_campaigns_bucket(env, creator, bucket_idx);
+    bucket.push_back(campaign_id);
+    set_creator_campaigns_bucket(env, creator, bucket_idx, &bucket);
+    set_creator_campaign_count(env, creator, count + 1);
+}
+
+/// Removes a specific campaign ID from the creator's list by searching across
+/// all buckets. Returns `true` if the ID was found and removed.
+pub fn remove_creator_campaign_id(env: &Env, creator: &Address, campaign_id: u32) -> bool {
+    let count = get_creator_campaign_count(env, creator);
+    if count == 0 {
+        return false;
+    }
+    let total_buckets = (count - 1) / CREATOR_BUCKET_SIZE + 1;
+    for bi in 0..total_buckets {
+        let bucket = get_creator_campaigns_bucket(env, creator, bi);
+        if let Some(idx) = bucket.first_index_of(campaign_id) {
+            let mut new_bucket = bucket;
+            new_bucket.remove(idx);
+            set_creator_campaigns_bucket(env, creator, bi, &new_bucket);
+            set_creator_campaign_count(env, creator, count - 1);
+            return true;
+        }
+    }
+    false
 }
 
 // ── Personal cap ─────────────────────────────────────────────────────────────

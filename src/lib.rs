@@ -228,11 +228,10 @@ impl ProofOfHeart {
         let duration_max = get_category_duration_cap(&env, category)
             .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
         if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
+            return Err(Error::InvalidDuration);
+        }
         if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
             return Err(Error::FundingGoalTooHigh);
-        }
-        if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
-            return Err(Error::InvalidDuration);
         }
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
@@ -301,9 +300,7 @@ impl ProofOfHeart {
         category_campaigns.push_back(count);
         set_category_campaigns(&env, category, &category_campaigns);
 
-        let mut creator_ids = get_creator_campaign_ids(&env, &creator);
-        creator_ids.push_back(count);
-        set_creator_campaign_ids(&env, &creator, &creator_ids);
+        push_creator_campaign_id(&env, &creator, count);
 
         env.events()
             .publish(("campaign_created", count, creator), title);
@@ -1085,31 +1082,45 @@ impl ProofOfHeart {
     }
 
     /// Returns a paginated list of campaigns owned by a specific creator.
+    ///
+    /// Reads across bucketed storage entries, never materialising the full ID list.
+    /// The page is capped at `LIST_MAX_LIMIT` entries.
     pub fn get_creator_campaigns(
         env: Env,
         creator: Address,
         start: u32,
         limit: u32,
     ) -> soroban_sdk::Vec<Campaign> {
-        let ids = get_creator_campaign_ids(&env, &creator);
         let mut campaigns = soroban_sdk::Vec::new(&env);
-
-        if start >= ids.len() || limit == 0 {
+        if limit == 0 {
             return campaigns;
         }
 
-        let end = if start + limit > ids.len() {
-            ids.len()
-        } else {
-            start + limit
-        };
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
+        let total = get_creator_campaign_count(&env, &creator);
+        if start >= total {
+            return campaigns;
+        }
 
-        for i in start..end {
-            if let Some(campaign_id) = ids.get(i) {
-                if let Some(campaign) = get_campaign(&env, campaign_id) {
-                    campaigns.push_back(campaign);
+        let end = (start + capped_limit).min(total);
+        let mut pos = start;
+
+        while pos < end {
+            let bucket_idx = pos / CREATOR_BUCKET_SIZE;
+            let offset = pos % CREATOR_BUCKET_SIZE;
+            let bucket = get_creator_campaigns_bucket(&env, &creator, bucket_idx);
+            let bucket_len = bucket.len();
+            let available = bucket_len - offset;
+            let to_take = (end - pos).min(available);
+
+            for i in 0..to_take {
+                if let Some(campaign_id) = bucket.get(offset + i) {
+                    if let Some(campaign) = get_campaign(&env, campaign_id) {
+                        campaigns.push_back(campaign);
+                    }
                 }
             }
+            pos += to_take;
         }
 
         campaigns
@@ -1678,16 +1689,9 @@ impl ProofOfHeart {
         bump_instance_ttl(&env);
         let old_creator = campaign.creator.clone();
 
-        // Update creator lists
-        let mut old_ids = get_creator_campaign_ids(&env, &old_creator);
-        if let Some(index) = old_ids.first_index_of(campaign_id) {
-            old_ids.remove(index);
-            set_creator_campaign_ids(&env, &old_creator, &old_ids);
-        }
-
-        let mut new_ids = get_creator_campaign_ids(&env, &pending);
-        new_ids.push_back(campaign_id);
-        set_creator_campaign_ids(&env, &pending, &new_ids);
+        // Update creator lists using bucket-aware operations
+        remove_creator_campaign_id(&env, &old_creator, campaign_id);
+        push_creator_campaign_id(&env, &pending, campaign_id);
 
         campaign.creator = pending.clone();
         campaign.pending_creator = MaybePendingCreator::None;
