@@ -510,7 +510,12 @@ impl ProofOfHeart {
         }
 
         let total_raised = get_total_raised_global(&env);
-        set_total_raised_global(&env, total_raised - campaign.amount_raised);
+        set_total_raised_global(
+            &env,
+            total_raised
+                .checked_sub(campaign.amount_raised)
+                .ok_or(Error::Overflow)?,
+        );
 
         env.events().publish(
             ("withdrawal", campaign_id, campaign.creator.clone()),
@@ -723,7 +728,12 @@ impl ProofOfHeart {
         decrement_contributor_count(&env, campaign_id);
 
         let total_raised = get_total_raised_global(&env);
-        set_total_raised_global(&env, total_raised - amount);
+        set_total_raised_global(
+            &env,
+            total_raised
+                .checked_sub(amount)
+                .ok_or(Error::Overflow)?,
+        );
 
         let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -749,6 +759,10 @@ impl ProofOfHeart {
             return Err(Error::CampaignNotActive);
         }
         require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
+
+        if campaign.amount_raised == 0 {
+            return Err(Error::AmountRaisedIsZero);
+        }
 
         bump_instance_ttl(&env);
         let token_addr = get_token(&env);
@@ -1721,6 +1735,7 @@ impl ProofOfHeart {
             verified_campaigns,
             cancelled_campaigns,
             total_amount_raised: get_total_raised_global(&env),
+            is_partial: total_campaigns > MAX_SCAN_LIMIT,
         }
     }
 
@@ -1841,10 +1856,16 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        remove_voting_state(&env, campaign_id);
+        // Cap batch size to prevent compute budget exhaustion
+        const MAX_PURGE_BATCH: u32 = 100;
+        if voters.len() > MAX_PURGE_BATCH {
+            return Err(Error::ValidationFailed);
+        }
+
         for voter in voters.iter() {
             remove_has_voted(&env, campaign_id, &voter);
         }
+        remove_voting_state(&env, campaign_id);
 
         env.events()
             .publish(("voting_state_purged", campaign_id), ());
