@@ -4013,9 +4013,9 @@ fn test_revenue_claim_after_full_refunds_no_panic() {
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 5_000);
 
-    // claim_revenue must not panic; contribution is 0 so expect ValidationFailed
+    // claim_revenue must not panic; campaign is cancelled so expect CampaignNotActive
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 
     // claim_creator_revenue must not panic; no revenue deposited so expect NoFundsToWithdraw
     let res = client.try_claim_creator_revenue(&campaign_id);

@@ -19,7 +19,7 @@ const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
 const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
-const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000; // 200%
+const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
 const LIST_MAX_LIMIT: u32 = 50;
 
@@ -108,13 +108,18 @@ impl ProofOfHeart {
         token::Client::new(env, &get_token(env))
     }
 
-    /// Checks if the contract is paused and returns an error if it is.
+    /// Checks if the contract is paused (admin pause or auto-pause) and returns an error if so.
     fn require_not_paused(env: &Env) -> Result<(), Error> {
         if env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+            || env
+                .storage()
+                .instance()
+                .get(&DataKey::AutoPaused)
+                .unwrap_or(false)
         {
             return Err(Error::ContractPaused);
         }
@@ -376,9 +381,9 @@ impl ProofOfHeart {
             }
         }
 
-        // Anomaly detection: Huge single contribution (> 50% of goal)
+        // Anomaly detection: Huge single contribution (> 200% of goal)
         if amount * 10000 > campaign.funding_goal * AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD {
-            env.storage().instance().set(&DataKey::Paused, &true);
+            env.storage().instance().set(&DataKey::AutoPaused, &true);
             env.events()
                 .publish(("auto_paused",), ("huge_contribution", amount));
             return Err(Error::ContractPaused);
@@ -395,7 +400,7 @@ impl ProofOfHeart {
         set_block_contribution_count(&env, current_ledger, block_count);
 
         if block_count > AUTO_PAUSE_BURST_THRESHOLD {
-            env.storage().instance().set(&DataKey::Paused, &true);
+            env.storage().instance().set(&DataKey::AutoPaused, &true);
             env.events()
                 .publish(("auto_paused",), ("burst", block_count));
             return Err(Error::ContractPaused);
@@ -769,6 +774,9 @@ impl ProofOfHeart {
         contributor.require_auth();
         Self::require_not_paused(&env)?;
         let campaign = get_campaign_or_error(&env, campaign_id)?;
+        if campaign.is_cancelled {
+            return Err(Error::CampaignNotActive);
+        }
         require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
         let contribution = get_contribution(&env, campaign_id, &contributor);
@@ -949,12 +957,17 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Returns whether the contract is currently paused.
+    /// Returns whether the contract is currently paused (admin or auto-pause).
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+            || env
+                .storage()
+                .instance()
+                .get(&DataKey::AutoPaused)
+                .unwrap_or(false)
     }
 
     /// Disables new campaign creation (admin-only kill switch).
@@ -1256,6 +1269,7 @@ impl ProofOfHeart {
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
+        require_active_campaign(&campaign)?;
 
         if campaign.deadline_extended {
             return Err(Error::DeadlineAlreadyExtended);
@@ -1889,7 +1903,7 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().set(&DataKey::AutoPaused, &false);
 
         env.events()
             .publish(("campaign_resumed", campaign_id, caller), ());
