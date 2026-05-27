@@ -136,7 +136,12 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
     let approval_bps = if total_weight > 0 {
-        ((approve_weight * 10000) / total_weight) as u32
+        // Use checked arithmetic to avoid silent overflow/truncation when
+        // approve_weight is a large i128 (e.g. whale holders on 18-decimal tokens).
+        approve_weight
+            .checked_mul(10000)
+            .and_then(|n| n.checked_div(total_weight))
+            .unwrap_or(0) as u32
     } else {
         0
     };

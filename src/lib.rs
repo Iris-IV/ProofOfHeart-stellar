@@ -826,14 +826,18 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
+        // Transfer before updating state (checks-effects-interactions pattern).
+        // This ensures the creator's claimable balance is only cleared after a
+        // successful transfer, preventing permanent fund loss on transfer failure.
         let client = Self::token_client(&env);
         client.transfer(
             &env.current_contract_address(),
             &campaign.creator,
             &claimable,
         );
+
+        set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
         env.events().publish(
             ("creator_revenue_claimed", campaign_id, campaign.creator),
@@ -1756,6 +1760,12 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        // Reject an empty voter list — a no-op call would silently succeed while
+        // leaving HasVoted entries as orphans, leaking ledger storage.
+        if voters.is_empty() {
+            return Err(Error::ValidationFailed);
+        }
+
         remove_voting_state(&env, campaign_id);
         for voter in voters.iter() {
             remove_has_voted(&env, campaign_id, &voter);
@@ -1784,6 +1794,43 @@ impl ProofOfHeart {
 
         env.events()
             .publish(("campaign_transfer_cancelled", campaign_id), ());
+
+        Ok(())
+    }
+
+    /// Resumes a campaign that was auto-paused (e.g. due to anomaly detection).
+    ///
+    /// Either the campaign creator or the global admin may call this to lift the
+    /// contract-level pause and allow contributions to resume. An event is emitted
+    /// so indexers can track the recovery.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - The ID of the campaign whose context triggered the pause.
+    /// * `caller` - The address of the creator or admin requesting the resume.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `NotAuthorized` - Caller is neither the campaign creator nor the admin.
+    /// * `CampaignNotActive` - Campaign is cancelled or already closed.
+    ///
+    /// # Authorization
+    /// Requires `caller.require_auth()`.
+    pub fn resume_campaign(env: Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
+        caller.require_auth();
+
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_active_campaign(&campaign)?;
+
+        let admin = get_admin(&env);
+        if caller != campaign.creator && caller != admin {
+            return Err(Error::NotAuthorized);
+        }
+
+        bump_instance_ttl(&env);
+        env.storage().instance().set(&DataKey::Paused, &false);
+
+        env.events()
+            .publish(("campaign_resumed", campaign_id, caller), ());
 
         Ok(())
     }
