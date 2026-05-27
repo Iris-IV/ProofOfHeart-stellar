@@ -5,6 +5,7 @@ mod test_campaign_create;
 mod test_campaign_update;
 mod test_contribute;
 mod test_contribute_caps;
+mod test_creator_buckets;
 mod test_deadline_ext;
 mod test_duration_cap;
 mod test_fee_override;
