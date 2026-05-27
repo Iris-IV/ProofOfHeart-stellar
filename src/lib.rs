@@ -1607,15 +1607,18 @@ impl ProofOfHeart {
     /// List campaigns in a specific category using exclusive-cursor semantics.
     ///
     /// # Arguments
-    /// * `start` - The last campaign ID already seen (exclusive cursor).
-    ///   - Pass `start = 0` for the first page.
-    ///   - Pass the last returned campaign ID as `start` for the next page.
+    /// * `offset` - Zero-based index of the first campaign to return (index-offset pagination).
+    ///   - Pass `offset = 0` for the first page.
+    ///   - Pass `offset = N` to skip the first N campaigns in this category.
+    ///
+    /// Note: this function uses index-offset pagination, not the ID-cursor style used by
+    /// `list_campaigns`. Pass a positional index, not a campaign ID.
     ///
     /// Caps the limit at LIST_MAX_LIMIT (50) to prevent pathological calls.
     pub fn get_campaigns_by_category(
         env: Env,
         category: Category,
-        start: u32,
+        offset: u32,
         limit: u32,
     ) -> soroban_sdk::Vec<Campaign> {
         let mut campaigns = soroban_sdk::Vec::new(&env);
@@ -1624,17 +1627,17 @@ impl ProofOfHeart {
         }
 
         let total = get_category_campaign_count(&env, category);
-        if start >= total {
+        if offset >= total {
             return campaigns;
         }
 
-        let end = if start + limit > total {
+        let end = if offset + limit > total {
             total
         } else {
-            start + limit
+            offset + limit
         };
 
-        let mut position = start;
+        let mut position = offset;
         while position < end {
             let bucket_idx = position / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
             let bucket = get_category_campaign_bucket(&env, category, bucket_idx);
