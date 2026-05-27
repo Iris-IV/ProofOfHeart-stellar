@@ -1643,11 +1643,8 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let end = if offset + limit > total {
-            total
-        } else {
-            offset + limit
-        };
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
+        let end = offset.saturating_add(capped_limit).min(total);
 
         let mut position = offset;
         while position < end {
