@@ -1188,15 +1188,13 @@ impl ProofOfHeart {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         Self::require_not_paused(&env)?;
-        let valid_fee = if new_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            new_fee
-        };
+        if new_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::ValidationFailed);
+        }
         let old_fee = get_platform_fee(&env);
         bump_instance_ttl(&env);
-        set_platform_fee(&env, valid_fee);
-        env.events().publish(("fee_updated",), (old_fee, valid_fee));
+        set_platform_fee(&env, new_fee);
+        env.events().publish(("fee_updated",), (old_fee, new_fee));
         Ok(())
     }
 
