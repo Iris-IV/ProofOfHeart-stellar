@@ -45,6 +45,11 @@ Additional derived conditions used by the contract:
 - Reached by `cancel_campaign` (creator only):
   - sets `is_cancelled = true`
   - sets `is_active = false`
+- **Cancellation Restrictions** (rug-pull prevention):
+  - Cancellation is **blocked** if `funds_withdrawn = true` (funds already withdrawn by creator).
+  - Cancellation is **blocked** if `amount_raised >= funding_goal` (goal already met). This prevents creators from meeting their funding goal and then cancelling to force contributors to claim individual refunds instead of letting the creator use the funds legitimately.
+  - If a campaign reaches its goal and the creator wishes to cancel, they must work with the admin.
+- If cancelled while revenue pool exists (before withdrawal), the entire revenue pool is refunded to the creator and cleared to prevent orphaned funds.
 - Contributors can claim refunds via `claim_refund` after cancellation (if they contributed).
 - Successful refunds remove the contributor's stored contribution record instead of leaving a zero-value entry behind.
 

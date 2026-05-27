@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Fixed
+- `cancel_campaign` now rejects cancellation when `amount_raised >= funding_goal` and `!funds_withdrawn`, preventing creators from rug-pulling by cancelling after meeting the goal to force contributors to claim refunds (#164).
 - `update_campaign_description` now blocks edits once `amount_raised > 0`, preventing bait-and-switch after contributions (#166).
 - `claim_creator_revenue` returns `ValidationFailed` when `revenue_share_percentage > 10000` instead of producing negative math or panicking (#167).
 

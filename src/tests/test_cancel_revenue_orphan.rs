@@ -229,3 +229,90 @@ fn test_cancel_campaign_with_no_revenue() {
     assert_eq!(token.balance(&contributor1), 5000);
     assert_eq!(token.balance(&client.address), 0);
 }
+
+/// Test that creator CANNOT cancel a campaign after the funding goal is reached.
+/// This prevents the rug-pull-adjacent behavior described in issue #164.
+#[test]
+fn test_creator_cannot_cancel_after_goal_reached() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &3000);
+    token_admin.mint(&contributor2, &2100);
+    token_admin.mint(&creator, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Funded Campaign"),
+        description: String::from_str(&env, "Testing cancel prevention after goal reached"),
+        funding_goal: 5000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Reach exactly the funding goal
+    client.contribute(&campaign_id, &contributor1, &3000);
+    client.contribute(&campaign_id, &contributor2, &2000);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.amount_raised, 5000);
+    assert_eq!(campaign.funding_goal, 5000);
+
+    // Try to cancel - should fail because goal is reached
+    let cancel_result = client.try_cancel_campaign(&campaign_id);
+    assert!(cancel_result.is_err());
+
+    // Verify campaign is NOT cancelled
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(!campaign.is_cancelled);
+    assert!(campaign.is_active);
+
+    // Verify funds are still in the contract
+    assert_eq!(token.balance(&client.address), 5000);
+}
+
+/// Test that creator CAN cancel a campaign when amount_raised < funding_goal,
+/// even if close to the goal.
+#[test]
+fn test_creator_can_cancel_before_goal_reached() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &4999);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Nearly Funded Campaign"),
+        description: String::from_str(&env, "Testing cancel is allowed before goal"),
+        funding_goal: 5000,
+        duration_days: 30,
+        category: Category::Educator,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Contribute just below the goal
+    client.contribute(&campaign_id, &contributor1, &4999);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.amount_raised, 4999);
+    assert!(campaign.amount_raised < campaign.funding_goal);
+
+    // Cancel should succeed because goal is NOT reached
+    client.cancel_campaign(&campaign_id);
+
+    // Verify campaign is now cancelled
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_cancelled);
+    assert!(!campaign.is_active);
+
+    // Contributor can claim refund
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 4999);
+    assert_eq!(token.balance(&client.address), 0);
+}

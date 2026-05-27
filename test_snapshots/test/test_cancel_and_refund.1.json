@@ -909,11 +909,25 @@
                     },
                     {
                       "key": {
+                        "symbol": "deadline_extended"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "description"
                       },
                       "val": {
                         "string": "Desc"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "fee_override"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -3032,11 +3046,25 @@
                 },
                 {
                   "key": {
+                    "symbol": "deadline_extended"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "description"
                   },
                   "val": {
                     "string": "Desc"
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "fee_override"
+                  },
+                  "val": "void"
                 },
                 {
                   "key": {

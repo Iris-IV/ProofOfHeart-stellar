@@ -574,7 +574,7 @@ impl ProofOfHeart {
     /// # Errors
     /// * `CampaignNotFound` - Campaign ID doesn't exist.
     /// * `CampaignNotActive` - Campaign is already in a terminal state (cancelled, closed, or expired).
-    /// * `CancellationNotAllowed` - Funds have already been withdrawn.
+    /// * `CancellationNotAllowed` - Funds have already been withdrawn, or funding goal has been reached.
     ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
@@ -584,6 +584,10 @@ impl ProofOfHeart {
 
         require_active_campaign(&campaign)?;
         if campaign.funds_withdrawn {
+            return Err(Error::CancellationNotAllowed);
+        }
+        // Prevent cancellation after funding goal is reached (rug-pull prevention)
+        if campaign.amount_raised >= campaign.funding_goal {
             return Err(Error::CancellationNotAllowed);
         }
 
