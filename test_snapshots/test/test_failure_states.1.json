@@ -660,11 +660,25 @@
                     },
                     {
                       "key": {
+                        "symbol": "deadline_extended"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "description"
                       },
                       "val": {
                         "string": "Desc"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "fee_override"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -770,7 +784,52 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "CampaignStartTime"
+                },
+                {
+                  "u32": 1
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "CampaignStartTime"
+                    },
+                    {
+                      "u32": 1
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u64": 0
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
         ]
       ],
       [
@@ -819,7 +878,7 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -864,7 +923,7 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -874,7 +933,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "CreatorCampaigns"
+                  "symbol": "CreatorCampaignCount"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -894,7 +953,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "CreatorCampaigns"
+                      "symbol": "CreatorCampaignCount"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -903,17 +962,13 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "vec": [
-                    {
-                      "u32": 1
-                    }
-                  ]
+                  "u32": 1
                 }
               }
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -923,13 +978,13 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "LifetimeContribution"
+                  "symbol": "CreatorCampaignsBucket"
                 },
                 {
-                  "u32": 1
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "u32": 0
                 }
               ]
             },
@@ -946,28 +1001,29 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "LifetimeContribution"
+                      "symbol": "CreatorCampaignsBucket"
                     },
                     {
-                      "u32": 1
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                     },
                     {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "u32": 0
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
-                  "i128": {
-                    "hi": 0,
-                    "lo": 500
-                  }
+                  "vec": [
+                    {
+                      "u32": 1
+                    }
+                  ]
                 }
               }
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -1015,7 +1071,7 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -1198,7 +1254,7 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ],
       [
@@ -1477,7 +1533,7 @@
             },
             "ext": "v0"
           },
-          518400
+          6311999
         ]
       ]
     ]
