@@ -10,6 +10,7 @@ use soroban_sdk::String;
 const CONTRIBUTE_CPU_LIMIT: u64 = 5_000_000;
 const WITHDRAW_CPU_LIMIT: u64 = 5_000_000;
 const CLAIM_REVENUE_CPU_LIMIT: u64 = 5_000_000;
+const GET_CAMPAIGNS_BY_CATEGORY_CPU_LIMIT: u64 = 10_000_000;
 
 fn make_revenue_campaign(
     env: &soroban_sdk::Env,
@@ -100,4 +101,39 @@ fn test_claim_revenue_instruction_budget() {
         cpu,
         CLAIM_REVENUE_CPU_LIMIT
     );
+}
+
+#[test]
+fn test_get_campaigns_by_category_bucketed_pagination_budget() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    for i in 0..601u32 {
+        let params = CreateCampaignParams {
+            creator: creator.clone(),
+            title: String::from_str(&env, &format!("Campaign {}", i)),
+            description: String::from_str(&env, "Benchmark campaign"),
+            funding_goal: 1_000,
+            duration_days: 30,
+            category: Category::Learner,
+            has_revenue_sharing: false,
+            revenue_share_percentage: 0,
+            max_contribution_per_user: 0,
+        };
+        client.create_campaign(&params);
+    }
+
+    env.budget().reset_default();
+    let campaigns = client.get_campaigns_by_category(&Category::Learner, &498, &10);
+
+    let cpu = env.budget().cpu_instruction_cost();
+    assert!(
+        cpu < GET_CAMPAIGNS_BY_CATEGORY_CPU_LIMIT,
+        "get_campaigns_by_category() used {} CPU instructions, limit is {}",
+        cpu,
+        GET_CAMPAIGNS_BY_CATEGORY_CPU_LIMIT
+    );
+
+    assert_eq!(campaigns.len(), 10);
+    assert_eq!(campaigns.get(0).unwrap().id, 499);
+    assert_eq!(campaigns.get(9).unwrap().id, 508);
 }

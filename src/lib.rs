@@ -298,9 +298,12 @@ impl ProofOfHeart {
         set_campaign_start_time(&env, count, env.ledger().timestamp());
         set_campaign_count(&env, count);
         set_revenue_pool(&env, count, 0);
-        let mut category_campaigns = get_category_campaigns(&env, category);
-        category_campaigns.push_back(count);
-        set_category_campaigns(&env, category, &category_campaigns);
+        let category_count = get_category_campaign_count(&env, category);
+        let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+        let mut bucket = get_category_campaign_bucket(&env, category, bucket_idx);
+        bucket.push_back(count);
+        set_category_campaign_bucket(&env, category, bucket_idx, &bucket);
+        set_category_campaign_count(&env, category, category_count + 1);
 
         let creator_count = get_creator_campaign_count(&env, &creator);
         let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
@@ -1601,8 +1604,7 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let ids = get_category_campaigns(&env, category);
-        let total = ids.len();
+        let total = get_category_campaign_count(&env, category);
         if start >= total {
             return campaigns;
         }
@@ -1613,13 +1615,30 @@ impl ProofOfHeart {
             start + limit
         };
 
-        let mut idx = start;
-        while idx < end {
-            let campaign_id = ids.get(idx).unwrap();
-            if let Some(campaign) = get_campaign(&env, campaign_id) {
-                campaigns.push_back(campaign);
+        let mut position = start;
+        while position < end {
+            let bucket_idx = position / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+            let bucket = get_category_campaign_bucket(&env, category, bucket_idx);
+            let bucket_start = bucket_idx * CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+            let mut idx_in_bucket = position - bucket_start;
+
+            let bucket_len = bucket.len();
+            while idx_in_bucket < bucket_len && position < end {
+                let campaign_id = bucket.get(idx_in_bucket).unwrap();
+                if let Some(campaign) = get_campaign(&env, campaign_id) {
+                    campaigns.push_back(campaign);
+                }
+                idx_in_bucket += 1;
+                position += 1;
             }
-            idx += 1;
+
+            if idx_in_bucket >= bucket_len {
+                position = if bucket_len == 0 {
+                    bucket_start + CATEGORY_CAMPAIGNS_BUCKET_SIZE
+                } else {
+                    bucket_start + bucket_len
+                };
+            }
         }
 
         campaigns
