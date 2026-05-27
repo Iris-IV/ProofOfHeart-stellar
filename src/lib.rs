@@ -629,7 +629,6 @@ impl ProofOfHeart {
 
         require_active_campaign(&campaign)?;
 
-        bump_instance_ttl(&env);
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
@@ -639,6 +638,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         campaign.title = title.clone();
         campaign.description = description;
 
