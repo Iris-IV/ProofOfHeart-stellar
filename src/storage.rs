@@ -4,7 +4,7 @@ use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
-const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+const BUMP_AMOUNT: u32 = 400 * DAY_IN_LEDGERS;
 
 pub fn bump_instance_ttl(env: &Env) {
     env.storage()
@@ -67,8 +67,12 @@ pub enum DataKey {
     CategoryCampaigns(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
-    /// List of campaign IDs owned by a creator.
-    CreatorCampaigns(Address),
+    /// Unix timestamp when the campaign was created, keyed by campaign ID.
+    CampaignStartTime(u32),
+    /// Number of campaigns owned by a creator.
+    CreatorCampaignCount(Address),
+    /// Bucket of campaign IDs owned by a creator (≤ CREATOR_CAMPAIGNS_BUCKET_SIZE per bucket).
+    CreatorCampaignsBucket(Address, u32),
     /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
@@ -99,6 +103,19 @@ pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
 pub fn set_campaign(env: &Env, campaign_id: u32, campaign: &Campaign) {
     let key = DataKey::Campaign(campaign_id);
     env.storage().persistent().set(&key, campaign);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_campaign_start_time(env: &Env, campaign_id: u32) -> Option<u64> {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().set(&key, &start_time);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
@@ -248,6 +265,12 @@ pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
 /// Removes a contributor's contribution record entirely.
 pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::Contribution(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
+/// Removes a contributor's lifetime contribution record.
+pub fn remove_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::LifetimeContribution(campaign_id, contributor.clone());
     env.storage().persistent().remove(&key);
 }
 
@@ -426,6 +449,22 @@ pub fn remove_voting_state(env: &Env, campaign_id: u32) {
     storage.remove(&DataKey::RejectWeight(campaign_id));
 }
 
+/// Extends TTL on all voting state keys for a campaign.
+pub fn extend_voting_state_ttl(env: &Env, campaign_id: u32) {
+    let storage = env.storage().persistent();
+    let keys = [
+        DataKey::ApproveVotes(campaign_id),
+        DataKey::RejectVotes(campaign_id),
+        DataKey::ApproveWeight(campaign_id),
+        DataKey::RejectWeight(campaign_id),
+    ];
+    for key in keys {
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+    }
+}
+
 /// Returns the minimum vote quorum setting, falling back to `default` if unset.
 pub fn get_min_votes_quorum(env: &Env, default: u32) -> u32 {
     env.storage()
@@ -516,16 +555,42 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage().instance().set(&DataKey::TotalRaised, &amount);
 }
 
-// ── Creator campaigns ─────────────────────────────────────────────────────────
+// ── Creator campaigns (bucketed) ──────────────────────────────────────────────
 
-/// Returns the list of campaign IDs owned by a creator.
-pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Vec<u32> {
-    let key = DataKey::CreatorCampaigns(creator.clone());
-    let val = env
-        .storage()
+/// Maximum number of campaign IDs stored in a single bucket for a creator.
+pub const CREATOR_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
+
+/// Returns the total number of campaigns owned by a creator.
+pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    let val: Option<u32> = env.storage().persistent().get(&key);
+    if let Some(count) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        count
+    } else {
+        0
+    }
+}
+
+/// Stores the total number of campaigns owned by a creator.
+pub fn set_creator_campaign_count(env: &Env, creator: &Address, count: u32) {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    env.storage().persistent().set(&key, &count);
+    env.storage()
         .persistent()
-        .get::<DataKey, soroban_sdk::Vec<u32>>(&key);
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
 
+/// Returns the campaign IDs in a specific bucket for a creator.
+pub fn get_creator_campaign_bucket(
+    env: &Env,
+    creator: &Address,
+    bucket_index: u32,
+) -> soroban_sdk::Vec<u32> {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_index);
+    let val: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&key);
     if let Some(ids) = val {
         env.storage()
             .persistent()
@@ -536,9 +601,14 @@ pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Ve
     }
 }
 
-/// Stores the list of campaign IDs owned by a creator.
-pub fn set_creator_campaign_ids(env: &Env, creator: &Address, ids: &soroban_sdk::Vec<u32>) {
-    let key = DataKey::CreatorCampaigns(creator.clone());
+/// Stores a bucket of campaign IDs for a creator.
+pub fn set_creator_campaign_bucket(
+    env: &Env,
+    creator: &Address,
+    bucket_index: u32,
+    ids: &soroban_sdk::Vec<u32>,
+) {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_index);
     env.storage().persistent().set(&key, ids);
     env.storage()
         .persistent()
