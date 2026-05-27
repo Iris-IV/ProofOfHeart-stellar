@@ -1309,6 +1309,7 @@ impl ProofOfHeart {
         let _campaign = get_campaign_or_error(&env, campaign_id)?;
         bump_instance_ttl(&env);
         set_personal_cap(&env, campaign_id, &contributor, amount);
+        env.events().publish(("personal_cap_set", campaign_id, contributor), amount);
         Ok(())
     }
 
