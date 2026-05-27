@@ -228,11 +228,10 @@ impl ProofOfHeart {
         let duration_max = get_category_duration_cap(&env, category)
             .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
         if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
+            return Err(Error::InvalidDuration);
+        }
         if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
             return Err(Error::FundingGoalTooHigh);
-        }
-        if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
-            return Err(Error::InvalidDuration);
         }
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
@@ -301,9 +300,12 @@ impl ProofOfHeart {
         category_campaigns.push_back(count);
         set_category_campaigns(&env, category, &category_campaigns);
 
-        let mut creator_ids = get_creator_campaign_ids(&env, &creator);
-        creator_ids.push_back(count);
-        set_creator_campaign_ids(&env, &creator, &creator_ids);
+        let creator_count = get_creator_campaign_count(&env, &creator);
+        let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let mut bucket = get_creator_campaign_bucket(&env, &creator, bucket_idx);
+        bucket.push_back(count);
+        set_creator_campaign_bucket(&env, &creator, bucket_idx, &bucket);
+        set_creator_campaign_count(&env, &creator, creator_count + 1);
 
         env.events()
             .publish(("campaign_created", count, creator), title);
@@ -1085,30 +1087,40 @@ impl ProofOfHeart {
     }
 
     /// Returns a paginated list of campaigns owned by a specific creator.
+    ///
+    /// Caps the limit at `LIST_MAX_LIMIT` (50) to prevent pathological calls.
     pub fn get_creator_campaigns(
         env: Env,
         creator: Address,
         start: u32,
         limit: u32,
     ) -> soroban_sdk::Vec<Campaign> {
-        let ids = get_creator_campaign_ids(&env, &creator);
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
+        let total = get_creator_campaign_count(&env, &creator);
         let mut campaigns = soroban_sdk::Vec::new(&env);
 
-        if start >= ids.len() || limit == 0 {
+        if start >= total || capped_limit == 0 {
             return campaigns;
         }
 
-        let end = if start + limit > ids.len() {
-            ids.len()
-        } else {
-            start + limit
-        };
+        let end = start + capped_limit;
+        let num_buckets = (total + CREATOR_CAMPAIGNS_BUCKET_SIZE - 1) / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let mut global_idx = 0u32;
 
-        for i in start..end {
-            if let Some(campaign_id) = ids.get(i) {
-                if let Some(campaign) = get_campaign(&env, campaign_id) {
-                    campaigns.push_back(campaign);
+        'outer: for bucket_idx in 0..num_buckets {
+            let bucket = get_creator_campaign_bucket(&env, &creator, bucket_idx);
+            for i in 0..bucket.len() {
+                if global_idx >= end {
+                    break 'outer;
                 }
+                if global_idx >= start {
+                    if let Some(campaign_id) = bucket.get(i) {
+                        if let Some(campaign) = get_campaign(&env, campaign_id) {
+                            campaigns.push_back(campaign);
+                        }
+                    }
+                }
+                global_idx += 1;
             }
         }
 
@@ -1678,16 +1690,27 @@ impl ProofOfHeart {
         bump_instance_ttl(&env);
         let old_creator = campaign.creator.clone();
 
-        // Update creator lists
-        let mut old_ids = get_creator_campaign_ids(&env, &old_creator);
-        if let Some(index) = old_ids.first_index_of(campaign_id) {
-            old_ids.remove(index);
-            set_creator_campaign_ids(&env, &old_creator, &old_ids);
+        // Remove from old creator's buckets
+        let old_count = get_creator_campaign_count(&env, &old_creator);
+        let old_num_buckets =
+            (old_count + CREATOR_CAMPAIGNS_BUCKET_SIZE - 1) / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        'outer: for bucket_idx in 0..old_num_buckets {
+            let mut bucket = get_creator_campaign_bucket(&env, &old_creator, bucket_idx);
+            if let Some(pos) = bucket.first_index_of(campaign_id) {
+                bucket.remove(pos);
+                set_creator_campaign_bucket(&env, &old_creator, bucket_idx, &bucket);
+                break 'outer;
+            }
         }
+        set_creator_campaign_count(&env, &old_creator, old_count.saturating_sub(1));
 
-        let mut new_ids = get_creator_campaign_ids(&env, &pending);
-        new_ids.push_back(campaign_id);
-        set_creator_campaign_ids(&env, &pending, &new_ids);
+        // Add to new creator's buckets
+        let new_count = get_creator_campaign_count(&env, &pending);
+        let new_bucket_idx = new_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let mut new_bucket = get_creator_campaign_bucket(&env, &pending, new_bucket_idx);
+        new_bucket.push_back(campaign_id);
+        set_creator_campaign_bucket(&env, &pending, new_bucket_idx, &new_bucket);
+        set_creator_campaign_count(&env, &pending, new_count + 1);
 
         campaign.creator = pending.clone();
         campaign.pending_creator = MaybePendingCreator::None;

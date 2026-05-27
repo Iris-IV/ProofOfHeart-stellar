@@ -67,8 +67,10 @@ pub enum DataKey {
     CategoryCampaigns(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
-    /// List of campaign IDs owned by a creator.
-    CreatorCampaigns(Address),
+    /// Number of campaigns owned by a creator.
+    CreatorCampaignCount(Address),
+    /// Bucket of campaign IDs owned by a creator (≤ CREATOR_CAMPAIGNS_BUCKET_SIZE per bucket).
+    CreatorCampaignsBucket(Address, u32),
     /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
     /// Tracking contributions per block for anomaly detection.
@@ -516,16 +518,42 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage().instance().set(&DataKey::TotalRaised, &amount);
 }
 
-// ── Creator campaigns ─────────────────────────────────────────────────────────
+// ── Creator campaigns (bucketed) ──────────────────────────────────────────────
 
-/// Returns the list of campaign IDs owned by a creator.
-pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Vec<u32> {
-    let key = DataKey::CreatorCampaigns(creator.clone());
-    let val = env
-        .storage()
+/// Maximum number of campaign IDs stored in a single bucket for a creator.
+pub const CREATOR_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
+
+/// Returns the total number of campaigns owned by a creator.
+pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    let val: Option<u32> = env.storage().persistent().get(&key);
+    if let Some(count) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        count
+    } else {
+        0
+    }
+}
+
+/// Stores the total number of campaigns owned by a creator.
+pub fn set_creator_campaign_count(env: &Env, creator: &Address, count: u32) {
+    let key = DataKey::CreatorCampaignCount(creator.clone());
+    env.storage().persistent().set(&key, &count);
+    env.storage()
         .persistent()
-        .get::<DataKey, soroban_sdk::Vec<u32>>(&key);
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
 
+/// Returns the campaign IDs in a specific bucket for a creator.
+pub fn get_creator_campaign_bucket(
+    env: &Env,
+    creator: &Address,
+    bucket_index: u32,
+) -> soroban_sdk::Vec<u32> {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_index);
+    let val: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&key);
     if let Some(ids) = val {
         env.storage()
             .persistent()
@@ -536,9 +564,14 @@ pub fn get_creator_campaign_ids(env: &Env, creator: &Address) -> soroban_sdk::Ve
     }
 }
 
-/// Stores the list of campaign IDs owned by a creator.
-pub fn set_creator_campaign_ids(env: &Env, creator: &Address, ids: &soroban_sdk::Vec<u32>) {
-    let key = DataKey::CreatorCampaigns(creator.clone());
+/// Stores a bucket of campaign IDs for a creator.
+pub fn set_creator_campaign_bucket(
+    env: &Env,
+    creator: &Address,
+    bucket_index: u32,
+    ids: &soroban_sdk::Vec<u32>,
+) {
+    let key = DataKey::CreatorCampaignsBucket(creator.clone(), bucket_index);
     env.storage().persistent().set(&key, ids);
     env.storage()
         .persistent()

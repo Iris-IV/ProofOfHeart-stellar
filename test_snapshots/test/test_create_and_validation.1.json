@@ -364,11 +364,25 @@
                     },
                     {
                       "key": {
+                        "symbol": "deadline_extended"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "description"
                       },
                       "val": {
                         "string": "Teaching science to kids"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "fee_override"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -533,7 +547,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "CreatorCampaigns"
+                  "symbol": "CreatorCampaignCount"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -553,10 +567,61 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "CreatorCampaigns"
+                      "symbol": "CreatorCampaignCount"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "u32": 1
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "CreatorCampaignsBucket"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u32": 0
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "CreatorCampaignsBucket"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    },
+                    {
+                      "u32": 0
                     }
                   ]
                 },
@@ -2531,11 +2596,25 @@
                 },
                 {
                   "key": {
+                    "symbol": "deadline_extended"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "description"
                   },
                   "val": {
                     "string": "Teaching science to kids"
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "fee_override"
+                  },
+                  "val": "void"
                 },
                 {
                   "key": {
