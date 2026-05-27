@@ -1330,7 +1330,8 @@ impl ProofOfHeart {
         if amount < 0 {
             return Err(Error::ValidationFailed);
         }
-        let _campaign = get_campaign_or_error(&env, campaign_id)?;
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_active_campaign(&campaign)?;
         bump_instance_ttl(&env);
         set_personal_cap(&env, campaign_id, &contributor, amount);
         env.events().publish(
