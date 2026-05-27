@@ -59,8 +59,9 @@ fn test_anomaly_auto_pause_huge_contribution() {
     client.verify_campaign(&campaign_id);
 
     let res = client.try_contribute(&campaign_id, &contributor1, &4001);
-    assert!(res.is_ok());
-    assert!(client.is_paused());
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+    // Rollback ensures it's NOT paused.
+    assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 
     client.unpause();
@@ -88,8 +89,9 @@ fn test_anomaly_auto_pause_burst() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
 
     let res = client.try_contribute(&campaign_id, &contributor1, &10);
-    assert!(res.is_ok());
-    assert!(client.is_paused());
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+    // Rollback ensures it's NOT paused.
+    assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
 
     client.unpause();

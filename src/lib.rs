@@ -225,13 +225,13 @@ impl ProofOfHeart {
         if funding_goal < get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN) {
             return Err(Error::FundingGoalTooLow);
         }
+        if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
+            return Err(Error::FundingGoalTooHigh);
+        }
         let duration_max = get_category_duration_cap(&env, category)
             .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
         if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
             return Err(Error::InvalidDuration);
-        }
-        if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
-            return Err(Error::FundingGoalTooHigh);
         }
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
@@ -376,7 +376,7 @@ impl ProofOfHeart {
             env.storage().instance().set(&DataKey::Paused, &true);
             env.events()
                 .publish(("auto_paused",), ("huge_contribution", amount));
-            return Ok(());
+            return Err(Error::ContractPaused);
         }
 
         // Anomaly detection: Burst (> 10 tx/block)
@@ -393,7 +393,7 @@ impl ProofOfHeart {
             env.storage().instance().set(&DataKey::Paused, &true);
             env.events()
                 .publish(("auto_paused",), ("burst", block_count));
-            return Ok(());
+            return Err(Error::ContractPaused);
         }
 
         bump_instance_ttl(&env);
@@ -664,9 +664,6 @@ impl ProofOfHeart {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
 
         require_active_campaign(&campaign)?;
-        if campaign.amount_raised > 0 {
-            return Err(Error::ValidationFailed);
-        }
         if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
             || description.len() > CAMPAIGN_DESCRIPTION_MAX_LEN
         {
