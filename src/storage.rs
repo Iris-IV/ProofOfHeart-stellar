@@ -4,7 +4,7 @@ use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
-const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+const BUMP_AMOUNT: u32 = 400 * DAY_IN_LEDGERS;
 
 pub fn bump_instance_ttl(env: &Env) {
     env.storage()
@@ -67,6 +67,8 @@ pub enum DataKey {
     CategoryCampaigns(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
+    /// Unix timestamp when the campaign was created, keyed by campaign ID.
+    CampaignStartTime(u32),
     /// Number of campaigns owned by a creator.
     CreatorCampaignCount(Address),
     /// Bucket of campaign IDs owned by a creator (≤ CREATOR_CAMPAIGNS_BUCKET_SIZE per bucket).
@@ -101,6 +103,19 @@ pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
 pub fn set_campaign(env: &Env, campaign_id: u32, campaign: &Campaign) {
     let key = DataKey::Campaign(campaign_id);
     env.storage().persistent().set(&key, campaign);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_campaign_start_time(env: &Env, campaign_id: u32) -> Option<u64> {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().set(&key, &start_time);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
