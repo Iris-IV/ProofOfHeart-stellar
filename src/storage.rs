@@ -5,6 +5,7 @@ use crate::types::{Campaign, CampaignReserve, Category};
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const BUMP_AMOUNT: u32 = 400 * DAY_IN_LEDGERS;
+pub const CATEGORY_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 
 pub fn bump_instance_ttl(env: &Env) {
     env.storage()
@@ -65,6 +66,10 @@ pub enum DataKey {
     MinVotingBalance,
     /// Campaign ids grouped by category as append-only creation index.
     CategoryCampaigns(u32),
+    /// Campaign ids grouped by category into fixed-size buckets.
+    CategoryCampaignsBucket(u32, u32),
+    /// Total number of campaigns in a category.
+    CategoryCampaignCount(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
     /// Unix timestamp when the campaign was created, keyed by campaign ID.
@@ -522,6 +527,41 @@ pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
 /// Stores all campaign ids for a category and extends entry TTL.
 pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
     let key = DataKey::CategoryCampaigns(category as u32);
+    env.storage().persistent().set(&key, ids);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns the total number of campaigns in a category.
+pub fn get_category_campaign_count(env: &Env, category: Category) -> u32 {
+    let key = DataKey::CategoryCampaignCount(category as u32);
+    env.storage().instance().get(&key).unwrap_or(0)
+}
+
+/// Sets the total number of campaigns in a category.
+pub fn set_category_campaign_count(env: &Env, category: Category, count: u32) {
+    let key = DataKey::CategoryCampaignCount(category as u32);
+    env.storage().instance().set(&key, &count);
+}
+
+/// Returns the campaign bucket for the specified category and bucket index.
+pub fn get_category_campaign_bucket(env: &Env, category: Category, bucket_idx: u32) -> Vec<u32> {
+    let key = DataKey::CategoryCampaignsBucket(category as u32, bucket_idx);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Stores a campaign bucket and extends entry TTL.
+pub fn set_category_campaign_bucket(
+    env: &Env,
+    category: Category,
+    bucket_idx: u32,
+    ids: &Vec<u32>,
+) {
+    let key = DataKey::CategoryCampaignsBucket(category as u32, bucket_idx);
     env.storage().persistent().set(&key, ids);
     env.storage()
         .persistent()

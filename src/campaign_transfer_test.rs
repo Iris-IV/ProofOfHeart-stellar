@@ -88,6 +88,20 @@ fn campaign_transfer_cancel_then_reinitiate_succeeds() {
 }
 
 #[test]
+fn original_creator_cannot_contribute_after_campaign_transfer() {
+    let (env, _admin, creator, client) = setup_env();
+    let new_creator = Address::generate(&env);
+    let campaign_id = create_campaign(&env, &client, &creator, "Transfer contribution guard");
+
+    client.verify_campaign(&campaign_id);
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    client.accept_campaign_transfer(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &creator, &100);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
 fn campaign_transfer_still_rejects_transfer_to_self() {
     let (env, _admin, creator, client) = setup_env();
     let campaign_id = create_campaign(&env, &client, &creator, "Self transfer");

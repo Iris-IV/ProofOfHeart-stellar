@@ -41,18 +41,28 @@ Add the WebAssembly target for Soroban contracts:
 rustup target add wasm32-unknown-unknown
 ```
 
-### 3. Install Soroban CLI
+> **Note:** The repo includes a `rust-toolchain.toml` file that pins the correct Rust toolchain. `rustup` will pick it up automatically — no manual version selection needed.
 
-Install the Soroban command-line tool:
+### 3. Install Stellar CLI
+
+> **Important:** The CLI was previously called `soroban-cli` (binary: `soroban`). It has been rebranded to `stellar-cli` (binary: `stellar`). All commands in this guide use `stellar`.
+
+Install via Cargo:
 
 ```bash
-cargo install soroban-cli
+cargo install --locked stellar-cli --features opt
+```
+
+Or via Homebrew (macOS/Linux):
+
+```bash
+brew install stellar-cli
 ```
 
 Verify installation:
 
 ```bash
-soroban --version
+stellar --version
 ```
 
 ### 4. Clone and Build the Repository
@@ -67,6 +77,8 @@ cd ProofOfHeart-stellar
 ## Build the Contract
 
 Build the WASM binary for deployment:
+
+> **Heads up:** The first build downloads and compiles all Rust dependencies. Expect **10–20 minutes** and **1–2 GB** of disk space on a clean machine. Subsequent builds are much faster.
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release
@@ -91,15 +103,15 @@ Expected size: ~500 KB (WASM files are compressed).
 Generate a new keypair for the deployer account:
 
 ```bash
-soroban keys generate --global deployer
+stellar keys generate --global deployer
 ```
 
-**Output:** A keypair is generated and stored in `~/.soroban/keys/deployer.json`
+**Output:** A keypair is generated and stored in `~/.config/stellar/identity/deployer.toml`
 
 (Optional) If you already have a secret key, import it:
 
 ```bash
-soroban keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
+stellar keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
 ```
 
 ### Step 2: Fund Your Testnet Account
@@ -107,7 +119,7 @@ soroban keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
 Request testnet lumens (XLM) to pay for deployment and initialization:
 
 ```bash
-soroban keys fund deployer --network testnet
+stellar keys fund deployer --network testnet
 ```
 
 This command uses the official Stellar testnet friendbot to fund your account with 10,000 XLM.
@@ -115,7 +127,7 @@ This command uses the official Stellar testnet friendbot to fund your account wi
 **Verify funding:**
 
 ```bash
-soroban account balance --source deployer --network testnet
+stellar account balance --source deployer --network testnet
 ```
 
 Expected balance: ~10,000 XLM (minus any spent on previous deployments).
@@ -125,7 +137,7 @@ Expected balance: ~10,000 XLM (minus any spent on previous deployments).
 Deploy the compiled WASM binary:
 
 ```bash
-soroban contract deploy \
+stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
   --source deployer \
   --network testnet
@@ -163,7 +175,7 @@ export CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 If you don't have a mainnet account, create one:
 
 ```bash
-soroban keys generate --global deployer-mainnet
+stellar keys generate --global deployer-mainnet
 ```
 
 Fund your mainnet account using an exchange or other means:
@@ -173,13 +185,13 @@ Fund your mainnet account using an exchange or other means:
 **Verify mainnet balance:**
 
 ```bash
-soroban account balance --source deployer-mainnet --network mainnet
+stellar account balance --source deployer-mainnet --network mainnet
 ```
 
 ### Step 2: Deploy the Contract to Mainnet
 
 ```bash
-soroban contract deploy \
+stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
   --source deployer-mainnet \
   --network mainnet
@@ -230,7 +242,7 @@ If you haven't set up a token yet, see [Token Setup](#token-setup) first.
 Once you have a token address, initialize the contract:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -244,7 +256,7 @@ soroban contract invoke \
 **Example:**
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4" \
   --source deployer \
   --network testnet \
@@ -260,7 +272,7 @@ soroban contract invoke \
 Identical to testnet, but use `--network mainnet` and the mainnet `CONTRACT_ID`:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID_MAINNET" \
   --source deployer-mainnet \
   --network mainnet \
@@ -296,7 +308,7 @@ If you want full control over the token:
 1. Create a token contract (e.g., using the Soroban token template):
 
    ```bash
-   soroban contract init token
+   stellar contract init token
    cd token
    cargo build --target wasm32-unknown-unknown --release
    ```
@@ -304,7 +316,7 @@ If you want full control over the token:
 2. Deploy it:
 
    ```bash
-   soroban contract deploy \
+   stellar contract deploy \
      --wasm token/target/wasm32-unknown-unknown/release/soroban_token_contract.wasm \
      --source deployer \
      --network testnet
@@ -317,7 +329,7 @@ If you want full control over the token:
 If you control the token, mint some tokens to test contributions:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$TOKEN_CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -336,7 +348,7 @@ soroban contract invoke \
 Check that the contract was deployed:
 
 ```bash
-soroban contract info --id "$CONTRACT_ID" --network testnet
+stellar contract info --id "$CONTRACT_ID" --network testnet
 ```
 
 Expected output includes contract ID, WASM hash, and deployment info.
@@ -346,7 +358,7 @@ Expected output includes contract ID, WASM hash, and deployment info.
 Call the `get_version()` function to verify the contract was initialized:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -362,7 +374,7 @@ Expected output: `1` (the contract version).
 Create a test campaign to verify everything works:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -385,12 +397,24 @@ Expected output: Campaign ID `1` (if it's the first campaign).
 Check that your account has enough XLM to pay for operations:
 
 ```bash
-soroban account balance --source deployer --network testnet
+stellar account balance --source deployer --network testnet
 ```
 
 ---
 
 ## Troubleshooting
+
+### Error: "stellar: command not found"
+
+**Cause:** The CLI is not installed or not on your `PATH`.
+
+**Solution:**
+
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Then reload your shell (`source ~/.bashrc` / `source ~/.zshrc`) or open a new terminal.
 
 ### Error: "Source account does not exist"
 
@@ -399,7 +423,7 @@ soroban account balance --source deployer --network testnet
 **Solution:**
 
 ```bash
-soroban keys fund deployer --network testnet
+stellar keys fund deployer --network testnet
 ```
 
 ### Error: "Invalid contract ID"
@@ -418,7 +442,7 @@ soroban keys fund deployer --network testnet
 
 **Solution:**
 
-- Testnet: Run `soroban keys fund deployer --network testnet` again.
+- Testnet: Run `stellar keys fund deployer --network testnet` again.
 - Mainnet: Transfer XLM from an exchange to your account.
 
 ### Error: "Invalid source key"
@@ -428,8 +452,8 @@ soroban keys fund deployer --network testnet
 **Solution:**
 
 ```bash
-soroban keys list
-soroban keys generate --global deployer  # Recreate if needed
+stellar keys list
+stellar keys generate --global deployer  # Recreate if needed
 ```
 
 ### Contract Invocation Hangs
@@ -465,11 +489,12 @@ cargo build --target wasm32-unknown-unknown --release
 
 ## Additional Resources
 
+- [Stellar CLI Docs](https://developers.stellar.org/docs/tools/stellar-cli)
 - [Soroban Documentation](https://soroban.stellar.org/docs)
 - [Stellar Testnet](https://developers.stellar.org/docs/fundamentals-and-concepts/testnet-public-network)
-- [Soroban CLI Reference](https://github.com/stellar/rs-soroban-cli)
-- [Stellar Account Federation](https://developers.stellar.org/docs/learn/smart-contracts/stellar-asset-contract)
+- [Stellar CLI Reference](https://github.com/stellar/stellar-cli)
+- [Stellar Asset Contract](https://developers.stellar.org/docs/learn/smart-contracts/stellar-asset-contract)
 
 ---
 
-**Last Updated:** April 25, 2026
+**Last Updated:** May 27, 2026

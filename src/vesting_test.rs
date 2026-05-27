@@ -26,11 +26,14 @@ fn test_withdrawal_vesting_full_flow() {
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
 
-    // 3. Contribute to meet goal
+    // 3. No reserve should exist before withdraw_funds.
+    assert_eq!(client.get_campaign_reserve(&campaign_id), None);
+
+    // 4. Contribute to meet goal
     token_admin.mint(&contributor, &1000);
     client.contribute(&campaign_id, &contributor, &1000);
 
-    // 4. Fast forward to deadline
+    // 5. Fast forward to deadline
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
         li.timestamp = current_ts + 31 * 86400;
@@ -57,6 +60,46 @@ fn test_withdrawal_vesting_full_flow() {
     // 8. Withdraw reserve
     client.withdraw_reserve(&campaign_id);
     assert_eq!(token.balance(&creator), 970); // 776 + 194
+}
+
+#[test]
+fn test_get_campaign_reserve_view_function() {
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let params = CreateCampaignParams {
+        creator: creator.clone(),
+        title: soroban_sdk::String::from_str(&env, "Reserve Getter Campaign"),
+        description: soroban_sdk::String::from_str(&env, "Test campaign reserve getter"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    };
+    let campaign_id = client.create_campaign(&params);
+    client.verify_campaign(&campaign_id);
+
+    assert_eq!(client.get_campaign_reserve(&campaign_id), None);
+
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * 86400;
+    });
+
+    client.withdraw_funds(&campaign_id);
+
+    let reserve = client
+        .get_campaign_reserve(&campaign_id)
+        .expect("reserve should exist after withdraw_funds");
+    assert_eq!(reserve.amount, 194);
+    assert_eq!(reserve.released, false);
+    assert_eq!(reserve.release_timestamp, env.ledger().timestamp() + 7 * 86400);
 }
 
 #[test]

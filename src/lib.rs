@@ -283,6 +283,7 @@ impl ProofOfHeart {
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
+            original_creator: creator.clone(),
             pending_creator: MaybePendingCreator::None,
             title: title.clone(),
             description,
@@ -305,9 +306,12 @@ impl ProofOfHeart {
         set_campaign_start_time(&env, count, env.ledger().timestamp());
         set_campaign_count(&env, count);
         set_revenue_pool(&env, count, 0);
-        let mut category_campaigns = get_category_campaigns(&env, category);
-        category_campaigns.push_back(count);
-        set_category_campaigns(&env, category, &category_campaigns);
+        let category_count = get_category_campaign_count(&env, category);
+        let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+        let mut bucket = get_category_campaign_bucket(&env, category, bucket_idx);
+        bucket.push_back(count);
+        set_category_campaign_bucket(&env, category, bucket_idx, &bucket);
+        set_category_campaign_count(&env, category, category_count + 1);
 
         let creator_count = get_creator_campaign_count(&env, &creator);
         let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
@@ -356,7 +360,7 @@ impl ProofOfHeart {
         }
 
         require_active_campaign(&campaign)?;
-        if contributor == campaign.creator {
+        if contributor == campaign.creator || contributor == campaign.original_creator {
             return Err(Error::NotAuthorized);
         }
         if env.ledger().timestamp() > campaign.deadline {
@@ -476,6 +480,18 @@ impl ProofOfHeart {
         let reserve_amount = (total_after_fee * (reserve_bps as i128)) / 10000;
         let creator_amount = total_after_fee - reserve_amount;
 
+        // Execute token transfers BEFORE marking campaign as withdrawn to prevent stuck state
+        let admin_addr = get_admin(&env);
+        let client = Self::token_client(&env);
+
+        client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &creator_amount,
+        );
+
+        // Update state only after successful external interactions
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
@@ -498,16 +514,6 @@ impl ProofOfHeart {
 
         let total_raised = get_total_raised_global(&env);
         set_total_raised_global(&env, total_raised - campaign.amount_raised);
-
-        let admin_addr = get_admin(&env);
-        let client = Self::token_client(&env);
-
-        client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
-        client.transfer(
-            &env.current_contract_address(),
-            &campaign.creator,
-            &creator_amount,
-        );
 
         env.events().publish(
             ("withdrawal", campaign_id, campaign.creator.clone()),
@@ -536,15 +542,17 @@ impl ProofOfHeart {
         let campaign = get_campaign_or_error(&env, campaign_id)?;
         campaign.creator.require_auth();
 
-        reserve.released = true;
-        set_campaign_reserve(&env, campaign_id, &reserve);
-
+        // Transfer funds BEFORE marking reserve as released to prevent stuck state
         let client = Self::token_client(&env);
         client.transfer(
             &env.current_contract_address(),
             &campaign.creator,
             &reserve.amount,
         );
+
+        // Update state only after successful external interaction
+        reserve.released = true;
+        set_campaign_reserve(&env, campaign_id, &reserve);
 
         env.events().publish(
             ("reserve_released", campaign_id, campaign.creator),
@@ -813,10 +821,13 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
+        // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
         let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &claimable);
+
+        // Update state only after successful external interaction
+        set_revenue_claimed(&env, campaign_id, &contributor, already_claimed + claimable);
 
         env.events().publish(
             ("revenue_claimed", campaign_id, contributor.clone()),
@@ -854,14 +865,16 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
+        // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
         let client = Self::token_client(&env);
         client.transfer(
             &env.current_contract_address(),
             &campaign.creator,
             &claimable,
         );
+
+        set_creator_revenue_claimed(&env, campaign_id, already_claimed + claimable);
 
         env.events().publish(
             ("creator_revenue_claimed", campaign_id, campaign.creator),
@@ -1336,12 +1349,24 @@ impl ProofOfHeart {
         let _campaign = get_campaign_or_error(&env, campaign_id)?;
         bump_instance_ttl(&env);
         set_personal_cap(&env, campaign_id, &contributor, amount);
+        env.events().publish(
+            ("personal_cap_set", campaign_id, contributor.clone()),
+            amount,
+        );
         Ok(())
     }
 
     /// Gets the personal contribution cap for a contributor on a campaign.
     pub fn get_personal_cap(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_personal_cap(&env, campaign_id, &contributor).unwrap_or(0)
+    }
+
+    /// Returns the reserve details for a campaign, if any.
+    pub fn get_campaign_reserve(
+        env: Env,
+        campaign_id: u32,
+    ) -> Option<CampaignReserve> {
+        storage::get_campaign_reserve(&env, campaign_id)
     }
 
     /// Initiates transfer of admin privileges to a new address.
@@ -1583,31 +1608,38 @@ impl ProofOfHeart {
         let mut current_id = start + 1;
         let mut next_cursor = 0u32;
 
-        while collected < capped_limit && current_id <= total_count {
+        while current_id <= total_count {
+            // Cap the scan to MAX_SCAN_WINDOW to prevent DoS
+            if current_id > start + MAX_SCAN_WINDOW {
+                next_cursor = current_id;
+                break;
+            }
+
             if let Some(campaign) = get_campaign(&env, current_id) {
                 if campaign.is_active && !campaign.is_cancelled {
                     campaigns.push_back(campaign);
                     collected += 1;
+                    if collected >= capped_limit {
+                        // Limit satisfied: set cursor so caller can continue
+                        next_cursor = current_id + 1;
+                        break;
+                    }
                 }
             }
             current_id += 1;
-
-            // Cap the scan to MAX_SCAN_WINDOW to prevent DoS
-            if current_id > start + MAX_SCAN_WINDOW {
-                // We hit the scan cap - set continuation cursor
-                next_cursor = current_id;
-                break;
-            }
-        }
-
-        // If we finished naturally (no scan cap hit), clear the cursor
-        if next_cursor == 0 && collected < limit {
-            next_cursor = 0;
         }
 
         (campaigns, next_cursor)
     }
 
+    /// List campaigns in a specific category using exclusive-cursor semantics.
+    ///
+    /// # Arguments
+    /// * `start` - The last campaign ID already seen (exclusive cursor).
+    ///   - Pass `start = 0` for the first page.
+    ///   - Pass the last returned campaign ID as `start` for the next page.
+    ///
+    /// Caps the limit at LIST_MAX_LIMIT (50) to prevent pathological calls.
     pub fn get_campaigns_by_category(
         env: Env,
         category: Category,
@@ -1619,8 +1651,7 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let ids = get_category_campaigns(&env, category);
-        let total = ids.len();
+        let total = get_category_campaign_count(&env, category);
         if start >= total {
             return campaigns;
         }
@@ -1631,26 +1662,56 @@ impl ProofOfHeart {
             start + limit
         };
 
-        let mut idx = start;
-        while idx < end {
-            let campaign_id = ids.get(idx).unwrap();
-            if let Some(campaign) = get_campaign(&env, campaign_id) {
-                campaigns.push_back(campaign);
+        let mut position = start;
+        while position < end {
+            let bucket_idx = position / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+            let bucket = get_category_campaign_bucket(&env, category, bucket_idx);
+            let bucket_start = bucket_idx * CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+            let mut idx_in_bucket = position - bucket_start;
+
+            let bucket_len = bucket.len();
+            while idx_in_bucket < bucket_len && position < end {
+                let campaign_id = bucket.get(idx_in_bucket).unwrap();
+                if let Some(campaign) = get_campaign(&env, campaign_id) {
+                    campaigns.push_back(campaign);
+                }
+                idx_in_bucket += 1;
+                position += 1;
             }
-            idx += 1;
+
+            if idx_in_bucket >= bucket_len {
+                position = if bucket_len == 0 {
+                    bucket_start + CATEGORY_CAMPAIGNS_BUCKET_SIZE
+                } else {
+                    bucket_start + bucket_len
+                };
+            }
         }
 
         campaigns
     }
 
+    /// Returns platform-wide aggregate statistics.
+    ///
+    /// # Performance Notes
+    /// This function scans campaigns sequentially. To prevent DoS, the scan is capped at
+    /// MAX_SCAN_LIMIT campaigns. For platforms with > MAX_SCAN_LIMIT campaigns, the
+    /// reported counts represent a partial snapshot of the most recent campaigns.
+    /// For accurate full statistics, consider implementing incremental counters that
+    /// update whenever campaign state changes (create, verify, cancel, etc.).
     pub fn get_platform_stats(env: Env) -> PlatformStats {
         let total_campaigns = get_campaign_count(&env);
         let mut active_campaigns = 0u32;
         let mut verified_campaigns = 0u32;
         let mut cancelled_campaigns = 0u32;
 
+        // Cap scan window to prevent DoS - scans most recent campaigns first
+        // (iteration order: 1, 2, 3, ... total_campaigns)
+        const MAX_SCAN_LIMIT: u32 = 1000;
+        let scan_end = total_campaigns.min(MAX_SCAN_LIMIT);
+
         let mut id = 1u32;
-        while id <= total_campaigns {
+        while id <= scan_end {
             if let Some(campaign) = get_campaign(&env, id) {
                 if campaign.is_active && !campaign.is_cancelled {
                     active_campaigns += 1;
@@ -1784,6 +1845,12 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        // Reject an empty voter list — a no-op call would silently succeed while
+        // leaving HasVoted entries as orphans, leaking ledger storage.
+        if voters.is_empty() {
+            return Err(Error::ValidationFailed);
+        }
+
         remove_voting_state(&env, campaign_id);
         for voter in voters.iter() {
             remove_has_voted(&env, campaign_id, &voter);
@@ -1812,6 +1879,43 @@ impl ProofOfHeart {
 
         env.events()
             .publish(("campaign_transfer_cancelled", campaign_id), ());
+
+        Ok(())
+    }
+
+    /// Resumes a campaign that was auto-paused (e.g. due to anomaly detection).
+    ///
+    /// Either the campaign creator or the global admin may call this to lift the
+    /// contract-level pause and allow contributions to resume. An event is emitted
+    /// so indexers can track the recovery.
+    ///
+    /// # Arguments
+    /// * `campaign_id` - The ID of the campaign whose context triggered the pause.
+    /// * `caller` - The address of the creator or admin requesting the resume.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` - No campaign with the given ID.
+    /// * `NotAuthorized` - Caller is neither the campaign creator nor the admin.
+    /// * `CampaignNotActive` - Campaign is cancelled or already closed.
+    ///
+    /// # Authorization
+    /// Requires `caller.require_auth()`.
+    pub fn resume_campaign(env: Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
+        caller.require_auth();
+
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_active_campaign(&campaign)?;
+
+        let admin = get_admin(&env);
+        if caller != campaign.creator && caller != admin {
+            return Err(Error::NotAuthorized);
+        }
+
+        bump_instance_ttl(&env);
+        env.storage().instance().set(&DataKey::Paused, &false);
+
+        env.events()
+            .publish(("campaign_resumed", campaign_id, caller), ());
 
         Ok(())
     }

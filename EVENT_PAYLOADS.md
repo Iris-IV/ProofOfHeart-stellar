@@ -80,6 +80,13 @@ Emitted when a contributor funds a campaign.
 - **Emitted By**: `contribute()`
 - **Indexing Tip**: Track all contributions per campaign or per contributor for dashboards.
 
+#### `personal_cap_set`
+Emitted when a contributor sets or updates their personal contribution cap for a campaign.
+
+- **Topics**: `["personal_cap_set", campaign_id, contributor_address]`
+- **Data**: `amount_tokens`
+- **Emitted By**: `set_personal_cap()`
+
 #### `refund_claimed`
 Emitted when a contributor claims a refund (campaign cancelled or funding goal not reached).
 
