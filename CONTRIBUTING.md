@@ -9,15 +9,17 @@ Install these before cloning:
 | Tool | Install |
 |------|---------|
 | Rust | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Soroban CLI | `cargo install soroban-cli` |
+| Stellar CLI | `cargo install --locked stellar-cli --features opt` |
 | wasm32 target | `rustup target add wasm32-unknown-unknown` |
+
+> **Note:** The CLI was previously named `soroban-cli` (binary: `soroban`). It has been rebranded to `stellar-cli` (binary: `stellar`). All commands in this repo use `stellar`.
 
 Verify:
 
 ```bash
 rustc --version
 cargo --version
-soroban --version
+stellar --version
 ```
 
 ## Clone & Setup
@@ -38,6 +40,8 @@ git remote add upstream https://github.com/Iris-IV/ProofOfHeart-stellar.git
 
 ## Build & Test
 
+> **Heads up:** The first `cargo build` downloads and compiles all Rust dependencies. This can take **10–20 minutes** and use **1–2 GB** of disk space. Subsequent builds are much faster.
+
 ```bash
 # Build WASM
 cargo build --target wasm32-unknown-unknown --release
@@ -45,6 +49,8 @@ cargo build --target wasm32-unknown-unknown --release
 # Run tests
 cargo test --features testutils
 ```
+
+The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatically — `rustup` will download the correct version on first use.
 
 ## Code Style
 
@@ -147,6 +153,7 @@ View the full board at the [Issues page](../../milestones).
 
 ## Getting Help
 
+- [Stellar CLI Docs](https://developers.stellar.org/docs/tools/stellar-cli)
 - [Soroban Docs](https://soroban.stellar.org/docs)
 - [Stellar Developers](https://developers.stellar.org/)
 - [Issues](../../issues) — search before opening new ones

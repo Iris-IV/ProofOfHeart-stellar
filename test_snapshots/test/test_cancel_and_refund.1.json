@@ -1001,6 +1001,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "original_creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "pending_creator"
                       },
                       "val": {
@@ -1088,7 +1096,10 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "CategoryCampaigns"
+                  "symbol": "CategoryCampaignsBucket"
+                },
+                {
+                  "u32": 0
                 },
                 {
                   "u32": 0
@@ -1108,7 +1119,10 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "CategoryCampaigns"
+                      "symbol": "CategoryCampaignsBucket"
+                    },
+                    {
+                      "u32": 0
                     },
                     {
                       "u32": 0
@@ -1375,6 +1389,21 @@
                           "vec": [
                             {
                               "symbol": "CampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "CategoryCampaignCount"
+                            },
+                            {
+                              "u32": 0
                             }
                           ]
                         },
@@ -3122,6 +3151,14 @@
                       "hi": 0,
                       "lo": 0
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "original_creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   }
                 },
                 {
