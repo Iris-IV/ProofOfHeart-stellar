@@ -3,6 +3,7 @@ pub(crate) mod helpers;
 mod test_admin;
 mod test_campaign_create;
 mod test_campaign_update;
+mod test_cancel_revenue_orphan;
 mod test_contribute;
 mod test_contribute_caps;
 mod test_deadline_ext;

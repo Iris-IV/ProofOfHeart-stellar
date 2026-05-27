@@ -228,11 +228,10 @@ impl ProofOfHeart {
         let duration_max = get_category_duration_cap(&env, category)
             .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
         if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
+            return Err(Error::InvalidDuration);
+        }
         if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
             return Err(Error::FundingGoalTooHigh);
-        }
-        if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&duration_days) {
-            return Err(Error::InvalidDuration);
         }
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
@@ -569,6 +568,9 @@ impl ProofOfHeart {
 
     /// Cancels a campaign. Can only be performed by the creator while the campaign is still active.
     ///
+    /// If revenue has been deposited into the campaign's pool, the entire pool is returned to the
+    /// creator and the pool is cleared to prevent orphaned funds.
+    ///
     /// # Errors
     /// * `CampaignNotFound` - Campaign ID doesn't exist.
     /// * `CampaignNotActive` - Campaign is already in a terminal state (cancelled, closed, or expired).
@@ -586,6 +588,19 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
+
+        // Refund any deposited revenue pool to the creator
+        let revenue_pool = get_revenue_pool(&env, campaign_id);
+        if revenue_pool > 0 {
+            let token_addr = get_token(&env);
+            let client = token::Client::new(&env, &token_addr);
+            client.transfer(&env.current_contract_address(), &campaign.creator, &revenue_pool);
+            set_revenue_pool(&env, campaign_id, 0);
+
+            env.events()
+                .publish(("revenue_pool_refunded", campaign_id), revenue_pool);
+        }
+
         campaign.is_cancelled = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);

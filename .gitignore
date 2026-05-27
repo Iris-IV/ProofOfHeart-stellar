@@ -2,6 +2,7 @@
 # Rust build artifacts
 # =========================
 /target/
+target_local/
 **/*.rs.bk
 *.rlib
 *.rmeta
@@ -49,3 +50,6 @@ body*.txt
 issue*.json
 pr_data.json
 pr_response.json
+
+# target files
+
