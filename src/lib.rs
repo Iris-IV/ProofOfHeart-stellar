@@ -275,6 +275,7 @@ impl ProofOfHeart {
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
+            original_creator: creator.clone(),
             pending_creator: MaybePendingCreator::None,
             title: title.clone(),
             description,
@@ -348,7 +349,7 @@ impl ProofOfHeart {
         }
 
         require_active_campaign(&campaign)?;
-        if contributor == campaign.creator {
+        if contributor == campaign.creator || contributor == campaign.original_creator {
             return Err(Error::NotAuthorized);
         }
         if env.ledger().timestamp() > campaign.deadline {
