@@ -1318,6 +1318,14 @@ impl ProofOfHeart {
         get_personal_cap(&env, campaign_id, &contributor).unwrap_or(0)
     }
 
+    /// Returns the reserve details for a campaign, if any.
+    pub fn get_campaign_reserve(
+        env: Env,
+        campaign_id: u32,
+    ) -> Option<CampaignReserve> {
+        storage::get_campaign_reserve(&env, campaign_id)
+    }
+
     /// Initiates transfer of admin privileges to a new address.
     ///
     /// # Authorization
