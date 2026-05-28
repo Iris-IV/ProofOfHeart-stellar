@@ -1746,6 +1746,11 @@ impl ProofOfHeart {
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
+        require_active_campaign(&campaign)?;
+
+        if campaign.funds_withdrawn {
+            return Err(Error::CampaignNotActive);
+        }
 
         if new_creator == campaign.creator {
             return Err(Error::InvalidNewOwner);
