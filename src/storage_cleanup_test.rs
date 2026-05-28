@@ -137,43 +137,8 @@ fn test_voting_keys_absent_after_cancel() {
     );
 }
 
-/// Revenue deposits are blocked before successful withdrawal, and refund cleanup
-/// still leaves no RevenueClaimed key behind.
-#[test]
-fn test_revenue_claimed_key_removed_on_refund() {
-    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
-        setup_env();
-
-    token_admin.mint(&contributor1, &10_000);
-    token_admin.mint(&creator, &5_000);
-
-    let id = client.create_campaign(&make_params_local(creator.clone(), &env, 5_000, true));
-    client.verify_campaign(&id);
-    client.contribute(&id, &contributor1, &5_000);
-
-    // Depositing before successful withdrawal is now rejected.
-    let deposit_res = client.try_deposit_revenue(&id, &1_000);
-    assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Cancel and refund
-    client.cancel_campaign(&id);
-    client.claim_refund(&id, &contributor1);
-
-    // Both keys must be absent after refund cleanup.
-    assert!(
-        !has_persistent_key(
-            &env,
-            &client,
-            DataKey::Contribution(id, contributor1.clone())
-        ),
-        "Contribution key must be removed after refund"
-    );
-    assert!(
-        !has_persistent_key(
-            &env,
-            &client,
-            DataKey::RevenueClaimed(id, contributor1.clone())
-        ),
-        "RevenueClaimed key must be removed after refund"
-    );
-}
+// Issue #341: claim_revenue is gated on funds_withdrawn, and cancel is gated
+// on !funds_withdrawn, so the prior "claim → cancel → refund cleans
+// RevenueClaimed" path is no longer reachable. The defensive cleanup remains
+// in claim_refund; behavioural coverage of the new guard lives in
+// test::test_claim_revenue_blocked_before_funds_withdrawn.
