@@ -284,7 +284,7 @@ impl ProofOfHeart {
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
-            original_creator: creator.clone(),
+            first_creator: creator.clone(),
             pending_creator: MaybePendingCreator::None,
             title: title.clone(),
             description,
@@ -361,7 +361,7 @@ impl ProofOfHeart {
         }
 
         require_active_campaign(&campaign)?;
-        if contributor == campaign.creator || contributor == campaign.original_creator {
+        if contributor == campaign.creator || contributor == campaign.first_creator {
             return Err(Error::NotAuthorized);
         }
         if env.ledger().timestamp() > campaign.deadline {
@@ -976,6 +976,12 @@ impl ProofOfHeart {
         if min_balance < 0 {
             return Err(Error::ValidationFailed);
         }
+        
+        // Emits a warning if balance is set above a threshold that might exclude all current holders.
+        if min_balance > 1_000_000_000_000_000 {
+            env.events().publish(("warning_high_voting_balance",), min_balance);
+        }
+
         bump_instance_ttl(&env);
         let old_balance = get_min_voting_balance(&env);
         set_min_voting_balance(&env, min_balance);
@@ -1542,6 +1548,10 @@ impl ProofOfHeart {
             return Err(Error::InvalidNewOwner);
         }
 
+        if let Some(old_pending) = get_pending_admin(&env) {
+            env.events().publish(("admin_transfer_cancelled",), old_pending);
+        }
+
         bump_instance_ttl(&env);
         set_pending_admin(&env, &new_admin);
         env.events()
@@ -1888,7 +1898,8 @@ impl ProofOfHeart {
             verified_campaigns,
             cancelled_campaigns,
             total_amount_raised: get_total_raised_global(&env),
-            is_partial: total_campaigns > MAX_SCAN_LIMIT,
+            stats_are_partial: total_campaigns > MAX_SCAN_LIMIT,
+            scanned_up_to: scan_end,
         }
     }
 
