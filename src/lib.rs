@@ -1398,6 +1398,10 @@ impl ProofOfHeart {
         Ok(())
     }
 
+    fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Result<u64, Error> {
+        get_campaign_start_time(env, campaign_id).ok_or(Error::InvalidDuration)
+    }
+
     /// Extends the deadline of a campaign by `additional_days` (creator only).
     ///
     /// Rules:
