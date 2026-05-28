@@ -1848,11 +1848,16 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Removes voting-related storage keys for a terminal campaign.
+    /// Removes voting-related storage keys for a terminal campaign in batches.
     ///
-    /// Clears `ApproveVotes`, `RejectVotes`, `ApproveWeight`, `RejectWeight`, and
-    /// `HasVoted` entries for each address in `voters`. Must only be called after
-    /// the campaign has reached a terminal state (`funds_withdrawn` or `is_cancelled`).
+    /// Always clears the `HasVoted` entry for each address in `voters`. The
+    /// aggregate vote keys (`ApproveVotes`, `RejectVotes`, `ApproveWeight`,
+    /// `RejectWeight`) and the `voting_state_purged` event are only cleared
+    /// when `finalize_aggregate == true`, so the admin can split a large voter
+    /// set across multiple calls and only finalize after the last batch.
+    ///
+    /// Must only be called after the campaign has reached a terminal state
+    /// (`funds_withdrawn` or `is_cancelled`).
     ///
     /// # Authorization
     /// Requires admin authorization.
@@ -1860,11 +1865,13 @@ impl ProofOfHeart {
     /// # Errors
     /// * `CampaignNotFound` - No campaign with the given ID.
     /// * `NotAuthorized` - Caller is not the admin.
-    /// * `ValidationFailed` - Campaign is not yet in a terminal state.
+    /// * `ValidationFailed` - Campaign is not yet in a terminal state, the
+    ///   voter list is empty, or the voter list exceeds `MAX_VOTERS_PER_CALL`.
     pub fn purge_voting_state(
         env: Env,
         campaign_id: u32,
         voters: soroban_sdk::Vec<Address>,
+        finalize_aggregate: bool,
     ) -> Result<(), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
@@ -1880,19 +1887,28 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        // Cap batch size to prevent compute budget exhaustion
-        const MAX_PURGE_BATCH: u32 = 100;
-        if voters.len() > MAX_PURGE_BATCH {
+        // Cap batch size to keep the call below the Soroban instruction limit
+        // and give callers a predictable batching contract. Aligned with
+        // verify_campaigns::MAX_BATCH_SIZE.
+        const MAX_VOTERS_PER_CALL: u32 = 50;
+        if voters.len() > MAX_VOTERS_PER_CALL {
             return Err(Error::ValidationFailed);
         }
 
         for voter in voters.iter() {
             remove_has_voted(&env, campaign_id, &voter);
         }
-        remove_voting_state(&env, campaign_id);
 
-        env.events()
-            .publish(("voting_state_purged", campaign_id), ());
+        // Only clear aggregate vote counts and emit the purged event on the
+        // final batch. Doing it on every call would orphan any HasVoted entries
+        // not yet supplied by the admin and emit a misleading "purged" event
+        // partway through cleanup.
+        if finalize_aggregate {
+            remove_voting_state(&env, campaign_id);
+            env.events()
+                .publish(("voting_state_purged", campaign_id), ());
+        }
+
         Ok(())
     }
 
