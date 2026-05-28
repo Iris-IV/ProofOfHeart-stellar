@@ -330,7 +330,7 @@ impl ProofOfHeart {
         set_creator_campaign_count(&env, &creator, creator_count + 1);
 
         env.events()
-            .publish(("campaign_created", count, creator), title);
+            .publish(("campaign_created", count, creator), (title, category as u32));
 
         Ok(count)
     }
