@@ -37,7 +37,7 @@ fn create_campaign(
 }
 
 #[test]
-fn campaign_transfer_reinitiate_replaces_pending_owner() {
+fn campaign_transfer_reinitiate_rejects_silent_overwrite() {
     let (env, _admin, creator, client) = setup_env();
     let pending_one = Address::generate(&env);
     let pending_two = Address::generate(&env);
@@ -46,22 +46,24 @@ fn campaign_transfer_reinitiate_replaces_pending_owner() {
     client.initiate_campaign_transfer(&campaign_id, &pending_one);
     assert_eq!(
         client.get_campaign(&campaign_id).pending_creator,
-        MaybePendingCreator::Some(pending_one)
+        MaybePendingCreator::Some(pending_one.clone())
     );
 
-    client.initiate_campaign_transfer(&campaign_id, &pending_two);
+    let res = client.try_initiate_campaign_transfer(&campaign_id, &pending_two);
+    assert_eq!(res.unwrap_err().unwrap(), Error::TransferAlreadyPending);
 
+    // First pending recipient is preserved and can still accept.
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.creator, creator);
     assert_eq!(
         campaign.pending_creator,
-        MaybePendingCreator::Some(pending_two.clone())
+        MaybePendingCreator::Some(pending_one.clone())
     );
 
     client.accept_campaign_transfer(&campaign_id);
 
     let transferred = client.get_campaign(&campaign_id);
-    assert_eq!(transferred.creator, pending_two);
+    assert_eq!(transferred.creator, pending_one);
     assert_eq!(transferred.pending_creator, MaybePendingCreator::None);
 }
 
