@@ -294,8 +294,64 @@ fn test_vote_weight_overflow_fails() {
 
     // Cast a vote with balance 501, which overflows i128::MAX when added to i128::MAX - 500
     token_admin.mint(&contributor, &501);
-    
+
     // cast vote should return Overflow error
     let res = client.try_vote_on_campaign(&campaign_id, &contributor, &true);
     assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+// ── #360 resume_campaign admin-path coverage ──────────────────────────────────
+
+/// Helper: set the contract into auto-paused state directly in storage.
+fn set_auto_paused(env: &Env, client_address: &Address, paused: bool) {
+    env.as_contract(client_address, || {
+        env.storage().instance().set(&DataKey::AutoPaused, &paused);
+    });
+}
+
+#[test]
+fn test_resume_by_admin() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    set_auto_paused(&env, &client.address, true);
+    assert!(client.is_paused());
+
+    // Admin (not the creator) should be able to resume.
+    client.resume_campaign(&campaign_id, &admin);
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_resume_unauthorized_fails() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let stranger = Address::generate(&env);
+
+    set_auto_paused(&env, &client.address, true);
+
+    let result = client.try_resume_campaign(&campaign_id, &stranger);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
+fn test_resume_after_campaign_transfer_uses_new_creator() {
+    let (env, _admin, original_creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &original_creator));
+
+    let new_creator = Address::generate(&env);
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    client.accept_campaign_transfer(&campaign_id);
+
+    set_auto_paused(&env, &client.address, true);
+    assert!(client.is_paused());
+
+    // New creator can resume; original creator can no longer.
+    client.resume_campaign(&campaign_id, &new_creator);
+    assert!(!client.is_paused());
+
+    // Re-pause and verify the original creator is now rejected.
+    set_auto_paused(&env, &client.address, true);
+    let result = client.try_resume_campaign(&campaign_id, &original_creator);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
 }

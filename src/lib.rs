@@ -947,7 +947,7 @@ impl ProofOfHeart {
         let old_threshold =
             get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
         let caller = admin.clone();
-        voting::set_params(&env, admin, min_votes_quorum, approval_threshold_bps)?;
+        voting::set_params(&env, min_votes_quorum, approval_threshold_bps)?;
         env.events().publish(
             (
                 soroban_sdk::Symbol::new(&env, "voting_params_updated"),
@@ -1907,6 +1907,17 @@ impl ProofOfHeart {
             total_amount_raised: get_total_raised_global(&env),
             stats_are_partial: total_campaigns > MAX_SCAN_LIMIT,
             scanned_up_to: scan_end,
+        }
+    }
+
+    /// Returns `true` if the given campaign currently has a pending ownership transfer.
+    ///
+    /// Allows off-chain tooling and the pending creator to discover transfers without
+    /// iterating all campaigns. Returns `false` for unknown campaign IDs.
+    pub fn has_pending_campaign_transfer(env: Env, campaign_id: u32) -> bool {
+        match get_campaign(&env, campaign_id) {
+            Some(c) => c.pending_creator != MaybePendingCreator::None,
+            None => false,
         }
     }
 

@@ -545,6 +545,58 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "BlockCampaignContributionCount"
+                },
+                {
+                  "u32": 1
+                }
+              ]
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "BlockCampaignContributionCount"
+                    },
+                    {
+                      "u32": 1
+                    }
+                  ]
+                },
+                "durability": "temporary",
+                "val": {
+                  "vec": [
+                    {
+                      "u32": 0
+                    },
+                    {
+                      "u32": 1
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          15
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
+            "key": {
+              "vec": [
+                {
                   "symbol": "Campaign"
                 },
                 {
@@ -1193,28 +1245,6 @@
                         },
                         "val": {
                           "u32": 6000
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "BlockCampaignContributionCount"
-                            },
-                            {
-                              "u32": 1
-                            }
-                          ]
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "u32": 0
-                            },
-                            {
-                              "u32": 1
-                            }
-                          ]
                         }
                       },
                       {

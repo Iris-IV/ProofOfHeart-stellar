@@ -30,7 +30,6 @@ pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 /// * `ValidationFailed` - Quorum or threshold values are out of range.
 pub fn set_params(
     env: &Env,
-    _admin: Address,
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
@@ -90,8 +89,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     set_has_voted(env, campaign_id, &voter);
+
+    let vote_weight = balance;
     env.events()
-        .publish(("campaign_vote_cast", campaign_id, voter), approve);
+        .publish(("campaign_vote_cast", campaign_id, voter), (approve, balance, vote_weight));
 
     Ok(())
 }
