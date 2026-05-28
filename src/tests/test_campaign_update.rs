@@ -55,6 +55,40 @@ fn test_update_campaign_emits_title_and_description() {
 }
 
 #[test]
+fn test_update_campaign_event_tracks_latest_description() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        String::from_str(&env, "Original Description"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Title V2"),
+        &String::from_str(&env, "Description V2"),
+    );
+    client.update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Title V3"),
+        &String::from_str(&env, "Description V3"),
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload.0, String::from_str(&env, "Title V3"));
+    assert_eq!(payload.1, String::from_str(&env, "Description V3"));
+}
+
+#[test]
 fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
     let (env, _admin, creator, contributor1, contributor2, _, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
