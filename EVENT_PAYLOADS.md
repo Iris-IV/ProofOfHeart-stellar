@@ -24,7 +24,7 @@ Emitted when the contract is initialized.
 Emitted when a new campaign is created.
 
 - **Topics**: `["campaign_created", campaign_id, creator_address]`
-- **Data**: `campaign_title`
+- **Data**: `(campaign_title, category_u32)`
 - **Emitted By**: `create_campaign()`
 - **Indexing Tip**: Track all campaigns by creator or scan campaign IDs chronologically.
 
