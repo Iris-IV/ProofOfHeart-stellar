@@ -2626,13 +2626,16 @@ fn test_personal_cap_enforcement() {
     let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 500)
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
 
-    // Scenario 2: Personal cap = 2000 (higher than campaign cap)
-    client.set_personal_cap(&campaign_id, &contributor1, &2000);
+    // Scenario 2: Personal cap = 2000 (higher than campaign cap) -> should fail validation
+    let res_set = client.try_set_personal_cap(&campaign_id, &contributor1, &2000);
+    assert_eq!(res_set.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    client.set_personal_cap(&campaign_id, &contributor1, &1000);
 
     // Total contribution currently in contract is 400.
     // Campaign cap is 1000.
-    // Personal cap is 2000.
-    // Effective cap is min(1000, 2000) = 1000.
+    // Personal cap is 1000.
+    // Effective cap is min(1000, 1000) = 1000.
     client.contribute(&campaign_id, &contributor1, &500); // Total now 900, OK
     let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 1000)
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);

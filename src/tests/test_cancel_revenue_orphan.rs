@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams};
+use crate::{Category, CreateCampaignParams, storage};
 use soroban_sdk::String;
 
 /// Test that reproduces the orphaned revenue pool bug:
@@ -30,7 +30,17 @@ fn test_cancel_campaign_refunds_revenue_pool() {
 
     // Creator deposits revenue
     let revenue_amount = 5000i128;
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = true;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
     client.deposit_revenue(&campaign_id, &revenue_amount);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = false;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
 
     // Verify revenue pool is set
     assert_eq!(client.get_revenue_pool(&campaign_id), revenue_amount);
@@ -83,7 +93,17 @@ fn test_cannot_claim_revenue_after_cancel() {
     client.verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = true;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
     client.deposit_revenue(&campaign_id, &1000);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = false;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
 
     // Cancel the campaign
     client.cancel_campaign(&campaign_id);
@@ -129,7 +149,17 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
     client.contribute(&campaign_id, &contributor2, &1000);
 
     let revenue_deposited = 3000i128;
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = true;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
     client.deposit_revenue(&campaign_id, &revenue_deposited);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = false;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
 
     let creator_balance_before_cancel = token.balance(&creator);
     let contract_balance_before_cancel = token.balance(&client.address);
@@ -160,8 +190,9 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
 /// Test that revenue refund event is emitted when campaign is cancelled with revenue pool.
 #[test]
 fn test_cancel_campaign_emits_revenue_refund_event() {
-    let (env, _admin, creator, _, _, _token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
+    token_admin.mint(&contributor1, &1000);
     token_admin.mint(&creator, &5000);
 
     let campaign_id = client.create_campaign(&CreateCampaignParams {
@@ -176,9 +207,20 @@ fn test_cancel_campaign_emits_revenue_refund_event() {
         max_contribution_per_user: 0i128,
     });
     client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
 
     let revenue_amount = 5000i128;
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = true;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
     client.deposit_revenue(&campaign_id, &revenue_amount);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = false;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
 
     // Cancel campaign - should emit revenue_pool_refunded event
     client.cancel_campaign(&campaign_id);

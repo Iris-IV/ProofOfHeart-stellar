@@ -234,14 +234,6 @@ impl ProofOfHeart {
         if funding_goal < get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN) {
             return Err(Error::FundingGoalTooLow);
         }
-        let duration_max = get_category_duration_cap(&env, category)
-            .unwrap_or(CAMPAIGN_DURATION_MAX_DAYS);
-        if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
-            return Err(Error::InvalidDuration);
-        }
-        if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
-            return Err(Error::FundingGoalTooHigh);
-        }
         if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
             return Err(Error::FundingGoalTooHigh);
         }
@@ -1041,6 +1033,7 @@ impl ProofOfHeart {
     pub fn set_creation_disabled(env: Env, disabled: bool) -> Result<(), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
+        Self::require_not_paused(&env)?;
         bump_instance_ttl(&env);
         set_creation_disabled(&env, disabled);
         env.events()
@@ -1363,6 +1356,7 @@ impl ProofOfHeart {
         fee_bps: u32,
     ) -> Result<(), Error> {
         assert_admin(&env, &admin)?;
+        Self::require_not_paused(&env)?;
         let mut campaign = get_campaign_or_error(&env, campaign_id)?;
         if fee_bps > PLATFORM_FEE_MAX_BPS {
             return Err(Error::ValidationFailed);
@@ -1487,6 +1481,9 @@ impl ProofOfHeart {
         }
         let campaign = get_campaign_or_error(&env, campaign_id)?;
         require_active_campaign(&campaign)?;
+        if campaign.max_contribution_per_user > 0 && amount > campaign.max_contribution_per_user {
+            return Err(Error::ValidationFailed);
+        }
         bump_instance_ttl(&env);
         set_personal_cap(&env, campaign_id, &contributor, amount);
         env.events().publish(

@@ -1400,6 +1400,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "CancelledCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "CategoryCampaignCount"
                             },
                             {
@@ -1487,6 +1499,18 @@
                             "hi": 0,
                             "lo": 0
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VerifiedCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
@@ -2455,7 +2479,14 @@
               }
             ],
             "data": {
-              "string": "Failed Idea"
+              "vec": [
+                {
+                  "string": "Failed Idea"
+                },
+                {
+                  "u32": 0
+                }
+              ]
             }
           }
         }

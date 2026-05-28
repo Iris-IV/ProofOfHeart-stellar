@@ -40,7 +40,10 @@ fn test_personal_cap_enforcement() {
     let res = client.try_contribute(&campaign_id, &contributor1, &200);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
 
-    client.set_personal_cap(&campaign_id, &contributor1, &2000);
+    let res_set = client.try_set_personal_cap(&campaign_id, &contributor1, &2000);
+    assert_eq!(res_set.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    client.set_personal_cap(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor1, &500);
     let res = client.try_contribute(&campaign_id, &contributor1, &200);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);

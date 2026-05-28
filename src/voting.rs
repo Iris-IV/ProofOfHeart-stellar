@@ -76,18 +76,16 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     if approve {
         set_approve_votes(env, campaign_id, get_approve_votes(env, campaign_id) + 1);
-        set_approve_weight(
-            env,
-            campaign_id,
-            get_approve_weight(env, campaign_id) + balance,
-        );
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
     } else {
         set_reject_votes(env, campaign_id, get_reject_votes(env, campaign_id) + 1);
-        set_reject_weight(
-            env,
-            campaign_id,
-            get_reject_weight(env, campaign_id) + balance,
-        );
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
     }
 
     set_has_voted(env, campaign_id, &voter);

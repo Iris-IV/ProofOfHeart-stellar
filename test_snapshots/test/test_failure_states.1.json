@@ -1244,6 +1244,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "VerifiedCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Version"
                             }
                           ]
@@ -2044,7 +2056,14 @@
               }
             ],
             "data": {
-              "string": "Deadline Test"
+              "vec": [
+                {
+                  "string": "Deadline Test"
+                },
+                {
+                  "u32": 2
+                }
+              ]
             }
           }
         }
