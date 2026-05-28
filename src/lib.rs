@@ -132,6 +132,8 @@ impl ProofOfHeart {
     /// * `admin` - The global admin address.
     /// * `token` - The required token for contributions and revenue.
     /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
+    ///   Values above the cap are rejected rather than silently clamped, so the
+    ///   admin always knows the stored fee matches the intended fee.
     ///
     /// # Authorization
     /// Requires `admin.require_auth()`.
@@ -140,6 +142,13 @@ impl ProofOfHeart {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+
+        // Validate the fee up front so the caller gets a clear error instead of
+        // a silently-clamped value. Matches the validation contract in
+        // `update_platform_fee` and `set_campaign_fee_override`.
+        if platform_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::ValidationFailed);
+        }
 
         // Validate that the address is a real SEP-41 token contract by probing
         // its decimals() function. try_invoke_contract returns Err when the call
@@ -158,12 +167,7 @@ impl ProofOfHeart {
         set_token(&env, &token);
         set_initialized(&env);
 
-        let valid_fee = if platform_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            platform_fee
-        };
-        set_platform_fee(&env, valid_fee);
+        set_platform_fee(&env, platform_fee);
         set_campaign_count(&env, 0);
         set_total_raised_global(&env, 0);
         set_version(&env, CONTRACT_VERSION);
@@ -177,7 +181,7 @@ impl ProofOfHeart {
             ("initialized", admin.clone()),
             (
                 token.clone(),
-                valid_fee,
+                platform_fee,
                 voting::DEFAULT_MIN_VOTES_QUORUM,
                 voting::DEFAULT_APPROVAL_THRESHOLD_BPS,
                 CONTRACT_VERSION,
