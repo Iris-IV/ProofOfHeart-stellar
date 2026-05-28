@@ -200,3 +200,18 @@ fn test_get_campaigns_by_category_small_limit_respected() {
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &5u32);
     assert_eq!(result.len(), 5);
 }
+
+// ── #348 resume_campaign spurious events/state writes ─────────────────────────
+
+#[test]
+fn test_resume_campaign_rejects_when_contract_not_paused() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    let events_before = env.events().all().len();
+    let result = client.try_resume_campaign(&campaign_id, &creator);
+    let events_after = env.events().all().len();
+
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(events_before, events_after);
+}
