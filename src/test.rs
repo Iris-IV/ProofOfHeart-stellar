@@ -112,12 +112,15 @@ fn test_platform_fee_cap_enforcement() {
     let contract_id = env.register_contract(None, ProofOfHeart);
     let client = ProofOfHeartClient::new(&env, &contract_id);
 
-    // Initialize with fee > 1000 (5000 = 50%), should be capped to 1000 (10%)
-    client.init(&admin, &token_address, &5000);
+    // Issue #343: init rejects fees above the cap rather than silently clamping.
+    let res = client.try_init(&admin, &token_address, &5000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Re-init with the maximum allowed fee and verify it applies end-to-end.
+    client.init(&admin, &token_address, &1000);
     env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
     assert_eq!(client.get_platform_fee(), 1000);
 
-    // Verify withdrawal uses capped fee (10%), not original input (50%)
     token_admin.mint(&contributor, &2000);
 
     let title = String::from_str(&env, "Fee Cap Test");
@@ -1055,8 +1058,9 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(0).unwrap(), 300);
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
+    // Issue #343: fees above the cap are rejected, not silently clamped.
     let result = client.try_update_platform_fee(&5000);
-    assert!(result.is_ok(), "Fee update should succeed even when capped");
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
 #[test]
