@@ -724,6 +724,11 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     assert_eq!(client.get_revenue_pool(&campaign_1), 0);
     assert_eq!(client.get_revenue_pool(&campaign_2), 0);
 
+    client.withdraw_funds(&campaign_3);
+    let c3_after_withdraw_funds = client.get_campaign(&campaign_3);
+    assert!(c3_after_withdraw_funds.funds_withdrawn);
+    assert!(!c3_after_withdraw_funds.is_active);
+
     client.deposit_revenue(&campaign_3, &3000);
 
     assert_eq!(client.get_revenue_pool(&campaign_1), 0);
@@ -731,8 +736,8 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     assert_eq!(client.get_revenue_pool(&campaign_3), 3000);
 
     // Balance checks to ensure campaign operations remained isolated
-    assert_eq!(token.balance(&client.address), 5900);
-    assert_eq!(token.balance(&creator3), 7000);
+    assert_eq!(token.balance(&client.address), 3900);
+    assert_eq!(token.balance(&creator3), 8940);
 }
 
 #[test]
@@ -1056,7 +1061,11 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
     let result = client.try_update_platform_fee(&5000);
-    assert!(result.is_ok(), "Fee update should succeed even when capped");
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        Error::ValidationFailed,
+        "Fee above max bps should be rejected"
+    );
 }
 
 #[test]
@@ -3053,11 +3062,8 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.deposit_revenue(&campaign_id, &1000);
-    client.claim_revenue(&campaign_id, &contributor1);
-
-    let claimed_before_refund = client.get_revenue_claimed(&campaign_id, &contributor1);
-    assert!(claimed_before_refund > 0);
+    let deposit_res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     client.cancel_campaign(&campaign_id);
     client.claim_refund(&campaign_id, &contributor1);

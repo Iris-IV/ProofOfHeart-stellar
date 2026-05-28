@@ -137,7 +137,8 @@ fn test_voting_keys_absent_after_cancel() {
     );
 }
 
-/// RevenueClaimed key is removed when contributor claims refund on a revenue-sharing campaign.
+/// Revenue deposits are blocked before successful withdrawal, and refund cleanup
+/// still leaves no RevenueClaimed key behind.
 #[test]
 fn test_revenue_claimed_key_removed_on_refund() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -150,25 +151,15 @@ fn test_revenue_claimed_key_removed_on_refund() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &5_000);
 
-    // Deposit revenue so contributor can claim some
-    client.deposit_revenue(&id, &1_000);
-    client.claim_revenue(&id, &contributor1);
-
-    // RevenueClaimed key now exists
-    assert!(
-        has_persistent_key(
-            &env,
-            &client,
-            DataKey::RevenueClaimed(id, contributor1.clone())
-        ),
-        "RevenueClaimed key must exist after claim_revenue"
-    );
+    // Depositing before successful withdrawal is now rejected.
+    let deposit_res = client.try_deposit_revenue(&id, &1_000);
+    assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // Cancel and refund
     client.cancel_campaign(&id);
     client.claim_refund(&id, &contributor1);
 
-    // Both keys must be gone
+    // Both keys must be absent after refund cleanup.
     assert!(
         !has_persistent_key(
             &env,

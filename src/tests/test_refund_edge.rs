@@ -112,11 +112,8 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.deposit_revenue(&campaign_id, &1000);
-    client.claim_revenue(&campaign_id, &contributor1);
-
-    let claimed_before_refund = client.get_revenue_claimed(&campaign_id, &contributor1);
-    assert!(claimed_before_refund > 0);
+    let deposit_res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     client.cancel_campaign(&campaign_id);
     client.claim_refund(&campaign_id, &contributor1);

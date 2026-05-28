@@ -151,14 +151,18 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     assert!(client.get_campaign(&campaign_2).is_cancelled);
     assert!(client.get_campaign(&campaign_3).is_active);
 
+    client.withdraw_funds(&campaign_3);
+    assert!(client.get_campaign(&campaign_3).funds_withdrawn);
+    assert!(!client.get_campaign(&campaign_3).is_active);
+
     client.deposit_revenue(&campaign_3, &3000);
 
     assert_eq!(client.get_revenue_pool(&campaign_1), 0);
     assert_eq!(client.get_revenue_pool(&campaign_2), 0);
     assert_eq!(client.get_revenue_pool(&campaign_3), 3000);
 
-    assert_eq!(token.balance(&client.address), 5900);
-    assert_eq!(token.balance(&creator3), 7000);
+    assert_eq!(token.balance(&client.address), 3900);
+    assert_eq!(token.balance(&creator3), 8940);
 }
 
 #[test]
