@@ -82,6 +82,9 @@ pub struct PlatformStats {
     pub cancelled_campaigns: u32,
     /// Sum of `amount_raised` across all campaigns.
     pub total_amount_raised: i128,
+    /// Whether the counts are partial due to scan limit. When true,
+    /// active/verified/cancelled counts may not reflect all campaigns.
+    pub is_partial: bool,
 }
 
 /// Parameters for `create_campaign`, grouped into a single struct to avoid

@@ -19,8 +19,9 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(0).unwrap(), 300);
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
+    // Issue #343: fees above the cap are rejected, not silently clamped.
     let result = client.try_update_platform_fee(&5000);
-    assert!(result.is_ok());
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
 #[test]

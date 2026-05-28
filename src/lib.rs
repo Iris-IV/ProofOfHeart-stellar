@@ -19,7 +19,7 @@ const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
 const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
-const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000; // 200%
+const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
 const LIST_MAX_LIMIT: u32 = 50;
 
@@ -108,13 +108,18 @@ impl ProofOfHeart {
         token::Client::new(env, &get_token(env))
     }
 
-    /// Checks if the contract is paused and returns an error if it is.
+    /// Checks if the contract is paused (admin pause or auto-pause) and returns an error if so.
     fn require_not_paused(env: &Env) -> Result<(), Error> {
         if env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+            || env
+                .storage()
+                .instance()
+                .get(&DataKey::AutoPaused)
+                .unwrap_or(false)
         {
             return Err(Error::ContractPaused);
         }
@@ -127,6 +132,8 @@ impl ProofOfHeart {
     /// * `admin` - The global admin address.
     /// * `token` - The required token for contributions and revenue.
     /// * `platform_fee` - The fee percentage taken from funds (max 1000 = 10%).
+    ///   Values above the cap are rejected rather than silently clamped, so the
+    ///   admin always knows the stored fee matches the intended fee.
     ///
     /// # Authorization
     /// Requires `admin.require_auth()`.
@@ -135,6 +142,13 @@ impl ProofOfHeart {
             return Err(Error::AlreadyInitialized);
         }
         admin.require_auth();
+
+        // Validate the fee up front so the caller gets a clear error instead of
+        // a silently-clamped value. Matches the validation contract in
+        // `update_platform_fee` and `set_campaign_fee_override`.
+        if platform_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::ValidationFailed);
+        }
 
         // Validate that the address is a real SEP-41 token contract by probing
         // its decimals() function. try_invoke_contract returns Err when the call
@@ -153,12 +167,7 @@ impl ProofOfHeart {
         set_token(&env, &token);
         set_initialized(&env);
 
-        let valid_fee = if platform_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            platform_fee
-        };
-        set_platform_fee(&env, valid_fee);
+        set_platform_fee(&env, platform_fee);
         set_campaign_count(&env, 0);
         set_total_raised_global(&env, 0);
         set_version(&env, CONTRACT_VERSION);
@@ -172,7 +181,7 @@ impl ProofOfHeart {
             ("initialized", admin.clone()),
             (
                 token.clone(),
-                valid_fee,
+                platform_fee,
                 voting::DEFAULT_MIN_VOTES_QUORUM,
                 voting::DEFAULT_APPROVAL_THRESHOLD_BPS,
                 CONTRACT_VERSION,
@@ -384,9 +393,9 @@ impl ProofOfHeart {
             }
         }
 
-        // Anomaly detection: Huge single contribution (> 50% of goal)
+        // Anomaly detection: Huge single contribution (> 200% of goal)
         if amount * 10000 > campaign.funding_goal * AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD {
-            env.storage().instance().set(&DataKey::Paused, &true);
+            env.storage().instance().set(&DataKey::AutoPaused, &true);
             env.events()
                 .publish(("auto_paused",), ("huge_contribution", amount));
             return Err(Error::ContractPaused);
@@ -403,7 +412,7 @@ impl ProofOfHeart {
         set_block_contribution_count(&env, current_ledger, block_count);
 
         if block_count > AUTO_PAUSE_BURST_THRESHOLD {
-            env.storage().instance().set(&DataKey::Paused, &true);
+            env.storage().instance().set(&DataKey::AutoPaused, &true);
             env.events()
                 .publish(("auto_paused",), ("burst", block_count));
             return Err(Error::ContractPaused);
@@ -513,7 +522,12 @@ impl ProofOfHeart {
         }
 
         let total_raised = get_total_raised_global(&env);
-        set_total_raised_global(&env, total_raised - campaign.amount_raised);
+        set_total_raised_global(
+            &env,
+            total_raised
+                .checked_sub(campaign.amount_raised)
+                .ok_or(Error::Overflow)?,
+        );
 
         env.events().publish(
             ("withdrawal", campaign_id, campaign.creator.clone()),
@@ -532,6 +546,7 @@ impl ProofOfHeart {
     pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut reserve =
             get_campaign_reserve(&env, campaign_id).ok_or(Error::NoFundsToWithdraw)?;
+        Self::require_not_paused(&env)?;
         if reserve.released {
             return Err(Error::FundsAlreadyWithdrawn);
         }
@@ -626,8 +641,10 @@ impl ProofOfHeart {
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
 
-        env.events()
-            .publish(("campaign_cancelled", campaign_id), ());
+        env.events().publish(
+            ("campaign_cancelled", campaign_id, campaign.creator.clone()),
+            campaign.amount_raised,
+        );
 
         Ok(())
     }
@@ -652,7 +669,6 @@ impl ProofOfHeart {
 
         require_active_campaign(&campaign)?;
 
-        bump_instance_ttl(&env);
         if title.len() < CAMPAIGN_TITLE_MIN_LEN || title.len() > CAMPAIGN_TITLE_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
@@ -662,6 +678,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         campaign.title = title.clone();
         campaign.description = description;
 
@@ -746,7 +763,12 @@ impl ProofOfHeart {
         decrement_contributor_count(&env, campaign_id);
 
         let total_raised = get_total_raised_global(&env);
-        set_total_raised_global(&env, total_raised - amount);
+        set_total_raised_global(
+            &env,
+            total_raised
+                .checked_sub(amount)
+                .ok_or(Error::Overflow)?,
+        );
 
         let client = Self::token_client(&env);
         client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -771,7 +793,14 @@ impl ProofOfHeart {
         if campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
         }
+        if !campaign.funds_withdrawn {
+            return Err(Error::ValidationFailed);
+        }
         require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
+
+        if campaign.amount_raised == 0 {
+            return Err(Error::AmountRaisedIsZero);
+        }
 
         bump_instance_ttl(&env);
         let token_addr = get_token(&env);
@@ -791,13 +820,28 @@ impl ProofOfHeart {
     ///
     /// # Errors
     /// * `CampaignNotFound` - No campaign with the given ID.
-    /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
+    /// * `ValidationFailed` - Campaign has no revenue sharing, caller has no
+    ///   contribution, or funds have not yet been withdrawn (revenue sharing only
+    ///   begins after the creator has withdrawn funds, locking in `amount_raised`
+    ///   as the share denominator).
     /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributor.require_auth();
         Self::require_not_paused(&env)?;
         let campaign = get_campaign_or_error(&env, campaign_id)?;
+        if campaign.is_cancelled {
+            return Err(Error::CampaignNotActive);
+        }
         require_revenue_sharing(&campaign, Error::ValidationFailed)?;
+
+        // Block claims until the creator has withdrawn funds. Until then,
+        // `amount_raised` (the share denominator) can still grow as new
+        // contributions arrive, which would let early claimers compute their
+        // share against a smaller denominator than late claimers and create a
+        // race condition.
+        if !campaign.funds_withdrawn {
+            return Err(Error::ValidationFailed);
+        }
 
         let contribution = get_contribution(&env, campaign_id, &contributor);
         if contribution == 0 {
@@ -977,12 +1021,17 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Returns whether the contract is currently paused.
+    /// Returns whether the contract is currently paused (admin or auto-pause).
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+            || env
+                .storage()
+                .instance()
+                .get(&DataKey::AutoPaused)
+                .unwrap_or(false)
     }
 
     /// Disables new campaign creation (admin-only kill switch).
@@ -1145,7 +1194,7 @@ impl ProofOfHeart {
             return campaigns;
         }
 
-        let end = start + capped_limit;
+        let end = (start + capped_limit).min(total);
         let num_buckets = (total + CREATOR_CAMPAIGNS_BUCKET_SIZE - 1) / CREATOR_CAMPAIGNS_BUCKET_SIZE;
         let mut global_idx = 0u32;
 
@@ -1203,15 +1252,13 @@ impl ProofOfHeart {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         Self::require_not_paused(&env)?;
-        let valid_fee = if new_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            new_fee
-        };
+        if new_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::ValidationFailed);
+        }
         let old_fee = get_platform_fee(&env);
         bump_instance_ttl(&env);
-        set_platform_fee(&env, valid_fee);
-        env.events().publish(("fee_updated",), (old_fee, valid_fee));
+        set_platform_fee(&env, new_fee);
+        env.events().publish(("fee_updated",), (old_fee, new_fee));
         Ok(())
     }
 
@@ -1284,6 +1331,7 @@ impl ProofOfHeart {
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
+        require_active_campaign(&campaign)?;
 
         if campaign.deadline_extended {
             return Err(Error::DeadlineAlreadyExtended);
@@ -1346,7 +1394,8 @@ impl ProofOfHeart {
         if amount < 0 {
             return Err(Error::ValidationFailed);
         }
-        let _campaign = get_campaign_or_error(&env, campaign_id)?;
+        let campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_active_campaign(&campaign)?;
         bump_instance_ttl(&env);
         set_personal_cap(&env, campaign_id, &contributor, amount);
         env.events().publish(
@@ -1635,15 +1684,18 @@ impl ProofOfHeart {
     /// List campaigns in a specific category using exclusive-cursor semantics.
     ///
     /// # Arguments
-    /// * `start` - The last campaign ID already seen (exclusive cursor).
-    ///   - Pass `start = 0` for the first page.
-    ///   - Pass the last returned campaign ID as `start` for the next page.
+    /// * `offset` - Zero-based index of the first campaign to return (index-offset pagination).
+    ///   - Pass `offset = 0` for the first page.
+    ///   - Pass `offset = N` to skip the first N campaigns in this category.
+    ///
+    /// Note: this function uses index-offset pagination, not the ID-cursor style used by
+    /// `list_campaigns`. Pass a positional index, not a campaign ID.
     ///
     /// Caps the limit at LIST_MAX_LIMIT (50) to prevent pathological calls.
     pub fn get_campaigns_by_category(
         env: Env,
         category: Category,
-        start: u32,
+        offset: u32,
         limit: u32,
     ) -> soroban_sdk::Vec<Campaign> {
         let mut campaigns = soroban_sdk::Vec::new(&env);
@@ -1652,17 +1704,14 @@ impl ProofOfHeart {
         }
 
         let total = get_category_campaign_count(&env, category);
-        if start >= total {
+        if offset >= total {
             return campaigns;
         }
 
-        let end = if start + limit > total {
-            total
-        } else {
-            start + limit
-        };
+        let capped_limit = limit.min(LIST_MAX_LIMIT);
+        let end = offset.saturating_add(capped_limit).min(total);
 
-        let mut position = start;
+        let mut position = offset;
         while position < end {
             let bucket_idx = position / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
             let bucket = get_category_campaign_bucket(&env, category, bucket_idx);
@@ -1732,6 +1781,7 @@ impl ProofOfHeart {
             verified_campaigns,
             cancelled_campaigns,
             total_amount_raised: get_total_raised_global(&env),
+            is_partial: total_campaigns > MAX_SCAN_LIMIT,
         }
     }
 
@@ -1739,6 +1789,11 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
+    ///
+    /// # Errors
+    /// * `TransferAlreadyPending` - A pending transfer already exists; the creator
+    ///   must call `cancel_campaign_transfer` before initiating a new one. This
+    ///   prevents silently overwriting an outstanding recipient.
     pub fn initiate_campaign_transfer(
         env: Env,
         campaign_id: u32,
@@ -1746,9 +1801,18 @@ impl ProofOfHeart {
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
+        require_active_campaign(&campaign)?;
+
+        if campaign.funds_withdrawn {
+            return Err(Error::CampaignNotActive);
+        }
 
         if new_creator == campaign.creator {
             return Err(Error::InvalidNewOwner);
+        }
+
+        if campaign.pending_creator != MaybePendingCreator::None {
+            return Err(Error::TransferAlreadyPending);
         }
 
         bump_instance_ttl(&env);
@@ -1773,13 +1837,15 @@ impl ProofOfHeart {
     /// Requires `pending_creator.require_auth()`.
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign_or_error(&env, campaign_id)?;
-        Self::require_not_paused(&env)?;
+        require_active_campaign(&campaign)?;
 
         let pending = match campaign.pending_creator.clone() {
             MaybePendingCreator::Some(addr) => addr,
             MaybePendingCreator::None => return Err(Error::NoTransferPending),
         };
         pending.require_auth();
+
+        Self::require_not_paused(&env)?;
 
         bump_instance_ttl(&env);
         let old_creator = campaign.creator.clone();
@@ -1819,11 +1885,16 @@ impl ProofOfHeart {
         Ok(())
     }
 
-    /// Removes voting-related storage keys for a terminal campaign.
+    /// Removes voting-related storage keys for a terminal campaign in batches.
     ///
-    /// Clears `ApproveVotes`, `RejectVotes`, `ApproveWeight`, `RejectWeight`, and
-    /// `HasVoted` entries for each address in `voters`. Must only be called after
-    /// the campaign has reached a terminal state (`funds_withdrawn` or `is_cancelled`).
+    /// Always clears the `HasVoted` entry for each address in `voters`. The
+    /// aggregate vote keys (`ApproveVotes`, `RejectVotes`, `ApproveWeight`,
+    /// `RejectWeight`) and the `voting_state_purged` event are only cleared
+    /// when `finalize_aggregate == true`, so the admin can split a large voter
+    /// set across multiple calls and only finalize after the last batch.
+    ///
+    /// Must only be called after the campaign has reached a terminal state
+    /// (`funds_withdrawn` or `is_cancelled`).
     ///
     /// # Authorization
     /// Requires admin authorization.
@@ -1831,11 +1902,13 @@ impl ProofOfHeart {
     /// # Errors
     /// * `CampaignNotFound` - No campaign with the given ID.
     /// * `NotAuthorized` - Caller is not the admin.
-    /// * `ValidationFailed` - Campaign is not yet in a terminal state.
+    /// * `ValidationFailed` - Campaign is not yet in a terminal state, the
+    ///   voter list is empty, or the voter list exceeds `MAX_VOTERS_PER_CALL`.
     pub fn purge_voting_state(
         env: Env,
         campaign_id: u32,
         voters: soroban_sdk::Vec<Address>,
+        finalize_aggregate: bool,
     ) -> Result<(), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
@@ -1851,13 +1924,28 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
-        remove_voting_state(&env, campaign_id);
+        // Cap batch size to keep the call below the Soroban instruction limit
+        // and give callers a predictable batching contract. Aligned with
+        // verify_campaigns::MAX_BATCH_SIZE.
+        const MAX_VOTERS_PER_CALL: u32 = 50;
+        if voters.len() > MAX_VOTERS_PER_CALL {
+            return Err(Error::ValidationFailed);
+        }
+
         for voter in voters.iter() {
             remove_has_voted(&env, campaign_id, &voter);
         }
 
-        env.events()
-            .publish(("voting_state_purged", campaign_id), ());
+        // Only clear aggregate vote counts and emit the purged event on the
+        // final batch. Doing it on every call would orphan any HasVoted entries
+        // not yet supplied by the admin and emit a misleading "purged" event
+        // partway through cleanup.
+        if finalize_aggregate {
+            remove_voting_state(&env, campaign_id);
+            env.events()
+                .publish(("voting_state_purged", campaign_id), ());
+        }
+
         Ok(())
     }
 
@@ -1869,16 +1957,17 @@ impl ProofOfHeart {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
         Self::require_not_paused(&env)?;
 
-        if campaign.pending_creator == MaybePendingCreator::None {
-            return Err(Error::NoTransferPending);
-        }
+        let pending_address = match campaign.pending_creator.clone() {
+            MaybePendingCreator::Some(addr) => addr,
+            MaybePendingCreator::None => return Err(Error::NoTransferPending),
+        };
 
         bump_instance_ttl(&env);
         campaign.pending_creator = MaybePendingCreator::None;
         set_campaign(&env, campaign_id, &campaign);
 
         env.events()
-            .publish(("campaign_transfer_cancelled", campaign_id), ());
+            .publish(("campaign_transfer_cancelled", campaign_id), pending_address);
 
         Ok(())
     }
@@ -1912,7 +2001,7 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
-        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().set(&DataKey::AutoPaused, &false);
 
         env.events()
             .publish(("campaign_resumed", campaign_id, caller), ());

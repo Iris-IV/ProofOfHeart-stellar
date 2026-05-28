@@ -25,7 +25,12 @@ fn test_platform_fee_cap_enforcement() {
     let contract_id = env.register_contract(None, crate::ProofOfHeart);
     let client = crate::ProofOfHeartClient::new(&env, &contract_id);
 
-    client.init(&admin, &token_address, &5000);
+    // Issue #343: init rejects fees above the cap rather than silently clamping.
+    let res = client.try_init(&admin, &token_address, &5000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Re-init with the maximum allowed fee and verify it applies end-to-end.
+    client.init(&admin, &token_address, &1000);
     env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
     assert_eq!(client.get_platform_fee(), 1000);
 

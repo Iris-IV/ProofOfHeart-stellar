@@ -18,6 +18,10 @@ pub const MAX_VOTES_QUORUM: u32 = 1000;
 /// Default approval threshold in basis points (60%).
 pub const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 
+/// Minimum allowed approval threshold in basis points (10%).
+/// Prevents governance misconfiguration where near-zero threshold bypasses community review.
+pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
+
 /// Updates the community voting parameters.
 ///
 /// # Errors
@@ -29,7 +33,7 @@ pub fn set_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    if min_votes_quorum == 0 || min_votes_quorum > MAX_VOTES_QUORUM || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
+    if min_votes_quorum == 0 || min_votes_quorum > MAX_VOTES_QUORUM || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS || approval_threshold_bps > 10000 {
         return Err(Error::ValidationFailed);
     }
     set_min_votes_quorum(env, min_votes_quorum);

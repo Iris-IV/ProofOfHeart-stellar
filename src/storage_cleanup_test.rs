@@ -189,3 +189,8 @@ fn test_revenue_claimed_key_removed_on_refund() {
         "RevenueClaimed key must be removed after refund"
     );
 }
+// Issue #341: claim_revenue is gated on funds_withdrawn, and cancel is gated
+// on !funds_withdrawn, so the prior "claim → cancel → refund cleans
+// RevenueClaimed" path is no longer reachable. The defensive cleanup remains
+// in claim_refund; behavioural coverage of the new guard lives in
+// test::test_claim_revenue_blocked_before_funds_withdrawn.
