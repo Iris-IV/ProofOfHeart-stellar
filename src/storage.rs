@@ -82,8 +82,10 @@ pub enum DataKey {
     CreatorCampaignsBucket(Address, u32),
     /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
-    /// Tracking contributions per block for anomaly detection.
+    /// Tracking contributions per block for anomaly detection (global, legacy).
     BlockContributionCount,
+    /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
+    BlockCampaignContributionCount(u32),
     /// Delay in days before the reserve can be released.
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
@@ -690,6 +692,12 @@ pub fn set_personal_cap(env: &Env, campaign_id: u32, contributor: &Address, amou
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Removes a contributor's personal cap for a campaign.
+pub fn remove_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::PersonalCap(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
 // ── Anomaly detection ─────────────────────────────────────────────────────────
 
 /// Returns (ledger_sequence, contribution_count) for the block tracking.
@@ -705,6 +713,27 @@ pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
         .temporary()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
+}
+
+/// Returns (ledger_sequence, contribution_count) for a specific campaign.
+pub fn get_campaign_block_contribution_count(env: &Env, campaign_id: u32) -> (u32, u32) {
+    env.storage()
+        .temporary()
+        .get(&DataKey::BlockCampaignContributionCount(campaign_id))
+        .unwrap_or((0, 0))
+}
+
+/// Stores (ledger_sequence, contribution_count) for a specific campaign.
+pub fn set_campaign_block_contribution_count(
+    env: &Env,
+    campaign_id: u32,
+    sequence: u32,
+    count: u32,
+) {
+    env.storage().temporary().set(
+        &DataKey::BlockCampaignContributionCount(campaign_id),
+        &(sequence, count),
+    );
 }
 
 // ── Withdrawal Vesting ───────────────────────────────────────────────────────
@@ -773,6 +802,12 @@ pub fn get_category_duration_cap(env: &Env, category: Category) -> Option<u64> {
 pub fn set_category_duration_cap(env: &Env, category: Category, max_days: u64) {
     let key = DataKey::CategoryDurationCap(category as u32);
     env.storage().instance().set(&key, &max_days);
+}
+
+/// Removes a per-category duration cap, reverting to the code default.
+pub fn remove_category_duration_cap(env: &Env, category: Category) {
+    let key = DataKey::CategoryDurationCap(category as u32);
+    env.storage().instance().remove(&key);
 }
 
 // ── Pending token update ──────────────────────────────────────────────────────

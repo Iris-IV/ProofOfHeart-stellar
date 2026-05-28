@@ -401,15 +401,16 @@ impl ProofOfHeart {
             return Err(Error::ContractPaused);
         }
 
-        // Anomaly detection: Burst (> 10 tx/block)
+        // Anomaly detection: Burst (> 10 tx/block per campaign)
         let current_ledger = env.ledger().sequence();
-        let (last_ledger, mut block_count) = get_block_contribution_count(&env);
+        let (last_ledger, mut block_count) =
+            get_campaign_block_contribution_count(&env, campaign_id);
         if current_ledger == last_ledger {
             block_count += 1;
         } else {
             block_count = 1;
         }
-        set_block_contribution_count(&env, current_ledger, block_count);
+        set_campaign_block_contribution_count(&env, campaign_id, current_ledger, block_count);
 
         if block_count > AUTO_PAUSE_BURST_THRESHOLD {
             env.storage().instance().set(&DataKey::AutoPaused, &true);
@@ -757,6 +758,7 @@ impl ProofOfHeart {
         remove_contribution(&env, campaign_id, &contributor);
         remove_lifetime_contribution(&env, campaign_id, &contributor);
         remove_revenue_claimed(&env, campaign_id, &contributor);
+        remove_personal_cap(&env, campaign_id, &contributor);
 
         // Decrement contributor count on full refund
         // (the contributor no longer has any contribution to this campaign)
@@ -1396,6 +1398,23 @@ impl ProofOfHeart {
         storage::set_category_duration_cap(&env, category, max_days);
         env.events()
             .publish(("category_duration_cap_set", category as u32), max_days);
+        Ok(())
+    }
+
+    /// Removes the per-category duration cap, reverting to the code default (365 days).
+    ///
+    /// # Authorization
+    /// Requires `admin.require_auth()`.
+    pub fn remove_category_duration_cap(
+        env: Env,
+        admin: Address,
+        category: Category,
+    ) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        bump_instance_ttl(&env);
+        storage::remove_category_duration_cap(&env, category);
+        env.events()
+            .publish(("category_duration_cap_removed", category as u32), ());
         Ok(())
     }
 
