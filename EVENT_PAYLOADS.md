@@ -186,6 +186,14 @@ Emitted when the contract is unpaused by the admin.
 - **Data**: `()`
 - **Emitted By**: `unpause()`
 
+#### `campaign_resumed`
+Emitted when an authorized caller resumes an actively paused campaign context.
+
+- **Topics**: `["campaign_resumed", campaign_id, caller_address]`
+- **Data**: `()`
+- **Emitted By**: `resume_campaign()`
+- **Behavior**: Not emitted when the contract is already unpaused; that call now returns `ValidationFailed`.
+
 #### `fee_updated`
 Emitted when the platform fee is updated.
 
