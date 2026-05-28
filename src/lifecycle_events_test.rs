@@ -167,3 +167,42 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
     let amount_raised: i128 = soroban_sdk::FromVal::from_val(&env, &last_event.2);
     assert_eq!(amount_raised, 500);
 }
+
+#[test]
+fn test_campaign_created_event_includes_category() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    let expected_title = String::from_str(&env, "Created Event Category");
+    let expected_category = Category::Learner;
+
+    client.create_campaign(&CreateCampaignParams {
+        creator,
+        title: expected_title.clone(),
+        description: String::from_str(&env, "Schema coverage"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: expected_category,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    let events = env.events().all();
+    let created_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|topic| topic == String::from_str(&env, "campaign_created"))
+                .unwrap_or(false)
+        })
+        .expect("campaign_created event must exist");
+
+    let (title, category_discriminant): (String, u32) =
+        soroban_sdk::FromVal::from_val(&env, &created_event.2);
+    assert_eq!(title, expected_title);
+    assert_eq!(category_discriminant, expected_category as u32);
+}
