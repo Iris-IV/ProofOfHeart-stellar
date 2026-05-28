@@ -27,6 +27,7 @@ Emitted when a new campaign is created.
 - **Data**: `(campaign_title, category_u32)`
 - **Emitted By**: `create_campaign()`
 - **Indexing Tip**: Track all campaigns by creator or scan campaign IDs chronologically.
+- **Breaking Change Note**: Consumers expecting a plain title payload must decode `(String, u32)` instead.
 
 #### `campaign_updated`
 Emitted when campaign title and description are updated (before any contributions).
