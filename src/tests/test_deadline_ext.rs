@@ -112,3 +112,65 @@ fn test_extend_deadline_max_30_days_allowed() {
     let new_deadline = client.get_campaign(&id).deadline;
     assert_eq!(new_deadline, original_deadline + 30 * 86400);
 }
+
+#[test]
+fn test_extend_deadline_beyond_category_cap_rejected() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // 1. Admin sets Learner category duration cap to 40 days
+    client.set_category_duration_cap(&admin, &Category::Learner, &40);
+
+    // 2. Creator creates a Learner campaign with 30 days
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cap Test"),
+        String::from_str(&env, "Duration cap test"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // 3. Creator tries to extend deadline by 11 days (total 41) -> should be rejected
+    let res = client.try_extend_campaign_deadline(&id, &11);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
+
+    // 4. Creator tries to extend deadline by 10 days (total 40) -> should succeed
+    let res = client.try_extend_campaign_deadline(&id, &10);
+    assert!(res.is_ok());
+
+    let campaign = client.get_campaign(&id);
+    assert!(campaign.deadline_extended);
+}
+
+#[test]
+fn test_extend_deadline_without_start_time_fallback() {
+    // This tests the fallback for campaigns created before start_time tracking was added
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Old Campaign"),
+        String::from_str(&env, "Legacy test"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Manually remove start time to simulate a legacy campaign
+    env.as_contract(&client.address, || {
+        let key = crate::storage::DataKey::CampaignStartTime(id);
+        env.storage().persistent().remove(&key);
+    });
+
+    client.set_category_duration_cap(&admin, &Category::Learner, &30);
+
+    // Should succeed because start_time is missing (fallback to Option A behavior)
+    let res = client.try_extend_campaign_deadline(&id, &30);
+    assert!(res.is_ok());
+}

@@ -4,7 +4,8 @@ use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
-const BUMP_AMOUNT: u32 = 30 * DAY_IN_LEDGERS;
+const BUMP_AMOUNT: u32 = 400 * DAY_IN_LEDGERS;
+pub const CATEGORY_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 
 pub fn bump_instance_ttl(env: &Env) {
     env.storage()
@@ -43,8 +44,10 @@ pub enum DataKey {
     CreatorRevenueClaimed(u32),
     /// The stored contract version number.
     Version,
-    /// Whether the contract is paused.
+    /// Whether the contract is paused by admin.
     Paused,
+    /// Whether the contract is auto-paused by anomaly detection.
+    AutoPaused,
     /// Number of approval votes cast for a campaign, keyed by campaign ID.
     ApproveVotes(u32),
     /// Number of rejection votes cast for a campaign, keyed by campaign ID.
@@ -65,8 +68,14 @@ pub enum DataKey {
     MinVotingBalance,
     /// Campaign ids grouped by category as append-only creation index.
     CategoryCampaigns(u32),
+    /// Campaign ids grouped by category into fixed-size buckets.
+    CategoryCampaignsBucket(u32, u32),
+    /// Total number of campaigns in a category.
+    CategoryCampaignCount(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
+    /// Unix timestamp when the campaign was created, keyed by campaign ID.
+    CampaignStartTime(u32),
     /// Number of campaigns owned by a creator.
     CreatorCampaignCount(Address),
     /// Bucket of campaign IDs owned by a creator (≤ CREATOR_CAMPAIGNS_BUCKET_SIZE per bucket).
@@ -111,6 +120,19 @@ pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
 pub fn set_campaign(env: &Env, campaign_id: u32, campaign: &Campaign) {
     let key = DataKey::Campaign(campaign_id);
     env.storage().persistent().set(&key, campaign);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_campaign_start_time(env: &Env, campaign_id: u32) -> Option<u64> {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
+    let key = DataKey::CampaignStartTime(campaign_id);
+    env.storage().persistent().set(&key, &start_time);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
@@ -260,6 +282,12 @@ pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
 /// Removes a contributor's contribution record entirely.
 pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::Contribution(campaign_id, contributor.clone());
+    env.storage().persistent().remove(&key);
+}
+
+/// Removes a contributor's lifetime contribution record.
+pub fn remove_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::LifetimeContribution(campaign_id, contributor.clone());
     env.storage().persistent().remove(&key);
 }
 
@@ -438,6 +466,22 @@ pub fn remove_voting_state(env: &Env, campaign_id: u32) {
     storage.remove(&DataKey::RejectWeight(campaign_id));
 }
 
+/// Extends TTL on all voting state keys for a campaign.
+pub fn extend_voting_state_ttl(env: &Env, campaign_id: u32) {
+    let storage = env.storage().persistent();
+    let keys = [
+        DataKey::ApproveVotes(campaign_id),
+        DataKey::RejectVotes(campaign_id),
+        DataKey::ApproveWeight(campaign_id),
+        DataKey::RejectWeight(campaign_id),
+    ];
+    for key in keys {
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+    }
+}
+
 /// Returns the minimum vote quorum setting, falling back to `default` if unset.
 pub fn get_min_votes_quorum(env: &Env, default: u32) -> u32 {
     env.storage()
@@ -495,6 +539,41 @@ pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
 /// Stores all campaign ids for a category and extends entry TTL.
 pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
     let key = DataKey::CategoryCampaigns(category as u32);
+    env.storage().persistent().set(&key, ids);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns the total number of campaigns in a category.
+pub fn get_category_campaign_count(env: &Env, category: Category) -> u32 {
+    let key = DataKey::CategoryCampaignCount(category as u32);
+    env.storage().instance().get(&key).unwrap_or(0)
+}
+
+/// Sets the total number of campaigns in a category.
+pub fn set_category_campaign_count(env: &Env, category: Category, count: u32) {
+    let key = DataKey::CategoryCampaignCount(category as u32);
+    env.storage().instance().set(&key, &count);
+}
+
+/// Returns the campaign bucket for the specified category and bucket index.
+pub fn get_category_campaign_bucket(env: &Env, category: Category, bucket_idx: u32) -> Vec<u32> {
+    let key = DataKey::CategoryCampaignsBucket(category as u32, bucket_idx);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Stores a campaign bucket and extends entry TTL.
+pub fn set_category_campaign_bucket(
+    env: &Env,
+    category: Category,
+    bucket_idx: u32,
+    ids: &Vec<u32>,
+) {
+    let key = DataKey::CategoryCampaignsBucket(category as u32, bucket_idx);
     env.storage().persistent().set(&key, ids);
     env.storage()
         .persistent()

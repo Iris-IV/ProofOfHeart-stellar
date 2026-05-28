@@ -81,4 +81,6 @@ pub enum Error {
     ExtensionTooLong = 37,
     /// The funding goal exceeds the configured maximum (anti-spam cap).
     FundingGoalTooHigh = 38,
+    /// A campaign transfer is already pending; cancel it before initiating a new one.
+    TransferAlreadyPending = 39,
 }
