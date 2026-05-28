@@ -2085,6 +2085,10 @@ impl ProofOfHeart {
             return Err(Error::NotAuthorized);
         }
 
+        if !Self::is_paused(env.clone()) {
+            return Err(Error::ValidationFailed);
+        }
+
         bump_instance_ttl(&env);
         env.storage().instance().set(&DataKey::AutoPaused, &false);
 
