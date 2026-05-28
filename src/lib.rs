@@ -1739,6 +1739,11 @@ impl ProofOfHeart {
     ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
+    ///
+    /// # Errors
+    /// * `TransferAlreadyPending` - A pending transfer already exists; the creator
+    ///   must call `cancel_campaign_transfer` before initiating a new one. This
+    ///   prevents silently overwriting an outstanding recipient.
     pub fn initiate_campaign_transfer(
         env: Env,
         campaign_id: u32,
@@ -1749,6 +1754,10 @@ impl ProofOfHeart {
 
         if new_creator == campaign.creator {
             return Err(Error::InvalidNewOwner);
+        }
+
+        if campaign.pending_creator != MaybePendingCreator::None {
+            return Err(Error::TransferAlreadyPending);
         }
 
         bump_instance_ttl(&env);
