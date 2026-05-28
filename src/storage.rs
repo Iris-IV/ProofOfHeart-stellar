@@ -96,6 +96,16 @@ pub enum DataKey {
     ContributorCount(u32),
     /// Per-category maximum duration cap in days, keyed by category discriminant.
     CategoryDurationCap(u32),
+    /// Pending token address during two-step token update.
+    PendingToken,
+    /// Ledger timestamp after which the pending token update can be accepted.
+    PendingTokenRelease,
+    /// Number of currently active (non-cancelled, non-withdrawn) campaigns.
+    ActiveCampaignCount,
+    /// Number of campaigns that have been verified.
+    VerifiedCampaignCount,
+    /// Number of campaigns that have been cancelled.
+    CancelledCampaignCount,
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -763,4 +773,94 @@ pub fn get_category_duration_cap(env: &Env, category: Category) -> Option<u64> {
 pub fn set_category_duration_cap(env: &Env, category: Category, max_days: u64) {
     let key = DataKey::CategoryDurationCap(category as u32);
     env.storage().instance().set(&key, &max_days);
+}
+
+// ── Pending token update ──────────────────────────────────────────────────────
+
+/// Stores the pending token address for a two-step token update.
+pub fn set_pending_token(env: &Env, token: &Address) {
+    env.storage().instance().set(&DataKey::PendingToken, token);
+}
+
+/// Returns the pending token address if a token update is in progress.
+pub fn get_pending_token(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingToken)
+}
+
+/// Removes the pending token state.
+pub fn remove_pending_token(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingToken);
+    env.storage().instance().remove(&DataKey::PendingTokenRelease);
+}
+
+/// Stores the release timestamp for the pending token update.
+pub fn set_pending_token_release(env: &Env, timestamp: u64) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingTokenRelease, &timestamp);
+}
+
+/// Returns the release timestamp for the pending token update.
+pub fn get_pending_token_release(env: &Env) -> Option<u64> {
+    env.storage().instance().get(&DataKey::PendingTokenRelease)
+}
+
+// ── O(1) platform stat counters ───────────────────────────────────────────────
+
+pub fn get_active_campaign_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::ActiveCampaignCount)
+        .unwrap_or(0)
+}
+
+pub fn set_active_campaign_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::ActiveCampaignCount, &count);
+}
+
+pub fn increment_active_campaign_count(env: &Env) {
+    set_active_campaign_count(env, get_active_campaign_count(env) + 1);
+}
+
+pub fn decrement_active_campaign_count(env: &Env) {
+    let c = get_active_campaign_count(env);
+    if c > 0 {
+        set_active_campaign_count(env, c - 1);
+    }
+}
+
+pub fn get_verified_campaign_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::VerifiedCampaignCount)
+        .unwrap_or(0)
+}
+
+pub fn set_verified_campaign_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::VerifiedCampaignCount, &count);
+}
+
+pub fn increment_verified_campaign_count(env: &Env) {
+    set_verified_campaign_count(env, get_verified_campaign_count(env) + 1);
+}
+
+pub fn get_cancelled_campaign_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::CancelledCampaignCount)
+        .unwrap_or(0)
+}
+
+pub fn set_cancelled_campaign_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::CancelledCampaignCount, &count);
+}
+
+pub fn increment_cancelled_campaign_count(env: &Env) {
+    set_cancelled_campaign_count(env, get_cancelled_campaign_count(env) + 1);
 }

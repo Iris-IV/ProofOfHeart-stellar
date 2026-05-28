@@ -487,6 +487,83 @@ cargo build --target wasm32-unknown-unknown --release
 
 ---
 
+## Contract Upgrades & Migration (#266)
+
+Soroban contracts can be upgraded by uploading a new WASM and calling `update_current_contract_wasm`. The `migrate` entry point provides a safe, version-guarded migration step that must be called in the same transaction.
+
+### Upgrade Procedure
+
+1. **Increment `CONTRACT_VERSION`** in `src/lib.rs` (e.g., `1` → `2`).
+2. **Build the new WASM:**
+   ```bash
+   cargo build --target wasm32-unknown-unknown --release
+   ```
+3. **Upload the new WASM** to get its hash:
+   ```bash
+   soroban contract upload \
+     --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
+     --source deployer --network testnet
+   # → <NEW_WASM_HASH>
+   ```
+4. **Upgrade the contract** (replaces the running WASM):
+   ```bash
+   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+     -- update_current_contract_wasm --wasm_hash <NEW_WASM_HASH>
+   ```
+5. **Run migration** immediately after upgrade:
+   ```bash
+   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+     -- migrate --admin <ADMIN_ADDRESS> --expected_old_version 1
+   ```
+
+### Migration Safety Rules
+
+- `migrate` fails if `expected_old_version` does not match the stored version — prevents double-migration.
+- `migrate` requires admin authorization.
+- After a successful migration the stored version is updated to the new `CONTRACT_VERSION`.
+- Always test the full upgrade + migrate sequence on testnet before mainnet.
+
+---
+
+## Token Migration Procedure (#267)
+
+If the accepted token contract needs to change (e.g., token deprecation or compromise), use the two-step token update with a mandatory 7-day delay.
+
+### Step 1 — Propose the new token
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- propose_token_update \
+  --admin <ADMIN_ADDRESS> \
+  --new_token <NEW_TOKEN_ADDRESS>
+```
+
+This stores the pending token and a `release_after` timestamp (now + 7 days). The current token remains active.
+
+### Step 2 — Wait 7 days
+
+The delay gives stakeholders time to react. The update cannot be accepted before the delay elapses.
+
+### Step 3 — Accept the update
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- accept_token_update --admin <ADMIN_ADDRESS>
+```
+
+The new token becomes the accepted token immediately.
+
+### Cancelling a pending update
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- cancel_token_update --admin <ADMIN_ADDRESS>
+```
+
+This clears the pending state with no effect on the current token.
+
+---
+
 ## Additional Resources
 
 - [Stellar CLI Docs](https://developers.stellar.org/docs/tools/stellar-cli)

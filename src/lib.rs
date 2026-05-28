@@ -504,6 +504,7 @@ impl ProofOfHeart {
         campaign.funds_withdrawn = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+        decrement_active_campaign_count(&env);
 
         if reserve_amount > 0 {
             let delay_days = get_withdraw_release_delay_days(&env);
@@ -640,6 +641,8 @@ impl ProofOfHeart {
         campaign.is_cancelled = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+        decrement_active_campaign_count(&env);
+        increment_cancelled_campaign_count(&env);
 
         env.events().publish(
             ("campaign_cancelled", campaign_id, campaign.creator.clone()),
@@ -1242,6 +1245,92 @@ impl ProofOfHeart {
     /// A return value of 0 indicates the contract was initialized before version tracking was added.
     pub fn get_version(env: Env) -> u32 {
         get_version(&env)
+    }
+
+    /// Migrates contract storage after a WASM upgrade.
+    ///
+    /// Must be called in the same transaction as `update_current_contract_wasm`.
+    /// Fails if the stored version does not match `expected_old_version` to prevent
+    /// double-migration.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn migrate(env: Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        let current = get_version(&env);
+        if current != expected_old_version {
+            return Err(Error::ValidationFailed);
+        }
+        // Perform any storage transformations here before bumping the version.
+        set_version(&env, CONTRACT_VERSION);
+        env.events()
+            .publish(("migrated",), (expected_old_version, CONTRACT_VERSION));
+        Ok(())
+    }
+
+    /// Proposes a new accepted token address. The update takes effect only after
+    /// a 7-day delay and a call to `accept_token_update`.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn propose_token_update(env: Env, admin: Address, new_token: Address) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        // Validate the address is a real SEP-41 token.
+        env.try_invoke_contract::<u32, Error>(
+            &new_token,
+            &soroban_sdk::Symbol::new(&env, "decimals"),
+            soroban_sdk::Vec::new(&env),
+        )
+        .map_err(|_| Error::InvalidTokenContract)?
+        .map_err(|_| Error::InvalidTokenContract)?;
+
+        let release_after = env
+            .ledger()
+            .timestamp()
+            .checked_add(7 * 86400)
+            .ok_or(Error::ValidationFailed)?;
+
+        bump_instance_ttl(&env);
+        set_pending_token(&env, &new_token);
+        set_pending_token_release(&env, release_after);
+        env.events()
+            .publish(("token_update_proposed",), (new_token, release_after));
+        Ok(())
+    }
+
+    /// Accepts a pending token update after the 7-day delay has elapsed.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn accept_token_update(env: Env, admin: Address) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        let new_token = get_pending_token(&env).ok_or(Error::ValidationFailed)?;
+        let release_after = get_pending_token_release(&env).ok_or(Error::ValidationFailed)?;
+        if env.ledger().timestamp() < release_after {
+            return Err(Error::ValidationFailed);
+        }
+        bump_instance_ttl(&env);
+        let old_token = get_token(&env);
+        set_token(&env, &new_token);
+        remove_pending_token(&env);
+        env.events()
+            .publish(("token_update_accepted",), (old_token, new_token));
+        Ok(())
+    }
+
+    /// Cancels a pending token update.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn cancel_token_update(env: Env, admin: Address) -> Result<(), Error> {
+        assert_admin(&env, &admin)?;
+        if get_pending_token(&env).is_none() {
+            return Err(Error::ValidationFailed);
+        }
+        bump_instance_ttl(&env);
+        remove_pending_token(&env);
+        env.events().publish(("token_update_cancelled",), ());
+        Ok(())
     }
 
     /// Updates the global platform fee.
@@ -2036,3 +2125,5 @@ mod update_admin_test;
 mod vesting_test;
 #[cfg(test)]
 mod voting_proptest;
+#[cfg(test)]
+mod issues_test;

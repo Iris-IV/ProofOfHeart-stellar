@@ -4,8 +4,9 @@ use crate::errors::Error;
 use crate::storage::{
     get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_has_voted,
     get_min_votes_quorum, get_min_voting_balance, get_reject_votes, get_reject_weight, get_token,
-    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    increment_verified_campaign_count, set_approval_threshold_bps, set_approve_votes,
+    set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
+    set_reject_weight,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -113,6 +114,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
+    increment_verified_campaign_count(env);
     env.events().publish(("campaign_verified", campaign_id), ());
 
     Ok(())
@@ -166,6 +168,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
+    increment_verified_campaign_count(env);
     env.events()
         .publish(("campaign_verified", campaign_id), approve_votes);
 
