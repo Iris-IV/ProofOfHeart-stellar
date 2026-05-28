@@ -46,6 +46,9 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     voter.require_auth();
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn {
+        return Err(Error::CampaignNotActive);
+    }
     require_active_campaign(&campaign)?;
     if env.ledger().timestamp() > campaign.deadline {
         return Err(Error::CampaignNotActive);
