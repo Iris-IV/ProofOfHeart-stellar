@@ -3034,16 +3034,21 @@ fn test_claim_refund_expired_campaign() {
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
 }
 
+// Issue #341: claim_revenue must be gated on funds_withdrawn. The prior version
+// of this test exercised a "claim before withdraw, then cancel, then refund"
+// flow which is now structurally impossible (cancel is blocked once funds are
+// withdrawn). We keep this slot as a regression test for the funds_withdrawn
+// guard.
 #[test]
-fn test_claim_refund_clears_existing_revenue_claimed_key() {
+fn test_claim_revenue_blocked_before_funds_withdrawn() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&creator, &10_000);
 
     let campaign_id = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(&env, "Refund Cleans Revenue Claim"),
-        description: String::from_str(&env, "Ensure RevenueClaimed key is removed"),
+        title: String::from_str(&env, "Claim Gated On Withdraw"),
+        description: String::from_str(&env, "Revenue claim must wait for funds_withdrawn"),
         funding_goal: 5000,
         duration_days: 30,
         category: Category::EducationalStartup,
@@ -3052,17 +3057,17 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
         max_contribution_per_user: 0i128,
     });
     client.verify_campaign(&campaign_id);
-    client.contribute(&campaign_id, &contributor1, &1000);
+    client.contribute(&campaign_id, &contributor1, &5000);
     client.deposit_revenue(&campaign_id, &1000);
+
+    // Funds not yet withdrawn — claim must be rejected.
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // After withdrawal, the same call succeeds.
+    client.withdraw_funds(&campaign_id);
     client.claim_revenue(&campaign_id, &contributor1);
-
-    let claimed_before_refund = client.get_revenue_claimed(&campaign_id, &contributor1);
-    assert!(claimed_before_refund > 0);
-
-    client.cancel_campaign(&campaign_id);
-    client.claim_refund(&campaign_id, &contributor1);
-
-    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
+    assert!(client.get_revenue_claimed(&campaign_id, &contributor1) > 0);
 }
 
 #[test]
@@ -4047,10 +4052,13 @@ fn test_claim_revenue_amount_raised_zero_guard() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Artificially zero out amount_raised while keeping the contribution in storage
+    // Artificially zero out amount_raised while keeping the contribution in storage.
+    // Also force funds_withdrawn=true so we bypass the funds_withdrawn guard and
+    // exercise the AmountRaisedIsZero guard specifically.
     env.as_contract(&client.address, || {
         let mut campaign = get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
+        campaign.funds_withdrawn = true;
         set_campaign(&env, campaign_id, &campaign);
     });
 

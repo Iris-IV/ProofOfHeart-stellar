@@ -782,7 +782,10 @@ impl ProofOfHeart {
     ///
     /// # Errors
     /// * `CampaignNotFound` - No campaign with the given ID.
-    /// * `ValidationFailed` - Campaign has no revenue sharing, or caller has no contribution.
+    /// * `ValidationFailed` - Campaign has no revenue sharing, caller has no
+    ///   contribution, or funds have not yet been withdrawn (revenue sharing only
+    ///   begins after the creator has withdrawn funds, locking in `amount_raised`
+    ///   as the share denominator).
     /// * `NoFundsToWithdraw` - Nothing claimable at this time.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributor.require_auth();
@@ -792,6 +795,15 @@ impl ProofOfHeart {
             return Err(Error::CampaignNotActive);
         }
         require_revenue_sharing(&campaign, Error::ValidationFailed)?;
+
+        // Block claims until the creator has withdrawn funds. Until then,
+        // `amount_raised` (the share denominator) can still grow as new
+        // contributions arrive, which would let early claimers compute their
+        // share against a smaller denominator than late claimers and create a
+        // race condition.
+        if !campaign.funds_withdrawn {
+            return Err(Error::ValidationFailed);
+        }
 
         let contribution = get_contribution(&env, campaign_id, &contributor);
         if contribution == 0 {

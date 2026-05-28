@@ -89,6 +89,7 @@ fn test_claim_revenue_instruction_budget() {
     let id = client.create_campaign(&make_revenue_campaign(&env, creator.clone()));
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1_000);
+    client.withdraw_funds(&id);
     client.deposit_revenue(&id, &2_000);
 
     env.budget().reset_default();
