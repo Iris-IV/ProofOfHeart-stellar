@@ -146,8 +146,8 @@ fn test_extend_deadline_beyond_category_cap_rejected() {
 }
 
 #[test]
-fn test_extend_deadline_without_start_time_fallback() {
-    // This tests the fallback for campaigns created before start_time tracking was added
+fn test_extend_deadline_without_start_time_rejected() {
+    // Legacy campaigns without start_time cannot bypass category duration checks.
     let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
@@ -170,7 +170,7 @@ fn test_extend_deadline_without_start_time_fallback() {
 
     client.set_category_duration_cap(&admin, &Category::Learner, &30);
 
-    // Should succeed because start_time is missing (fallback to Option A behavior)
+    // Missing start_time now rejects the extension to avoid cap bypass.
     let res = client.try_extend_campaign_deadline(&id, &30);
-    assert!(res.is_ok());
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 }
