@@ -678,13 +678,14 @@ impl ProofOfHeart {
         }
 
         bump_instance_ttl(&env);
+        let event_description = description.clone();
         campaign.title = title.clone();
         campaign.description = description;
 
         set_campaign(&env, campaign_id, &campaign);
 
         env.events()
-            .publish(("campaign_updated", campaign_id), title);
+            .publish(("campaign_updated", campaign_id), (title, event_description));
 
         Ok(())
     }
