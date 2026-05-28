@@ -64,6 +64,8 @@ pub struct Campaign {
     pub fee_override: Option<u32>,
     /// Whether the deadline has already been extended once.
     pub deadline_extended: bool,
+    /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
+    pub effective_amount_raised: i128,
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.

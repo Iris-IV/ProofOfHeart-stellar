@@ -123,3 +123,41 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
 
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
 }
+
+#[test]
+fn test_claim_revenue_after_single_refund_uses_live_raised() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Revenue Refund Denominator"),
+        String::from_str(&env, "Remaining contributor receives full share after refund"),
+        2000,
+        10,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.contribute(&campaign_id, &contributor2, &1000);
+    client.deposit_revenue(&campaign_id, &1000);
+
+    client.cancel_campaign(&campaign_id);
+    client.claim_refund(&campaign_id, &contributor1);
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5000);
+
+    client.claim_revenue(&campaign_id, &contributor2);
+
+    assert_eq!(token.balance(&contributor2), 4500);
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 500);
+}
