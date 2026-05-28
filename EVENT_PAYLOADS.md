@@ -32,7 +32,7 @@ Emitted when a new campaign is created.
 Emitted when campaign title and description are updated (before any contributions).
 
 - **Topics**: `["campaign_updated", campaign_id]`
-- **Data**: `new_title`
+- **Data**: `(new_title, new_description)`
 - **Emitted By**: `update_campaign()`
 
 #### `campaign_description_updated`
