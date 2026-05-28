@@ -11,6 +11,7 @@ mod test_duration_cap;
 mod test_fee_override;
 mod test_init;
 mod test_listing;
+mod test_purge_voting;
 mod test_refund;
 mod test_refund_edge;
 mod test_revenue;
