@@ -215,3 +215,17 @@ fn test_resume_campaign_rejects_when_contract_not_paused() {
     assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
     assert_eq!(events_before, events_after);
 }
+
+#[test]
+fn test_resume_campaign_clears_auto_pause_when_active() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&DataKey::AutoPaused, &true);
+    });
+
+    assert!(client.is_paused());
+    client.resume_campaign(&campaign_id, &creator);
+    assert!(!client.is_paused());
+}
