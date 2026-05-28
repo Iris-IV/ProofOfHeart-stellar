@@ -2,7 +2,7 @@
 // Probes storage after terminal actions to assert absence of orphan entries.
 use super::*;
 use crate::test::setup_env;
-use soroban_sdk::{testutils::Ledger, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger, Address, Env, String};
 
 fn make_params_local(
     creator: Address,
@@ -134,6 +134,45 @@ fn test_voting_keys_absent_after_cancel() {
     assert!(
         !has_persistent_key(&env, &client, DataKey::RejectVotes(id)),
         "RejectVotes must not exist"
+    );
+}
+
+/// Issue #380: after cancel_campaign, aggregate voting keys are purged even when votes were cast.
+#[test]
+fn test_voting_keys_purged_after_cancel_with_prior_votes() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
+
+    let voter = Address::generate(&env);
+    token_admin.mint(&voter, &500);
+
+    let id = client.create_campaign(&make_params_local(creator.clone(), &env, 10_000, false));
+
+    // Cast a vote so the aggregate storage keys are written
+    client.vote_on_campaign(&id, &voter, &true);
+
+    assert!(
+        has_persistent_key(&env, &client, DataKey::ApproveVotes(id)),
+        "ApproveVotes must exist before cancel"
+    );
+
+    client.cancel_campaign(&id);
+
+    assert!(
+        !has_persistent_key(&env, &client, DataKey::ApproveVotes(id)),
+        "ApproveVotes must be purged after cancel"
+    );
+    assert!(
+        !has_persistent_key(&env, &client, DataKey::RejectVotes(id)),
+        "RejectVotes must be purged after cancel"
+    );
+    assert!(
+        !has_persistent_key(&env, &client, DataKey::ApproveWeight(id)),
+        "ApproveWeight must be purged after cancel"
+    );
+    assert!(
+        !has_persistent_key(&env, &client, DataKey::RejectWeight(id)),
+        "RejectWeight must be purged after cancel"
     );
 }
 

@@ -48,6 +48,7 @@ pub fn set_params(
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignAlreadyVerified` - The campaign is already verified.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
 /// * `NotTokenHolder` - The voter holds no tokens.
 /// * `AlreadyVoted` - The voter has already cast a vote on this campaign.
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
@@ -56,7 +57,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     let campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
     if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::CampaignNotActive);
+        return Err(Error::DeadlinePassed);
     }
     require_unverified_campaign(&campaign)?;
 

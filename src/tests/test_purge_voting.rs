@@ -72,13 +72,13 @@ fn test_purge_voting_state_non_finalize_keeps_aggregate() {
     let mut batch: Vec<Address> = Vec::new(&env);
     batch.push_back(voters.get(0).unwrap());
 
-    // Non-final batch — HasVoted for the supplied voter is cleared but the
-    // aggregate vote counts remain so the cleanup can continue across calls.
+    // Non-final batch — HasVoted for the supplied voter is cleared.
+    // The aggregate vote counts were already purged by cancel_campaign.
     client.purge_voting_state(&campaign_id, &batch, &false);
 
     assert!(!client.has_voted(&campaign_id, &voters.get(0).unwrap()));
     assert!(client.has_voted(&campaign_id, &voters.get(1).unwrap()));
-    assert_eq!(client.get_approve_votes(&campaign_id), 3);
+    assert_eq!(client.get_approve_votes(&campaign_id), 0);
 }
 
 #[test]
@@ -113,8 +113,8 @@ fn test_purge_voting_state_split_batches_then_finalize() {
     client.purge_voting_state(&campaign_id, &first, &false);
     assert_eq!(
         client.get_approve_votes(&campaign_id),
-        4,
-        "aggregate must survive the non-final batch"
+        0,
+        "aggregate was already purged by cancel_campaign"
     );
 
     client.purge_voting_state(&campaign_id, &second, &true);

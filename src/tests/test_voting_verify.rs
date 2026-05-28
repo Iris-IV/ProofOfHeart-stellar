@@ -49,7 +49,7 @@ fn test_vote_on_campaign_past_deadline_fails() {
     });
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
 }
 
 #[test]

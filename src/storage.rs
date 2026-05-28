@@ -703,7 +703,7 @@ pub fn remove_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) {
 /// Returns (ledger_sequence, contribution_count) for the block tracking.
 pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
     env.storage()
-        .temporary()
+        .instance()
         .get(&DataKey::BlockContributionCount)
         .unwrap_or((0, 0))
 }
@@ -711,14 +711,14 @@ pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
 /// Stores (ledger_sequence, contribution_count) for the block tracking.
 pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
-        .temporary()
+        .instance()
         .set(&DataKey::BlockContributionCount, &(sequence, count));
 }
 
 /// Returns (ledger_sequence, contribution_count) for a specific campaign.
 pub fn get_campaign_block_contribution_count(env: &Env, campaign_id: u32) -> (u32, u32) {
     env.storage()
-        .temporary()
+        .instance()
         .get(&DataKey::BlockCampaignContributionCount(campaign_id))
         .unwrap_or((0, 0))
 }
@@ -730,7 +730,7 @@ pub fn set_campaign_block_contribution_count(
     sequence: u32,
     count: u32,
 ) {
-    env.storage().temporary().set(
+    env.storage().instance().set(
         &DataKey::BlockCampaignContributionCount(campaign_id),
         &(sequence, count),
     );

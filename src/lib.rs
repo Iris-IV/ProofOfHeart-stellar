@@ -595,7 +595,9 @@ impl ProofOfHeart {
     /// Cancels a campaign. Can only be performed by the creator while the campaign is still active.
     ///
     /// If revenue has been deposited into the campaign's pool, the entire pool is returned to the
-    /// creator and the pool is cleared to prevent orphaned funds.
+    /// creator and the pool is cleared to prevent orphaned funds. The aggregate voting keys
+    /// (`ApproveVotes`, `RejectVotes`, `ApproveWeight`, `RejectWeight`) are purged immediately.
+    /// Per-voter `HasVoted` entries require a separate admin call to `purge_voting_state`.
     ///
     /// # Errors
     /// * `CampaignNotFound` - Campaign ID doesn't exist.
@@ -630,6 +632,7 @@ impl ProofOfHeart {
         campaign.is_cancelled = true;
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
+        remove_voting_state(&env, campaign_id);
         decrement_active_campaign_count(&env);
         increment_cancelled_campaign_count(&env);
 
@@ -1077,24 +1080,24 @@ impl ProofOfHeart {
 
     /// Bulk verify multiple campaigns. Can only be performed by the admin.
     ///
-    /// Caps the batch at 50 IDs for fee predictability.
-    /// Returns partial success semantics: verifies as many as possible and collects
-    /// errors for those that failed.
+    /// Caps the batch at 50 IDs for fee predictability. Returns `Ok(n)` only when all
+    /// campaigns in the batch are verified successfully. Returns `Err(first_error)` as
+    /// soon as any campaign fails, so callers can distinguish full success from partial
+    /// failure with a standard `Ok`/`Err` match.
     ///
     /// # Arguments
     /// * `campaign_ids` - List of campaign IDs to verify.
     ///
     /// # Returns
-    /// A tuple of (verified_count, first_error) where:
-    /// - `verified_count` is the number of campaigns successfully verified
-    /// - `first_error` is the first error encountered (if any)
+    /// `Ok(verified_count)` if every campaign verified successfully; `Err(e)` with the
+    /// first error encountered if any campaign failed.
     ///
     /// # Authorization
     /// Requires `admin.require_auth()`.
     pub fn verify_campaigns(
         env: Env,
         campaign_ids: soroban_sdk::Vec<u32>,
-    ) -> Result<(u32, Option<Error>), Error> {
+    ) -> Result<u32, Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         Self::require_not_paused(&env)?;
@@ -1131,7 +1134,11 @@ impl ProofOfHeart {
             (verified_count, campaign_ids.len()),
         );
 
-        Ok((verified_count, first_error))
+        if let Some(err) = first_error {
+            Err(err)
+        } else {
+            Ok(verified_count)
+        }
     }
 
     /// Checks if a campaign meets community verification thresholds and marks it verified.
