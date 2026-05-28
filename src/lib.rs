@@ -1410,6 +1410,8 @@ impl ProofOfHeart {
     /// - Extension must be requested before the original deadline.
     /// - The total duration (original + extension) must not exceed the
     ///   category's duration cap (Option B).
+    /// - Campaigns missing a persisted start time are rejected to avoid
+    ///   silently bypassing category duration caps.
     ///
     /// # Authorization
     /// Requires `campaign.creator.require_auth()`.
