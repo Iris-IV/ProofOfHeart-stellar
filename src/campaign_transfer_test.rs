@@ -109,3 +109,16 @@ fn campaign_transfer_still_rejects_transfer_to_self() {
     let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidNewOwner);
 }
+
+#[test]
+fn accept_campaign_transfer_rejects_cancelled_campaign() {
+    let (env, _admin, creator, client) = setup_env();
+    let new_creator = Address::generate(&env);
+    let campaign_id = create_campaign(&env, &client, &creator, "Cancelled transfer reject");
+
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_accept_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}

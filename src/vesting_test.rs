@@ -1,6 +1,7 @@
 #![cfg(test)]
 use crate::test::setup_env;
 use crate::types::{Category, CreateCampaignParams};
+use crate::Error;
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::Address;
 
@@ -109,4 +110,43 @@ fn test_set_vesting_params_authorization() {
 
     let res = client.try_set_vesting_params(&non_admin, &7, &2000);
     assert!(res.is_err());
+}
+
+#[test]
+fn test_withdraw_reserve_when_paused_fails() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let params = CreateCampaignParams {
+        creator: creator.clone(),
+        title: soroban_sdk::String::from_str(&env, "Paused Reserve Campaign"),
+        description: soroban_sdk::String::from_str(&env, "Pause guard for reserve"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    };
+    let campaign_id = client.create_campaign(&params);
+    client.verify_campaign(&campaign_id);
+
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * 86400;
+    });
+    client.withdraw_funds(&campaign_id);
+
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 8 * 86400;
+    });
+
+    client.pause();
+    let res = client.try_withdraw_reserve(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 }

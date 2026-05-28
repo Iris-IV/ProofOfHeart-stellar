@@ -534,6 +534,7 @@ impl ProofOfHeart {
     pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut reserve =
             get_campaign_reserve(&env, campaign_id).ok_or(Error::NoFundsToWithdraw)?;
+        Self::require_not_paused(&env)?;
         if reserve.released {
             return Err(Error::FundsAlreadyWithdrawn);
         }
@@ -608,8 +609,10 @@ impl ProofOfHeart {
         campaign.is_active = false;
         set_campaign(&env, campaign_id, &campaign);
 
-        env.events()
-            .publish(("campaign_cancelled", campaign_id), ());
+        env.events().publish(
+            ("campaign_cancelled", campaign_id, campaign.creator.clone()),
+            campaign.amount_raised,
+        );
 
         Ok(())
     }
@@ -757,6 +760,9 @@ impl ProofOfHeart {
         }
         if campaign.is_cancelled {
             return Err(Error::CampaignNotActive);
+        }
+        if !campaign.funds_withdrawn {
+            return Err(Error::ValidationFailed);
         }
         require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
 
@@ -1773,6 +1779,7 @@ impl ProofOfHeart {
     /// Requires `pending_creator.require_auth()`.
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         let mut campaign = get_campaign_or_error(&env, campaign_id)?;
+        require_active_campaign(&campaign)?;
 
         let pending = match campaign.pending_creator.clone() {
             MaybePendingCreator::Some(addr) => addr,
