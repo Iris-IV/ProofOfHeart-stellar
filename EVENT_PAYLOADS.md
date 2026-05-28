@@ -212,7 +212,7 @@ Emitted when admin privileges are transferred.
 ### Pattern 1: Track All Campaigns
 ```
 Listen for: "campaign_created" events
-Index: Map campaign_id -> (creator, title, timestamp)
+Index: Map campaign_id -> (creator, title, category_u32, timestamp)
 ```
 
 ### Pattern 2: Track Campaign Contributions
