@@ -366,7 +366,7 @@ impl ProofOfHeart {
         }
 
         require_active_campaign(&campaign)?;
-        if contributor == campaign.creator || contributor == campaign.first_creator {
+        if contributor == campaign.creator {
             return Err(Error::NotAuthorized);
         }
         if env.ledger().timestamp() > campaign.deadline {
@@ -527,7 +527,7 @@ impl ProofOfHeart {
         set_total_raised_global(
             &env,
             total_raised
-                .checked_sub(campaign.amount_raised)
+                .checked_sub(campaign.amount_raised - reserve_amount)
                 .ok_or(Error::Overflow)?,
         );
 
@@ -571,6 +571,14 @@ impl ProofOfHeart {
         reserve.released = true;
         set_campaign_reserve(&env, campaign_id, &reserve);
 
+        let total_raised = get_total_raised_global(&env);
+        set_total_raised_global(
+            &env,
+            total_raised
+                .checked_sub(reserve.amount)
+                .ok_or(Error::Overflow)?,
+        );
+
         env.events().publish(
             ("reserve_released", campaign_id, campaign.creator),
             reserve.amount,
@@ -587,6 +595,7 @@ impl ProofOfHeart {
         reserve_bps: u32,
     ) -> Result<(), Error> {
         assert_admin(&env, &admin)?;
+        Self::require_not_paused(&env)?;
         if reserve_bps > 10000 || delay_days > 365 {
             return Err(Error::ValidationFailed);
         }
@@ -665,6 +674,7 @@ impl ProofOfHeart {
         description: String,
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
+        Self::require_not_paused(&env)?;
 
         if campaign.amount_raised > 0 {
             return Err(Error::ValidationFailed);
@@ -717,6 +727,7 @@ impl ProofOfHeart {
         description: String,
     ) -> Result<(), Error> {
         let mut campaign = get_creator_campaign(&env, campaign_id)?;
+        Self::require_not_paused(&env)?;
 
         require_active_campaign(&campaign)?;
         if description.len() < CAMPAIGN_DESCRIPTION_MIN_LEN
