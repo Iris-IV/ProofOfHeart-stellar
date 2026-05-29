@@ -1,4 +1,5 @@
 use super::*;
+use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 fn setup_env<'a>() -> (Env, Address, Address, ProofOfHeartClient<'a>) {
@@ -90,17 +91,22 @@ fn campaign_transfer_cancel_then_reinitiate_succeeds() {
 }
 
 #[test]
-fn original_creator_cannot_contribute_after_campaign_transfer() {
+fn original_creator_can_contribute_after_campaign_transfer() {
     let (env, _admin, creator, client) = setup_env();
     let new_creator = Address::generate(&env);
     let campaign_id = create_campaign(&env, &client, &creator, "Transfer contribution guard");
+
+    let token_admin = TokenAdminClient::new(&env, &client.get_token());
+    token_admin.mint(&creator, &100);
 
     client.verify_campaign(&campaign_id);
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     client.accept_campaign_transfer(&campaign_id);
 
+    // After transfer, the original creator is a regular community member and
+    // must be allowed to contribute.
     let res = client.try_contribute(&campaign_id, &creator, &100);
-    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+    assert!(res.is_ok());
 }
 
 #[test]
