@@ -861,10 +861,13 @@ impl ProofOfHeart {
         }
 
         let total_pool = get_revenue_pool(&env, campaign_id);
-        let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+        // Defer all division to the last step to avoid intermediate truncation to zero
+        // when total_pool is small relative to 10_000 / revenue_share_percentage (#375).
         let total_due = contribution
-            .checked_mul(contributor_pool)
+            .checked_mul(total_pool)
+            .and_then(|n| n.checked_mul(campaign.revenue_share_percentage as i128))
             .and_then(|n| n.checked_div(campaign.effective_amount_raised))
+            .and_then(|n| n.checked_div(10000))
             .ok_or(Error::Overflow)?;
         let already_claimed = get_revenue_claimed(&env, campaign_id, &contributor);
         let claimable = total_due - already_claimed;
