@@ -102,6 +102,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_verified {
         return Err(Error::AdminVerificationConflict);
     }
+    require_active_campaign(&campaign)?;
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
@@ -122,6 +123,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_verified {
         return Err(Error::CommunityVerificationConflict);
     }
+    require_active_campaign(&campaign)?;
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);

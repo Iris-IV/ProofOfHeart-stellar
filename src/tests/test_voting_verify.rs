@@ -20,6 +20,48 @@ fn test_vote_on_cancelled_campaign_fails() {
 }
 
 #[test]
+fn test_admin_verify_cancelled_campaign_fails() {
+    let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(), String::from_str(&env, "Cancelled Admin Verify"),
+        String::from_str(&env, "Test admin verification on cancelled campaign"), 1000, 30,
+        Category::Learner, false, 0, 0i128,
+    ));
+
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_verify_campaign(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_verify_campaign_with_votes_cancelled_campaign_fails() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+    let voter3 = Address::generate(&env);
+    token_admin.mint(&voter3, &1000);
+
+    client.set_voting_params(&admin, &3, &6000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(), String::from_str(&env, "Cancelled Vote Verify"),
+        String::from_str(&env, "Test vote-based verification on cancelled campaign"), 1000, 30,
+        Category::Learner, false, 0, 0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &false);
+
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
 fn test_vote_on_campaign_past_deadline_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &1000);
