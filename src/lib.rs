@@ -147,18 +147,16 @@ impl ProofOfHeart {
         .map_err(|_| Error::InvalidTokenContract)?
         .map_err(|_| Error::InvalidTokenContract)?;
 
+        if platform_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::InvalidPlatformFee);
+        }
+
         bump_instance_ttl(&env);
         set_admin(&env, &admin);
         remove_pending_admin(&env);
         set_token(&env, &token);
         set_initialized(&env);
-
-        let valid_fee = if platform_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            platform_fee
-        };
-        set_platform_fee(&env, valid_fee);
+        set_platform_fee(&env, platform_fee);
         set_campaign_count(&env, 0);
         set_total_raised_global(&env, 0);
         set_version(&env, CONTRACT_VERSION);
@@ -172,7 +170,7 @@ impl ProofOfHeart {
             ("initialized", admin.clone()),
             (
                 token.clone(),
-                valid_fee,
+                platform_fee,
                 voting::DEFAULT_MIN_VOTES_QUORUM,
                 voting::DEFAULT_APPROVAL_THRESHOLD_BPS,
                 CONTRACT_VERSION,
@@ -1170,15 +1168,13 @@ impl ProofOfHeart {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         Self::require_not_paused(&env)?;
-        let valid_fee = if new_fee > PLATFORM_FEE_MAX_BPS {
-            PLATFORM_FEE_MAX_BPS
-        } else {
-            new_fee
-        };
+        if new_fee > PLATFORM_FEE_MAX_BPS {
+            return Err(Error::InvalidPlatformFee);
+        }
         let old_fee = get_platform_fee(&env);
         bump_instance_ttl(&env);
-        set_platform_fee(&env, valid_fee);
-        env.events().publish(("fee_updated",), (old_fee, valid_fee));
+        set_platform_fee(&env, new_fee);
+        env.events().publish(("fee_updated",), (old_fee, new_fee));
         Ok(())
     }
 

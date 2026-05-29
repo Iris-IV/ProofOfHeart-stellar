@@ -1,14 +1,16 @@
-[BUG] vote_on_campaign accepts votes after deadline or after funds withdrawn
+ [BUG] init silently clamps platform_fee instead of returning an error
 
 Summary
-voting::cast_vote only checks is_verified, is_cancelled, is_active, token balance, and dedup. It does not check the campaign deadline or funds_withdrawn flag. Voting on a campaign whose deadline has passed (or whose creator has already withdrawn) is meaningless and pollutes vote counts.
+init accepts any u32 for platform_fee and silently clamps it to PLATFORM_FEE_MAX_BPS (1000). The deployer asks for 12% and gets 10% with no signal.
 
+let valid_fee = if platform_fee > PLATFORM_FEE_MAX_BPS { PLATFORM_FEE_MAX_BPS } else { platform_fee };
 Where
-src/voting.rs cast_vote (line ~52)
+src/lib.rs init (line 75) and the same pattern in update_platform_fee (line 700).
 
 Fix
-Reject if env.ledger().timestamp() > campaign.deadline.
-Reject if campaign.funds_withdrawn.
-Map both to Error::CampaignNotActive (or a new Error::VotingClosed).
+Return Err(Error::InvalidPlatformFee) (new error variant) when the value exceeds the cap. Same for update_platform_fee.
+
 Acceptance criteria
- Tests cover post-deadline and post-withdrawal vote attempts.
+ init with platform_fee=2000 returns the new error.
+ update_platform_fee(2000) returns the new error.
+ Existing tests updated; behavior documented in CHANGELOG.

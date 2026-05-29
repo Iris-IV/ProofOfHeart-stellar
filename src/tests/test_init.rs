@@ -15,47 +15,12 @@ fn test_platform_fee_cap_enforcement() {
     env.mock_all_auths();
 
     let admin = Address::generate(&env);
-    let creator = Address::generate(&env);
-    let contributor = Address::generate(&env);
-
     let token_address = env.register_stellar_asset_contract(admin.clone());
-    let token = soroban_sdk::token::Client::new(&env, &token_address);
-    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_address);
-
     let contract_id = env.register_contract(None, crate::ProofOfHeart);
     let client = crate::ProofOfHeartClient::new(&env, &contract_id);
 
-    client.init(&admin, &token_address, &5000);
-    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
-    assert_eq!(client.get_platform_fee(), 1000);
-
-    token_admin.mint(&contributor, &2000);
-
-    let title = String::from_str(&env, "Fee Cap Test");
-    let desc = String::from_str(&env, "Testing platform fee cap enforcement");
-    let campaign_id = client.create_campaign(&make_params(
-        creator.clone(),
-        title,
-        desc,
-        1000,
-        30,
-        Category::Educator,
-        false,
-        0,
-        0i128,
-    ));
-
-    client.verify_campaign(&campaign_id);
-    client.contribute(&campaign_id, &contributor, &1000);
-
-    assert_eq!(token.balance(&contributor), 1000);
-    assert_eq!(token.balance(&client.address), 1000);
-
-    client.withdraw_funds(&campaign_id);
-
-    assert_eq!(token.balance(&admin), 100);
-    assert_eq!(token.balance(&creator), 900);
-    assert_eq!(token.balance(&client.address), 0);
+    let res = client.try_init(&admin, &token_address, &5000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
 
 #[test]
