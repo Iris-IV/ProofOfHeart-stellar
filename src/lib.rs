@@ -475,11 +475,13 @@ impl ProofOfHeart {
         let platform_fee = campaign
             .fee_override
             .unwrap_or_else(|| get_platform_fee(&env));
-        let fee_amount = (campaign.amount_raised * (platform_fee as i128)) / 10000;
+        // Ceiling division: ceil(a / b) = (a + b - 1) / b
+        // Ensures the platform never under-collects due to integer truncation.
+        let fee_amount = (campaign.amount_raised * (platform_fee as i128) + 9999) / 10000;
         let total_after_fee = campaign.amount_raised - fee_amount;
 
         let reserve_bps = get_withdraw_reserve_percentage(&env);
-        let reserve_amount = (total_after_fee * (reserve_bps as i128)) / 10000;
+        let reserve_amount = (total_after_fee * (reserve_bps as i128) + 9999) / 10000;
         let creator_amount = total_after_fee - reserve_amount;
 
         // Execute token transfers BEFORE marking campaign as withdrawn to prevent stuck state
@@ -2136,7 +2138,14 @@ impl ProofOfHeart {
             return Err(Error::NotAuthorized);
         }
 
-        if !Self::is_paused(env.clone()) {
+        // Only allow resuming when the contract is in an anomaly-triggered auto-pause.
+        // A deliberate admin pause (DataKey::Paused) must remain unaffected by creators.
+        let auto_paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::AutoPaused)
+            .unwrap_or(false);
+        if !auto_paused {
             return Err(Error::ValidationFailed);
         }
 
