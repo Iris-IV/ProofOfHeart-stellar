@@ -545,7 +545,10 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "BlockContributionCount"
+                  "symbol": "BlockCampaignContributionCount"
+                },
+                {
+                  "u32": 1
                 }
               ]
             },
@@ -562,7 +565,10 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "BlockContributionCount"
+                      "symbol": "BlockCampaignContributionCount"
+                    },
+                    {
+                      "u32": 1
                     }
                   ]
                 },
@@ -750,6 +756,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "original_creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "pending_creator"
                       },
                       "val": {
@@ -837,10 +851,13 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "CategoryCampaigns"
+                  "symbol": "CategoryCampaignsBucket"
                 },
                 {
                   "u32": 2
+                },
+                {
+                  "u32": 0
                 }
               ]
             },
@@ -857,10 +874,13 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "CategoryCampaigns"
+                      "symbol": "CategoryCampaignsBucket"
                     },
                     {
                       "u32": 2
+                    },
+                    {
+                      "u32": 0
                     }
                   ]
                 },
@@ -1243,6 +1263,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "CategoryCampaignCount"
+                            },
+                            {
+                              "u32": 2
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Initialized"
                             }
                           ]
@@ -1315,6 +1350,18 @@
                             "hi": 0,
                             "lo": 0
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VerifiedCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
@@ -2267,7 +2314,14 @@
               }
             ],
             "data": {
-              "string": "Code Camp"
+              "vec": [
+                {
+                  "string": "Code Camp"
+                },
+                {
+                  "u32": 2
+                }
+              ]
             }
           }
         }
@@ -3241,6 +3295,14 @@
                       "hi": 0,
                       "lo": 0
                     }
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "original_creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   }
                 },
                 {

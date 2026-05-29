@@ -32,6 +32,8 @@ pub struct Campaign {
     pub id: u32,
     /// The address of the campaign creator.
     pub creator: Address,
+    /// Immutable-by-design (always the first creator).
+    pub first_creator: Address,
     /// The address of the proposed new creator (for two-step transfer).
     pub pending_creator: MaybePendingCreator,
     /// Short display name of the campaign.
@@ -82,6 +84,11 @@ pub struct PlatformStats {
     pub cancelled_campaigns: u32,
     /// Sum of `amount_raised` across all campaigns.
     pub total_amount_raised: i128,
+    /// Whether the counts are partial due to scan limit. When true,
+    /// active/verified/cancelled counts may not reflect all campaigns.
+    pub stats_are_partial: bool,
+    /// The ID up to which the scan was performed.
+    pub scanned_up_to: u32,
 }
 
 /// Parameters for `create_campaign`, grouped into a single struct to avoid

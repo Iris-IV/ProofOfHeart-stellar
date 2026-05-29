@@ -123,3 +123,28 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
     assert_eq!(client.get_revenue_pool(&campaign_id), 1000);
     assert_eq!(events_after - events_before, 20);
 }
+
+#[test]
+fn test_deposit_revenue_requires_funds_withdrawn() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Revenue pre-withdraw blocked"),
+        String::from_str(&env, "Deposit requires successful withdrawal"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    let res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}

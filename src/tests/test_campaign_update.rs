@@ -27,6 +27,68 @@ fn test_update_campaign_allows_verified_campaign_before_contributions() {
 }
 
 #[test]
+fn test_update_campaign_emits_title_and_description() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        String::from_str(&env, "Original Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let new_title = String::from_str(&env, "Updated Title");
+    let new_desc = String::from_str(&env, "Updated Description");
+    client.update_campaign(&campaign_id, &new_title, &new_desc);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+
+    assert_eq!(payload.0, new_title);
+    assert_eq!(payload.1, new_desc);
+}
+
+#[test]
+fn test_update_campaign_event_tracks_latest_description() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        String::from_str(&env, "Original Description"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Title V2"),
+        &String::from_str(&env, "Description V2"),
+    );
+    client.update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Title V3"),
+        &String::from_str(&env, "Description V3"),
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload.0, String::from_str(&env, "Title V3"));
+    assert_eq!(payload.1, String::from_str(&env, "Description V3"));
+}
+
+#[test]
 fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
     let (env, _admin, creator, contributor1, contributor2, _, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
@@ -194,6 +256,35 @@ fn test_campaign_transfer_validations() {
 
     let res = client.try_cancel_campaign_transfer(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+}
+
+#[test]
+fn test_campaign_transfer_rejected_for_terminal_campaigns() {
+    let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+
+    let cancelled_campaign_id = client.create_campaign(&make_params(
+        creator.clone(), String::from_str(&env, "Cancelled Transfer"),
+        String::from_str(&env, "Paused forever"), 1000, 30,
+        Category::Educator, false, 0, 0i128,
+    ));
+    client.cancel_campaign(&cancelled_campaign_id);
+
+    let res = client.try_initiate_campaign_transfer(&cancelled_campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+
+    token_admin.mint(&contributor1, &2000);
+
+    let withdrawn_campaign_id = client.create_campaign(&make_params(
+        creator.clone(), String::from_str(&env, "Withdrawn Transfer"),
+        String::from_str(&env, "Already settled"), 1000, 30,
+        Category::Educator, false, 0, 0i128,
+    ));
+    client.verify_campaign(&withdrawn_campaign_id);
+    client.contribute(&withdrawn_campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&withdrawn_campaign_id);
+
+    let res = client.try_initiate_campaign_transfer(&withdrawn_campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
 #[test]

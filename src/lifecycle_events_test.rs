@@ -3,7 +3,7 @@
 use super::*;
 use crate::test::setup_env;
 use soroban_sdk::testutils::Events;
-use soroban_sdk::{String, TryFromVal};
+use soroban_sdk::{Address, String, TryFromVal};
 
 /// Returns true if any event in the environment has the given symbol as its first topic.
 fn has_event(env: &soroban_sdk::Env, topic: &str) -> bool {
@@ -131,4 +131,78 @@ fn test_cancel_lifecycle_event_sequence() {
         has_event(&env, "refund_claimed"),
         "refund_claimed event must be emitted"
     );
+}
+
+#[test]
+fn test_campaign_cancelled_event_includes_creator_and_amount() {
+    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5_000);
+
+    let id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Cancelled Campaign Event Payload"),
+        description: String::from_str(&env, "Verify cancel event schema"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &500);
+    client.cancel_campaign(&id);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+
+    let topics = &last_event.1;
+    assert_eq!(topics.len(), 3);
+    let creator_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(2).unwrap());
+    assert_eq!(creator_in_topics, creator);
+
+    let amount_raised: i128 = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(amount_raised, 500);
+}
+
+#[test]
+fn test_campaign_created_event_includes_category() {
+    let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    let expected_title = String::from_str(&env, "Created Event Category");
+    let expected_category = Category::Learner;
+
+    client.create_campaign(&CreateCampaignParams {
+        creator,
+        title: expected_title.clone(),
+        description: String::from_str(&env, "Schema coverage"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: expected_category,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    let events = env.events().all();
+    let created_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|topic| topic == String::from_str(&env, "campaign_created"))
+                .unwrap_or(false)
+        })
+        .expect("campaign_created event must exist");
+
+    let (title, category_discriminant): (String, u32) =
+        soroban_sdk::FromVal::from_val(&env, &created_event.2);
+    assert_eq!(title, expected_title);
+    assert_eq!(category_discriminant, expected_category as u32);
 }

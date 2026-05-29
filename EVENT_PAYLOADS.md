@@ -24,15 +24,16 @@ Emitted when the contract is initialized.
 Emitted when a new campaign is created.
 
 - **Topics**: `["campaign_created", campaign_id, creator_address]`
-- **Data**: `campaign_title`
+- **Data**: `(campaign_title, category_u32)`
 - **Emitted By**: `create_campaign()`
 - **Indexing Tip**: Track all campaigns by creator or scan campaign IDs chronologically.
+- **Breaking Change Note**: Consumers expecting a plain title payload must decode `(String, u32)` instead.
 
 #### `campaign_updated`
 Emitted when campaign title and description are updated (before any contributions).
 
 - **Topics**: `["campaign_updated", campaign_id]`
-- **Data**: `new_title`
+- **Data**: `(new_title, new_description)`
 - **Emitted By**: `update_campaign()`
 
 #### `campaign_description_updated`
@@ -79,6 +80,13 @@ Emitted when a contributor funds a campaign.
 - **Data**: `amount_tokens`
 - **Emitted By**: `contribute()`
 - **Indexing Tip**: Track all contributions per campaign or per contributor for dashboards.
+
+#### `personal_cap_set`
+Emitted when a contributor sets or updates their personal contribution cap for a campaign.
+
+- **Topics**: `["personal_cap_set", campaign_id, contributor_address]`
+- **Data**: `amount_tokens`
+- **Emitted By**: `set_personal_cap()`
 
 #### `refund_claimed`
 Emitted when a contributor claims a refund (campaign cancelled or funding goal not reached).
@@ -179,6 +187,14 @@ Emitted when the contract is unpaused by the admin.
 - **Data**: `()`
 - **Emitted By**: `unpause()`
 
+#### `campaign_resumed`
+Emitted when an authorized caller resumes an actively paused campaign context.
+
+- **Topics**: `["campaign_resumed", campaign_id, caller_address]`
+- **Data**: `()`
+- **Emitted By**: `resume_campaign()`
+- **Behavior**: Not emitted when the contract is already unpaused; that call now returns `ValidationFailed`.
+
 #### `fee_updated`
 Emitted when the platform fee is updated.
 
@@ -205,7 +221,7 @@ Emitted when admin privileges are transferred.
 ### Pattern 1: Track All Campaigns
 ```
 Listen for: "campaign_created" events
-Index: Map campaign_id -> (creator, title, timestamp)
+Index: Map campaign_id -> (creator, title, category_u32, timestamp)
 ```
 
 ### Pattern 2: Track Campaign Contributions

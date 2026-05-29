@@ -21,6 +21,42 @@ fn test_platform_fee_cap_enforcement() {
 
     let res = client.try_init(&admin, &token_address, &5000);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
+    // Issue #343: init rejects fees above the cap rather than silently clamping.
+    let res = client.try_init(&admin, &token_address, &5000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Re-init with the maximum allowed fee and verify it applies end-to-end.
+    client.init(&admin, &token_address, &1000);
+    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
+    assert_eq!(client.get_platform_fee(), 1000);
+
+    token_admin.mint(&contributor, &2000);
+
+    let title = String::from_str(&env, "Fee Cap Test");
+    let desc = String::from_str(&env, "Testing platform fee cap enforcement");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    assert_eq!(token.balance(&contributor), 1000);
+    assert_eq!(token.balance(&client.address), 1000);
+
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 100);
+    assert_eq!(token.balance(&creator), 900);
+    assert_eq!(token.balance(&client.address), 0);
 }
 
 #[test]

@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
+use crate::{Category, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -161,3 +161,7 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     assert_eq!(token.balance(&contributor2), 4500);
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 500);
 }
+// Issue #341: claim_revenue is gated on funds_withdrawn. The prior "claim
+// then cancel then refund" flow this test exercised is now structurally
+// impossible (cancel is blocked once funds are withdrawn). Covered by
+// test::test_claim_revenue_blocked_before_funds_withdrawn.

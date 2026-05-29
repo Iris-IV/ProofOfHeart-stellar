@@ -68,7 +68,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install)
-- [Soroban CLI](https://soroban.stellar.org/docs/getting-started/setup)
+- [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) — install with `cargo install --locked stellar-cli --features opt` (previously named `soroban-cli`)
 - `wasm32-unknown-unknown` target:
   ```bash
   rustup target add wasm32-unknown-unknown

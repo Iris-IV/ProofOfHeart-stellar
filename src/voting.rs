@@ -4,16 +4,24 @@ use crate::errors::Error;
 use crate::storage::{
     get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_has_voted,
     get_min_votes_quorum, get_min_voting_balance, get_reject_votes, get_reject_weight, get_token,
-    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    increment_verified_campaign_count, set_approval_threshold_bps, set_approve_votes,
+    set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
+    set_reject_weight,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
 /// Default minimum number of votes required to reach quorum.
 pub const DEFAULT_MIN_VOTES_QUORUM: u32 = 3;
 
+/// Maximum allowed minimum votes quorum to prevent governance lock.
+pub const MAX_VOTES_QUORUM: u32 = 1000;
+
 /// Default approval threshold in basis points (60%).
 pub const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
+
+/// Minimum allowed approval threshold in basis points (10%).
+/// Prevents governance misconfiguration where near-zero threshold bypasses community review.
+pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 
 /// Updates the community voting parameters.
 ///
@@ -22,11 +30,10 @@ pub const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 /// * `ValidationFailed` - Quorum or threshold values are out of range.
 pub fn set_params(
     env: &Env,
-    _admin: Address,
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    if min_votes_quorum == 0 || approval_threshold_bps == 0 || approval_threshold_bps > 10000 {
+    if min_votes_quorum == 0 || min_votes_quorum > MAX_VOTES_QUORUM || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS || approval_threshold_bps > 10000 {
         return Err(Error::ValidationFailed);
     }
     set_min_votes_quorum(env, min_votes_quorum);
@@ -40,6 +47,7 @@ pub fn set_params(
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignAlreadyVerified` - The campaign is already verified.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
 /// * `NotTokenHolder` - The voter holds no tokens.
 /// * `AlreadyVoted` - The voter has already cast a vote on this campaign.
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
@@ -51,7 +59,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
     require_active_campaign(&campaign)?;
     if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::CampaignNotActive);
+        return Err(Error::DeadlinePassed);
     }
     require_unverified_campaign(&campaign)?;
 
@@ -71,23 +79,23 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     if approve {
         set_approve_votes(env, campaign_id, get_approve_votes(env, campaign_id) + 1);
-        set_approve_weight(
-            env,
-            campaign_id,
-            get_approve_weight(env, campaign_id) + balance,
-        );
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
     } else {
         set_reject_votes(env, campaign_id, get_reject_votes(env, campaign_id) + 1);
-        set_reject_weight(
-            env,
-            campaign_id,
-            get_reject_weight(env, campaign_id) + balance,
-        );
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
     }
 
     set_has_voted(env, campaign_id, &voter);
+
+    let vote_weight = balance;
     env.events()
-        .publish(("campaign_vote_cast", campaign_id, voter), approve);
+        .publish(("campaign_vote_cast", campaign_id, voter), (approve, balance, vote_weight));
 
     Ok(())
 }
@@ -96,9 +104,13 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 ///
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - The campaign is cancelled or inactive.
 /// * `AdminVerificationConflict` - The campaign is already verified.
 pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.is_cancelled {
+        return Err(Error::CampaignNotActive);
+    }
     if campaign.is_verified {
         return Err(Error::AdminVerificationConflict);
     }
@@ -106,6 +118,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
+    increment_verified_campaign_count(env);
     env.events().publish(("campaign_verified", campaign_id), ());
 
     Ok(())
@@ -115,11 +128,15 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 ///
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - The campaign is cancelled or inactive.
 /// * `CommunityVerificationConflict` - The campaign is already verified.
 /// * `VotingQuorumNotMet` - Fewer votes than the required quorum.
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
 pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.is_cancelled {
+        return Err(Error::CampaignNotActive);
+    }
     if campaign.is_verified {
         return Err(Error::CommunityVerificationConflict);
     }
@@ -141,7 +158,12 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
     let approval_bps = if total_weight > 0 {
-        ((approve_weight * 10000) / total_weight) as u32
+        // Use checked arithmetic to avoid silent overflow/truncation when
+        // approve_weight is a large i128 (e.g. whale holders on 18-decimal tokens).
+        approve_weight
+            .checked_mul(10000)
+            .and_then(|n| n.checked_div(total_weight))
+            .unwrap_or(0) as u32
     } else {
         0
     };
@@ -151,6 +173,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
+    increment_verified_campaign_count(env);
     env.events()
         .publish(("campaign_verified", campaign_id), approve_votes);
 
