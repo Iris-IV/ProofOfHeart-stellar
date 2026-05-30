@@ -106,9 +106,10 @@ fn test_platform_fee_cap_enforcement() {
     let contract_id = env.register_contract(None, ProofOfHeart);
     let client = ProofOfHeartClient::new(&env, &contract_id);
 
-    // Issue #343: init rejects fees above the cap rather than silently clamping.
+    // Issue #343 / #402: init rejects fees above the cap with InvalidPlatformFee
+    // (matching the CHANGELOG and update_platform_fee's contract).
     let res = client.try_init(&admin, &token_address, &5000);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 
     // Re-init with the maximum allowed fee and verify it applies end-to-end.
     client.init(&admin, &token_address, &1000);
@@ -1057,10 +1058,11 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(0).unwrap(), 300);
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
-    // Issue #343: fees above the cap are rejected, not silently clamped.
+    // Issue #343 / #401: fees above the cap are rejected with InvalidPlatformFee.
+    // (The earlier duplicate ValidationFailed assertion was unreachable because
+    // update_platform_fee only ever returned InvalidPlatformFee — see #401.)
     let result = client.try_update_platform_fee(&5000);
     assert_eq!(result.unwrap_err().unwrap(), Error::InvalidPlatformFee);
-    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
 #[test]

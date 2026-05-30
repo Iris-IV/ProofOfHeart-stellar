@@ -84,5 +84,5 @@ pub enum Error {
     /// The provided platform fee exceeds the maximum allowed basis points.
     InvalidPlatformFee = 39,
     /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 39,
+    TransferAlreadyPending = 40,
 }

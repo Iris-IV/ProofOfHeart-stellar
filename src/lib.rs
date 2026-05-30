@@ -147,7 +147,7 @@ impl ProofOfHeart {
         // a silently-clamped value. Matches the validation contract in
         // `update_platform_fee` and `set_campaign_fee_override`.
         if platform_fee > PLATFORM_FEE_MAX_BPS {
-            return Err(Error::ValidationFailed);
+            return Err(Error::InvalidPlatformFee);
         }
 
         // Validate that the address is a real SEP-41 token contract by probing
@@ -160,10 +160,6 @@ impl ProofOfHeart {
         )
         .map_err(|_| Error::InvalidTokenContract)?
         .map_err(|_| Error::InvalidTokenContract)?;
-
-        if platform_fee > PLATFORM_FEE_MAX_BPS {
-            return Err(Error::InvalidPlatformFee);
-        }
 
         bump_instance_ttl(&env);
         set_admin(&env, &admin);
@@ -1376,7 +1372,6 @@ impl ProofOfHeart {
         Self::require_not_paused(&env)?;
         if new_fee > PLATFORM_FEE_MAX_BPS {
             return Err(Error::InvalidPlatformFee);
-            return Err(Error::ValidationFailed);
         }
         let old_fee = get_platform_fee(&env);
         bump_instance_ttl(&env);
