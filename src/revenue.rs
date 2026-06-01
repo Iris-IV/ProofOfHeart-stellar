@@ -118,7 +118,12 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     }
 
     let total_pool = get_revenue_pool(env, campaign_id);
-    let contributor_pool = (total_pool * (campaign.revenue_share_percentage as i128)) / 10000;
+    // Checked multiply so a pathological pool yields Error::Overflow, not a panic (#408).
+    // Matches the hardened `claim_revenue` path above.
+    let contributor_pool = total_pool
+        .checked_mul(campaign.revenue_share_percentage as i128)
+        .ok_or(Error::Overflow)?
+        / 10000;
     let creator_share_total = total_pool - contributor_pool;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);

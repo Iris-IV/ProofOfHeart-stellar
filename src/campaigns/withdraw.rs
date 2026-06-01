@@ -41,12 +41,22 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let platform_fee = campaign
         .fee_override
         .unwrap_or_else(|| get_platform_fee(env));
-    // Ceiling division: ceil(a / b) = (a + b - 1) / b
-    let fee_amount = (campaign.amount_raised * (platform_fee as i128) + 9999) / 10000;
+    // Ceiling division: ceil(a / b) = (a + b - 1) / b. Use checked arithmetic so
+    // a pathological amount_raised yields Error::Overflow rather than a panic (#408).
+    let fee_amount = campaign
+        .amount_raised
+        .checked_mul(platform_fee as i128)
+        .and_then(|n| n.checked_add(9999))
+        .ok_or(Error::Overflow)?
+        / 10000;
     let total_after_fee = campaign.amount_raised - fee_amount;
 
     let reserve_bps = get_withdraw_reserve_percentage(env);
-    let reserve_amount = (total_after_fee * (reserve_bps as i128) + 9999) / 10000;
+    let reserve_amount = total_after_fee
+        .checked_mul(reserve_bps as i128)
+        .and_then(|n| n.checked_add(9999))
+        .ok_or(Error::Overflow)?
+        / 10000;
     let creator_amount = total_after_fee - reserve_amount;
 
     // Execute token transfers BEFORE marking campaign as withdrawn to prevent stuck state

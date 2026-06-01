@@ -8,9 +8,9 @@ use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
     get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
-    get_version, is_initialized, remove_has_voted, remove_pending_admin, remove_pending_token,
-    remove_voting_state, set_admin, set_approval_threshold_bps, set_campaign_count,
-    set_creation_disabled, set_initialized, set_max_campaign_funding_goal,
+    get_total_raised_global, get_version, is_initialized, remove_has_voted, remove_pending_admin,
+    remove_pending_token, remove_voting_state, set_admin, set_approval_threshold_bps,
+    set_campaign_count, set_creation_disabled, set_initialized, set_max_campaign_funding_goal,
     set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
     set_pending_token, set_pending_token_release, set_platform_fee, set_token,
     set_total_raised_global, set_version, set_withdraw_release_delay_days,
@@ -318,9 +318,15 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
         return Err(Error::ValidationFailed);
     }
 
-    // Block the swap while any campaign is still active to prevent stranding
-    // escrowed balances denominated in the old token (issue #407).
-    if get_active_campaign_count(env) > 0 {
+    // Block the swap while any campaign is still active OR any contributor
+    // principal/reserve remains escrowed in the old token (issue #407).
+    //
+    // The active-campaign count alone is insufficient: `cancel_campaign` drops
+    // that count immediately, but contributor refunds stay escrowed until each
+    // contributor calls `claim_refund` — which pays out in the *current* token.
+    // Gating on the outstanding balance closes that window. Vesting reserves are
+    // likewise tracked in `total_raised_global` until released.
+    if get_active_campaign_count(env) > 0 || get_total_raised_global(env) != 0 {
         return Err(Error::ValidationFailed);
     }
 

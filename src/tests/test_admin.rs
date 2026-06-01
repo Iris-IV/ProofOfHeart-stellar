@@ -202,3 +202,48 @@ fn test_token_swap_succeeds_after_campaign_cancelled() {
     assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 }
+
+// ── Issue #407 follow-up: cancelling a campaign drops the active-campaign count
+//    to zero, but contributor refunds remain escrowed in the old token until
+//    claimed. The swap must stay blocked until those funds actually leave. ──────
+#[test]
+fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
+    let (env, admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancel With Funds"),
+        String::from_str(&env, "Refund pending after cancel"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Cancel: ActiveCampaignCount → 0, but the 500 is still escrowed in the
+    // old token pending claim_refund.
+    client.cancel_campaign(&campaign_id);
+
+    let new_token_address = env.register_stellar_asset_contract(admin.clone());
+    client.propose_token_update(&admin, &new_token_address);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 7 * 86400 + 1;
+    });
+
+    // Must still be blocked: outstanding balance remains in the old token.
+    let res = client.try_accept_token_update(&admin);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Once the contributor claims their refund, no old-token escrow remains and
+    // the swap can proceed.
+    client.claim_refund(&campaign_id, &contributor1);
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+}

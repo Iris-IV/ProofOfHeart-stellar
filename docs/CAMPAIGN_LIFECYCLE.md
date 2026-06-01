@@ -116,11 +116,13 @@ Additional derived conditions used by the contract:
 
 The contract supports a two-step token migration via `propose_token_update` (7-day delay) followed by `accept_token_update`. To prevent stranding escrowed campaign balances in the old token:
 
-- `accept_token_update` **refuses** to switch the accepted token while `ActiveCampaignCount > 0`.
-- All campaigns must reach a **terminal state** (funds withdrawn via `withdraw_funds`, or cancelled via `cancel_campaign`) before the token address can be changed.
-- Campaigns that have been cancelled but still have pending contributor refunds are counted as terminal (cancelled state is set before refunds are claimed), so contributors must claim their refunds in the old token before or after the migration.
+- `accept_token_update` **refuses** to switch the accepted token while `ActiveCampaignCount > 0` **or** any contributor principal/reserve is still escrowed in the old token (`total_raised_global != 0`).
+- The active-campaign count alone is not sufficient: `cancel_campaign` decrements it immediately, but contributor refunds remain escrowed until each contributor calls `claim_refund`, and `claim_refund` always pays out in the **current** accepted token. Refunds must therefore be fully claimed *before* the migration — there is no per-campaign denomination tracking, so a refund attempted after the swap would draw on the new token. Gating on `total_raised_global` guarantees no refundable balance survives the swap.
+- All campaigns must reach a **terminal state** (funds withdrawn via `withdraw_funds`, or cancelled via `cancel_campaign` **with all refunds claimed**) before the token address can be changed.
 
 **Implications for operators:**
-1. Drain or cancel all active campaigns before proposing a token migration.
-2. After all campaigns are in a terminal state, the 7-day delay must still elapse before `accept_token_update` can be called.
-3. If a new campaign is created during the 7-day window, `accept_token_update` will reject the swap and the admin must cancel the pending update and repeat the process.
+1. Drain or cancel all active campaigns, and ensure all contributor refunds have been claimed, before proposing a token migration.
+2. After the contract holds no outstanding old-token balance, the 7-day delay must still elapse before `accept_token_update` can be called.
+3. If a new campaign is created (or a refund is left unclaimed) during the 7-day window, `accept_token_update` will reject the swap and the admin must cancel the pending update and repeat the process.
+
+> **Known limitation:** undistributed revenue-sharing pools (`deposit_revenue`) are not yet tracked by `total_raised_global`. A withdrawn revenue-sharing campaign with an unclaimed pool could still leave funds in the old token across a migration. Tracking revenue pools in the migration guard is tracked as a follow-up.
