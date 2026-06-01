@@ -1,4 +1,3 @@
-#![cfg(test)]
 use crate::test::setup_env;
 use crate::types::{Category, CreateCampaignParams};
 use crate::Error;

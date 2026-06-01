@@ -81,7 +81,7 @@ Additional derived conditions used by the contract:
   - `verify_campaign_with_votes` (community verification after quorum + threshold).
 - Once verified, contributions are allowed until the deadline, as long as `is_active = true` and `is_cancelled = false`.
 - Re-verification errors are intentionally path-specific: `verify_campaign` returns `AdminVerificationConflict` and `verify_campaign_with_votes` returns `CommunityVerificationConflict` when the campaign is already verified. Voting on an already verified campaign still returns `CampaignAlreadyVerified`.
-- After verification, `update_campaign` is blocked so the verified title/description cannot be changed without re-review.
+- **Verification freezes title and description** (issue #416): once `is_verified = true`, `update_campaign` returns `CampaignAlreadyVerified`. This prevents a creator from swapping campaign content after a verifier has approved the original content. `update_campaign_description` remains available after verification (it is intended for ongoing operational updates, not content changes).
 
 ### 3) Funded (derived)
 
@@ -111,3 +111,16 @@ Additional derived conditions used by the contract:
 
 - If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
+
+## Token Migration Policy (issue #407)
+
+The contract supports a two-step token migration via `propose_token_update` (7-day delay) followed by `accept_token_update`. To prevent stranding escrowed campaign balances in the old token:
+
+- `accept_token_update` **refuses** to switch the accepted token while `ActiveCampaignCount > 0`.
+- All campaigns must reach a **terminal state** (funds withdrawn via `withdraw_funds`, or cancelled via `cancel_campaign`) before the token address can be changed.
+- Campaigns that have been cancelled but still have pending contributor refunds are counted as terminal (cancelled state is set before refunds are claimed), so contributors must claim their refunds in the old token before or after the migration.
+
+**Implications for operators:**
+1. Drain or cancel all active campaigns before proposing a token migration.
+2. After all campaigns are in a terminal state, the 7-day delay must still elapse before `accept_token_update` can be called.
+3. If a new campaign is created during the 7-day window, `accept_token_update` will reject the swap and the admin must cancel the pending update and repeat the process.

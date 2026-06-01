@@ -1186,6 +1186,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ActiveCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Admin"
                             }
                           ]

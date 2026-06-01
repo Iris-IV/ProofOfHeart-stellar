@@ -6,13 +6,15 @@ use soroban_sdk::{
 };
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_before_contributions() {
+fn test_update_campaign_blocks_after_admin_verification() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
@@ -22,14 +24,17 @@ fn test_update_campaign_allows_verified_campaign_before_contributions() {
     ));
     client.verify_campaign(&campaign_id);
 
-    let new_title = String::from_str(&env, "New Title");
-    let new_desc = String::from_str(&env, "New Description");
-    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    // Fix #416: update_campaign must be blocked after admin verification.
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "New Title"),
+        &String::from_str(&env, "New Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated = client.get_campaign(&campaign_id);
-    assert_eq!(updated.title, new_title);
-    assert_eq!(updated.description, new_desc);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, orig_title);
+    assert_eq!(campaign.description, orig_desc);
 }
 
 #[test]
@@ -95,7 +100,7 @@ fn test_update_campaign_event_tracks_latest_description() {
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
+fn test_update_campaign_blocks_after_community_verification() {
     let (env, _admin, creator, contributor1, contributor2, _, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
 
@@ -103,10 +108,12 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     token_admin.mint(&contributor2, &100);
     token_admin.mint(&voter3, &100);
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
@@ -121,15 +128,17 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     client.verify_campaign_with_votes(&campaign_id);
     assert!(client.get_campaign(&campaign_id).is_verified);
 
-    let new_title = String::from_str(&env, "New Title");
-    let new_desc = String::from_str(&env, "New Description");
-    assert!(client
-        .try_update_campaign(&campaign_id, &new_title, &new_desc)
-        .is_ok());
+    // Fix #416: update_campaign must be blocked after community verification.
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "New Title"),
+        &String::from_str(&env, "New Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated = client.get_campaign(&campaign_id);
-    assert_eq!(updated.title, new_title);
-    assert_eq!(updated.description, new_desc);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, orig_title);
+    assert_eq!(campaign.description, orig_desc);
 }
 
 #[test]

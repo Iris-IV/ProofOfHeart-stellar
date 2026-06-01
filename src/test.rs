@@ -752,7 +752,7 @@ fn test_admin_verify_campaign_success() {
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_before_contributions() {
+fn test_update_campaign_blocks_after_admin_verification() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
@@ -774,18 +774,20 @@ fn test_update_campaign_allows_verified_campaign_before_contributions() {
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
 
+    // Fix #416: update_campaign must be blocked after admin verification.
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated_campaign = client.get_campaign(&campaign_id);
-    assert_eq!(updated_campaign.title, new_title);
-    assert_eq!(updated_campaign.description, new_desc);
+    // Verify the campaign content is unchanged.
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.title, title);
+    assert_eq!(campaign_after.description, desc);
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
+fn test_update_campaign_blocks_after_community_verification() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let voter3 = Address::generate(&env);
@@ -816,14 +818,15 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
 
+    // Fix #416: update_campaign must be blocked after community verification.
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated_campaign = client.get_campaign(&campaign_id);
-    assert_eq!(updated_campaign.title, new_title);
-    assert_eq!(updated_campaign.description, new_desc);
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.title, title);
+    assert_eq!(campaign_after.description, desc);
 }
 
 #[test]
@@ -3740,8 +3743,9 @@ fn test_update_campaign_with_contributions_fails() {
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
 
-    // update_campaign should still fail if amount_raised > 0
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    // update_campaign is blocked after verification (CampaignAlreadyVerified takes
+    // precedence over the amount_raised > 0 check since it's checked first).
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 }
 
 #[test]

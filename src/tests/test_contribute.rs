@@ -356,3 +356,31 @@ fn test_contribute_one_second_before_deadline() {
     client.contribute(&campaign_id, &contributor1, &500);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
 }
+
+// ── Issue #408: checked arithmetic in anomaly detection ───────────────────────
+
+#[test]
+fn test_contribute_overflow_returns_error_not_panic() {
+    let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+
+    // Mint a modest amount; the overflow check triggers before the token transfer.
+    token_admin.mint(&contributor1, &1_000_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Overflow Test"),
+        String::from_str(&env, "Checked arithmetic campaign"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // i128::MAX * 10000 overflows, so checked_mul must return Err(Overflow)
+    // instead of panicking the contract.
+    let res = client.try_contribute(&campaign_id, &contributor1, &i128::MAX);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
