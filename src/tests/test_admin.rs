@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::String;
+use soroban_sdk::{Address, String};
 
 #[test]
 fn test_update_platform_fee() {
@@ -22,6 +22,116 @@ fn test_update_platform_fee() {
     // Issue #343: fees above the cap are rejected, not silently clamped.
     let result = client.try_update_platform_fee(&5000);
     assert_eq!(result.unwrap_err().unwrap(), Error::InvalidPlatformFee);
+}
+
+// ── Admin transfer (two-step) ──────────────────────────────────────────
+
+#[test]
+fn test_admin_transfer_happy_path() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    client.initiate_admin_transfer(&admin, &new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+    assert_eq!(client.get_admin(), admin);
+
+    client.accept_admin_transfer();
+    assert_eq!(client.get_admin(), new_admin);
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+#[test]
+fn test_admin_transfer_cancel() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    client.initiate_admin_transfer(&admin, &new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(client.get_pending_admin(), None);
+    assert_eq!(client.get_admin(), admin);
+}
+
+#[test]
+fn test_admin_transfer_reinitiate_overwrites_pending() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let first_candidate = Address::generate(&env);
+    let second_candidate = Address::generate(&env);
+
+    client.initiate_admin_transfer(&admin, &first_candidate);
+    assert_eq!(client.get_pending_admin(), Some(first_candidate.clone()));
+
+    client.initiate_admin_transfer(&admin, &second_candidate);
+    assert_eq!(client.get_pending_admin(), Some(second_candidate.clone()));
+    assert_ne!(client.get_pending_admin(), Some(first_candidate));
+}
+
+#[test]
+fn test_admin_transfer_wrong_address_fails() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    client.initiate_admin_transfer(&admin, &new_admin);
+
+    let result = client.try_initiate_admin_transfer(&admin, &admin);
+    assert!(result.is_err(), "transfer to same admin must fail");
+
+    assert_eq!(client.get_pending_admin(), Some(new_admin));
+}
+
+// ── Admin update (legacy single-step `update_admin`) ────────────────────
+
+#[test]
+fn test_update_admin_success() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    let res = client.try_update_admin(&new_admin);
+    assert!(res.is_ok());
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin.clone()));
+
+    let accept_res = client.try_accept_admin_transfer();
+    assert!(accept_res.is_ok());
+    assert_eq!(client.get_admin(), new_admin);
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+#[test]
+fn test_update_admin_requires_stored_admin_auth() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    let res = client.try_update_admin(&new_admin);
+    assert!(res.is_ok());
+
+    let auths = env.auths();
+    assert!(
+        auths.iter().any(|(addr, _)| addr == &admin),
+        "stored admin must be the authorized address"
+    );
+}
+
+#[test]
+fn test_cancel_admin_transfer_updated() {
+    let (env, admin, _creator, _contributor1, _contributor2, _token, _token_admin, client) =
+        setup_env();
+    let new_admin = Address::generate(&env);
+
+    client.update_admin(&new_admin);
+    assert_eq!(client.get_pending_admin(), Some(new_admin));
+
+    let cancel_res = client.try_cancel_admin_transfer(&admin);
+    assert!(cancel_res.is_ok());
+    assert_eq!(client.get_pending_admin(), None);
+    assert_eq!(client.get_admin(), admin);
 }
 
 #[test]

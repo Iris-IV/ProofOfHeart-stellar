@@ -1,12 +1,5 @@
-// Tests for issue #217: benchmark tests asserting per-call instruction budgets.
-// Uses env.budget() to assert contribute/withdraw_funds/claim_revenue
-// stay below documented CPU instruction thresholds.
-use super::*;
-use crate::test::setup_env;
-use soroban_sdk::String;
+use super::helpers::*;
 
-// Conservative thresholds (native Rust underestimates vs WASM; real limits are 100M per tx).
-// These catch regressions while remaining well below mainnet limits.
 const CONTRIBUTE_CPU_LIMIT: u64 = 5_000_000;
 const WITHDRAW_CPU_LIMIT: u64 = 5_000_000;
 const CLAIM_REVENUE_CPU_LIMIT: u64 = 5_000_000;
@@ -29,7 +22,6 @@ fn make_revenue_campaign(
     }
 }
 
-/// contribute() must stay below the CPU instruction threshold.
 #[test]
 fn test_contribute_instruction_budget() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -40,7 +32,6 @@ fn test_contribute_instruction_budget() {
     let id = client.create_campaign(&make_revenue_campaign(&env, creator.clone()));
     client.verify_campaign(&id);
 
-    // Reset budget immediately before the call under test
     env.budget().reset_default();
     client.contribute(&id, &contributor1, &500);
 
@@ -53,7 +44,6 @@ fn test_contribute_instruction_budget() {
     );
 }
 
-/// withdraw_funds() must stay below the CPU instruction threshold.
 #[test]
 fn test_withdraw_funds_instruction_budget() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -77,7 +67,6 @@ fn test_withdraw_funds_instruction_budget() {
     );
 }
 
-/// claim_revenue() must stay below the CPU instruction threshold.
 #[test]
 fn test_claim_revenue_instruction_budget() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -108,8 +97,6 @@ fn test_claim_revenue_instruction_budget() {
 fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    // Keep fixture size above the queried offset while avoiding setup-phase
-    // host budget exhaustion in CI.
     for _ in 0..70u32 {
         let params = CreateCampaignParams {
             creator: creator.clone(),

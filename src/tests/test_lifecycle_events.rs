@@ -1,11 +1,6 @@
-// Tests for issue #216: snapshot test for events emitted during a full campaign lifecycle.
-// Captures env.events().all() after each step and asserts the deterministic event sequence.
-use super::*;
-use crate::test::setup_env;
-use soroban_sdk::testutils::Events;
-use soroban_sdk::{Address, String, TryFromVal};
+use super::helpers::*;
+use soroban_sdk::{FromVal, String, TryFromVal};
 
-/// Returns true if any event in the environment has the given symbol as its first topic.
 fn has_event(env: &soroban_sdk::Env, topic: &str) -> bool {
     let expected = String::from_str(env, topic);
     env.events().all().iter().any(|(_, topics, _)| {
@@ -17,8 +12,6 @@ fn has_event(env: &soroban_sdk::Env, topic: &str) -> bool {
     })
 }
 
-/// Full lifecycle: create → verify → contribute → withdraw → deposit_revenue → claim_revenue → claim_creator_revenue.
-/// Asserts that each step emits the expected event topic.
 #[test]
 fn test_full_lifecycle_event_sequence() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -27,7 +20,6 @@ fn test_full_lifecycle_event_sequence() {
     token_admin.mint(&contributor1, &10_000);
     token_admin.mint(&creator, &5_000);
 
-    // ── Step 1: create_campaign ───────────────────────────────────────────────
     let id = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
         title: String::from_str(&env, "Lifecycle Campaign"),
@@ -45,50 +37,42 @@ fn test_full_lifecycle_event_sequence() {
         "campaign_created event must be emitted"
     );
 
-    // ── Step 2: verify_campaign ───────────────────────────────────────────────
     client.verify_campaign(&id);
     assert!(
         has_event(&env, "campaign_verified"),
         "campaign_verified event must be emitted"
     );
 
-    // ── Step 3: contribute ────────────────────────────────────────────────────
     client.contribute(&id, &contributor1, &1_000);
     assert!(
         has_event(&env, "contribution_made"),
         "contribution_made event must be emitted"
     );
 
-    // ── Step 4: withdraw_funds ────────────────────────────────────────────────
     client.withdraw_funds(&id);
     assert!(
         has_event(&env, "withdrawal"),
         "withdrawal event must be emitted"
     );
 
-    // ── Step 5: deposit_revenue ───────────────────────────────────────────────
     client.deposit_revenue(&id, &2_000);
     assert!(
         has_event(&env, "revenue_deposited"),
         "revenue_deposited event must be emitted"
     );
 
-    // ── Step 6: claim_revenue (contributor) ───────────────────────────────────
     client.claim_revenue(&id, &contributor1);
     assert!(
         has_event(&env, "revenue_claimed"),
         "revenue_claimed event must be emitted"
     );
 
-    // ── Step 7: claim_creator_revenue ─────────────────────────────────────────
     client.claim_creator_revenue(&id);
     assert!(
         has_event(&env, "creator_revenue_claimed"),
         "creator_revenue_claimed event must be emitted"
     );
 
-    // ── Snapshot: assert total event count is stable ──────────────────────────
-    // init + create + verify + contribute + withdraw + deposit + claim + creator_claim = 8 minimum
     let total = env.events().all().len();
     assert!(
         total >= 8,
@@ -97,7 +81,6 @@ fn test_full_lifecycle_event_sequence() {
     );
 }
 
-/// Cancellation path: create → verify → contribute → cancel → refund emits expected events.
 #[test]
 fn test_cancel_lifecycle_event_sequence() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
@@ -161,10 +144,10 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
 
     let topics = &last_event.1;
     assert_eq!(topics.len(), 3);
-    let creator_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(2).unwrap());
+    let creator_in_topics: Address = FromVal::from_val(&env, &topics.get(2).unwrap());
     assert_eq!(creator_in_topics, creator);
 
-    let amount_raised: i128 = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    let amount_raised: i128 = FromVal::from_val(&env, &last_event.2);
     assert_eq!(amount_raised, 500);
 }
 
@@ -201,8 +184,7 @@ fn test_campaign_created_event_includes_category() {
         })
         .expect("campaign_created event must exist");
 
-    let (title, category_discriminant): (String, u32) =
-        soroban_sdk::FromVal::from_val(&env, &created_event.2);
+    let (title, category_discriminant): (String, u32) = FromVal::from_val(&env, &created_event.2);
     assert_eq!(title, expected_title);
     assert_eq!(category_discriminant, expected_category as u32);
 }

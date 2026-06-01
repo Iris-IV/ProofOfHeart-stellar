@@ -251,3 +251,21 @@ proptest! {
         }
     }
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn test_contributor_pool_calculation() {
+        assert_eq!(contributor_pool(1000, 2000), 200);
+        assert_eq!(contributor_pool(1000, 0), 0);
+        assert_eq!(contributor_pool(0, 2000), 0);
+    }
+
+    #[test]
+    fn test_contributor_due_calculation() {
+        assert_eq!(contributor_due(500, 1000, 1000), 500);
+        assert_eq!(contributor_due(0, 1000, 1000), 0);
+    }
+}
