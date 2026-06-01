@@ -656,8 +656,6 @@ impl ProofOfHeart {
         decrement_active_campaign_count(&env);
         increment_cancelled_campaign_count(&env);
 
-        env.events()
-            .publish(("campaign_cancelled", campaign_id), campaign.amount_raised);
         env.events().publish(
             ("campaign_cancelled", campaign_id, campaign.creator.clone()),
             campaign.amount_raised,

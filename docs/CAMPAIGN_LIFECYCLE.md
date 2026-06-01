@@ -28,8 +28,13 @@ The contract has two independent pause flags:
 
 ### Auto-Pause (`DataKey::AutoPaused`)
 
-- Automatically set when a single contribution exceeds the campaign's `funding_goal` (burst contribution).
-- Emits `auto_paused` event.
+Automatically set on either of two anomaly triggers during `contribute()`:
+
+- **Huge contribution** — A single contribution exceeds 200% of the campaign's `funding_goal` (`amount * 10000 > funding_goal * 20000`). Emits `("auto_paused",)` with `("huge_contribution", amount)`.
+- **Burst** — More than 10 contributions to the same campaign in a single ledger (block). Emits `("auto_paused",)` with `("burst", block_count)`.
+
+In both cases the contribution is rejected (`ContractPaused` error) and the storage write is rolled back, so `AutoPaused` never persists in production — the flag is always cleared on the next successful call. This caveat is important for indexers.
+
 - Blocks all state-changing operations (same as manual pause).
 - Cleared by:
   - **`unpause()`** — Admin can always clear the auto-pause flag, even if the triggering campaign is no longer active.
