@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::{storage::set_min_campaign_funding_goal, Category, Error, CAMPAIGN_FUNDING_GOAL_MIN};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use crate::{Category, Error, CAMPAIGN_FUNDING_GOAL_MIN};
+use soroban_sdk::String;
 
 #[test]
 fn test_init_only_once() {

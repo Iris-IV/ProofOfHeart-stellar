@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{testutils::Address as _, Address, String};
+use soroban_sdk::String;
 
 #[test]
 fn test_create_and_validation() {

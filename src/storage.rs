@@ -531,6 +531,7 @@ pub fn set_min_voting_balance(env: &Env, balance: i128) {
 }
 
 /// Returns all campaign ids for a category in creation order.
+#[allow(dead_code)]
 pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
     let key = DataKey::CategoryCampaigns(category as u32);
     env.storage()
@@ -540,6 +541,7 @@ pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
 }
 
 /// Stores all campaign ids for a category and extends entry TTL.
+#[allow(dead_code)]
 pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
     let key = DataKey::CategoryCampaigns(category as u32);
     env.storage().persistent().set(&key, ids);
@@ -702,6 +704,7 @@ pub fn remove_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) {
 // ── Anomaly detection ─────────────────────────────────────────────────────────
 
 /// Returns (ledger_sequence, contribution_count) for the block tracking.
+#[allow(dead_code)]
 pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
     env.storage()
         .instance()
@@ -710,6 +713,7 @@ pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
 }
 
 /// Stores (ledger_sequence, contribution_count) for the block tracking.
+#[allow(dead_code)]
 pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
     env.storage()
         .instance()
@@ -858,6 +862,7 @@ pub fn set_active_campaign_count(env: &Env, count: u32) {
         .set(&DataKey::ActiveCampaignCount, &count);
 }
 
+#[allow(dead_code)]
 pub fn increment_active_campaign_count(env: &Env) {
     set_active_campaign_count(env, get_active_campaign_count(env) + 1);
 }

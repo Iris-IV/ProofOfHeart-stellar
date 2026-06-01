@@ -65,7 +65,7 @@ fn test_withdrawal_vesting_full_flow() {
 
 #[test]
 fn test_get_campaign_reserve_view_function() {
-    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
 
     client.set_vesting_params(&admin, &7, &2000);
 
@@ -99,7 +99,7 @@ fn test_get_campaign_reserve_view_function() {
         .get_campaign_reserve(&campaign_id)
         .expect("reserve should exist after withdraw_funds");
     assert_eq!(reserve.amount, 194);
-    assert_eq!(reserve.released, false);
+    assert!(!reserve.released);
     assert_eq!(
         reserve.release_timestamp,
         env.ledger().timestamp() + 7 * 86400

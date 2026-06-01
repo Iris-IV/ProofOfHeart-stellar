@@ -74,7 +74,7 @@ fn test_admin_transfer_reinitiate_overwrites_pending() {
 fn test_admin_transfer_wrong_address_fails() {
     let (env, admin, client) = setup_env();
     let new_admin = Address::generate(&env);
-    let wrong_address = Address::generate(&env);
+    let _wrong_address = Address::generate(&env);
 
     client.initiate_admin_transfer(&admin, &new_admin);
 

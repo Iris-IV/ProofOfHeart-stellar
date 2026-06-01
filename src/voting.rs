@@ -35,8 +35,7 @@ pub fn set_params(
 ) -> Result<(), Error> {
     if min_votes_quorum == 0
         || min_votes_quorum > MAX_VOTES_QUORUM
-        || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS
-        || approval_threshold_bps > 10000
+        || !(MIN_APPROVAL_THRESHOLD_BPS..=10000).contains(&approval_threshold_bps)
     {
         return Err(Error::ValidationFailed);
     }

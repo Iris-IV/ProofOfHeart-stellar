@@ -1240,8 +1240,7 @@ impl ProofOfHeart {
         }
 
         let end = (start + capped_limit).min(total);
-        let num_buckets =
-            (total + CREATOR_CAMPAIGNS_BUCKET_SIZE - 1) / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let num_buckets = total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
         let mut global_idx = 0u32;
 
         'outer: for bucket_idx in 0..num_buckets {
@@ -1436,7 +1435,7 @@ impl ProofOfHeart {
         max_days: u64,
     ) -> Result<(), Error> {
         assert_admin(&env, &admin)?;
-        if max_days < CAMPAIGN_DURATION_MIN_DAYS || max_days > CAMPAIGN_DURATION_MAX_DAYS {
+        if !(CAMPAIGN_DURATION_MIN_DAYS..=CAMPAIGN_DURATION_MAX_DAYS).contains(&max_days) {
             return Err(Error::ValidationFailed);
         }
         bump_instance_ttl(&env);
@@ -2021,8 +2020,7 @@ impl ProofOfHeart {
 
         // Remove from old creator's buckets
         let old_count = get_creator_campaign_count(&env, &old_creator);
-        let old_num_buckets =
-            (old_count + CREATOR_CAMPAIGNS_BUCKET_SIZE - 1) / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let old_num_buckets = old_count.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
         'outer: for bucket_idx in 0..old_num_buckets {
             let mut bucket = get_creator_campaign_bucket(&env, &old_creator, bucket_idx);
             if let Some(pos) = bucket.first_index_of(campaign_id) {

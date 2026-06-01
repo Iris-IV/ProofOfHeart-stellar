@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::String;
 
 #[test]
 fn test_category_duration_cap_enforced() {

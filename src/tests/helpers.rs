@@ -4,7 +4,7 @@ pub use soroban_sdk::token::Client as TokenClient;
 pub use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 pub use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String, Symbol,
+    Address, Env, IntoVal, String,
 };
 
 #[allow(clippy::too_many_arguments)]

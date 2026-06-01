@@ -3925,7 +3925,7 @@ fn test_platform_stats_after_withdrawal() {
 
 #[test]
 fn test_verify_campaigns_extends_voting_state_ttl() {
-    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     // Create a campaign
     let campaign_id = client.create_campaign(&make_params(
@@ -4013,12 +4013,13 @@ fn test_claim_revenue_amount_raised_zero_guard() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Artificially zero out amount_raised while keeping the contribution in storage.
-    // Also force funds_withdrawn=true so we bypass the funds_withdrawn guard and
-    // exercise the AmountRaisedIsZero guard specifically.
+    // Artificially zero out amount_raised and effective_amount_raised while keeping
+    // the contribution in storage. Also force funds_withdrawn=true so we bypass the
+    // funds_withdrawn guard and exercise the AmountRaisedIsZero guard specifically.
     env.as_contract(&client.address, || {
         let mut campaign = get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
+        campaign.effective_amount_raised = 0;
         campaign.funds_withdrawn = true;
         set_campaign(&env, campaign_id, &campaign);
     });

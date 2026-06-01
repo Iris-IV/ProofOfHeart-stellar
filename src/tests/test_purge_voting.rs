@@ -1,7 +1,7 @@
 // Tests for issue #342: purge_voting_state batch cap and finalize semantics.
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{testutils::Address as _, Address, String, Vec};
+use soroban_sdk::{Address, String, Vec};
 
 fn make_voters(env: &soroban_sdk::Env, count: u32) -> Vec<Address> {
     let mut voters = Vec::new(env);

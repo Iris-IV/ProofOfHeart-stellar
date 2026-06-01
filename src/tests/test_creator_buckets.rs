@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, LIST_MAX_LIMIT};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{Address, Env, String};
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&make_params(
@@ -61,7 +61,7 @@ fn test_creator_buckets_100_campaigns() {
 
     // LIST_MAX_LIMIT cap
     let big_page = client.get_creator_campaigns(&creator, &0, &u32::MAX);
-    assert_eq!(big_page.len(), LIST_MAX_LIMIT as u32);
+    assert_eq!(big_page.len(), LIST_MAX_LIMIT);
 }
 
 #[test]
