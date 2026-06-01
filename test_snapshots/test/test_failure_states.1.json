@@ -547,58 +547,6 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "BlockCampaignContributionCount"
-                },
-                {
-                  "u32": 1
-                }
-              ]
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "BlockCampaignContributionCount"
-                    },
-                    {
-                      "u32": 1
-                    }
-                  ]
-                },
-                "durability": "temporary",
-                "val": {
-                  "vec": [
-                    {
-                      "u32": 0
-                    },
-                    {
-                      "u32": 1
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          15
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-            "key": {
-              "vec": [
-                {
                   "symbol": "Campaign"
                 },
                 {
@@ -682,9 +630,28 @@
                     },
                     {
                       "key": {
+                        "symbol": "effective_amount_raised"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "fee_override"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "first_creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
                     },
                     {
                       "key": {
@@ -754,14 +721,6 @@
                           "hi": 0,
                           "lo": 0
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "original_creator"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     },
                     {
@@ -1145,6 +1104,28 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "BlockCampaignContributionCount"
+                            },
+                            {
+                              "u32": 1
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "u32": 0
+                            },
+                            {
+                              "u32": 1
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "CampaignCount"
                             }
                           ]
@@ -1157,19 +1138,6 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "ApprovalThresholdBps"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "u32": 6000
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
-                              "symbol": "CampaignCount"
                               "symbol": "CategoryCampaignCount"
                             },
                             {
@@ -1742,36 +1710,6 @@
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
-                {
-                  "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
-                },
-                {
-                  "u32": 300
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000006",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "string": "initialized"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-              }
-            ],
-            "data": {
-              "vec": [
                 {
                   "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
                 },

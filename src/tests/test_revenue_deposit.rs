@@ -10,9 +10,15 @@ fn test_deposit_revenue_negative_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Startup"),
-        String::from_str(&env, "Revenue sharing startup"), 1000, 30,
-        Category::EducationalStartup, true, 2000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -30,9 +36,15 @@ fn test_deposit_revenue_zero_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Startup"),
-        String::from_str(&env, "Revenue sharing startup"), 1000, 30,
-        Category::EducationalStartup, true, 2000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -50,9 +62,15 @@ fn test_deposit_revenue_without_revenue_sharing() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Educator Campaign"),
-        String::from_str(&env, "No revenue sharing"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Educator Campaign"),
+        String::from_str(&env, "No revenue sharing"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -70,9 +88,15 @@ fn test_deposit_revenue_when_paused() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Startup"),
-        String::from_str(&env, "Revenue sharing startup"), 1000, 30,
-        Category::EducationalStartup, true, 2000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

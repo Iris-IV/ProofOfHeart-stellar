@@ -8,9 +8,15 @@ fn test_vote_on_cancelled_campaign_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cancelled Campaign"),
-        String::from_str(&env, "Test voting on cancelled campaign"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Cancelled Campaign"),
+        String::from_str(&env, "Test voting on cancelled campaign"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.cancel_campaign(&campaign_id);
@@ -24,9 +30,15 @@ fn test_admin_verify_cancelled_campaign_fails() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cancelled Admin Verify"),
-        String::from_str(&env, "Test admin verification on cancelled campaign"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Cancelled Admin Verify"),
+        String::from_str(&env, "Test admin verification on cancelled campaign"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.cancel_campaign(&campaign_id);
@@ -37,7 +49,8 @@ fn test_admin_verify_cancelled_campaign_fails() {
 
 #[test]
 fn test_verify_campaign_with_votes_cancelled_campaign_fails() {
-    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) = setup_env();
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
     token_admin.mint(&contributor1, &1000);
     token_admin.mint(&contributor2, &1000);
     let voter3 = Address::generate(&env);
@@ -46,9 +59,15 @@ fn test_verify_campaign_with_votes_cancelled_campaign_fails() {
     client.set_voting_params(&admin, &3, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cancelled Vote Verify"),
-        String::from_str(&env, "Test vote-based verification on cancelled campaign"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Cancelled Vote Verify"),
+        String::from_str(&env, "Test vote-based verification on cancelled campaign"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -127,9 +146,15 @@ fn test_vote_on_campaign_token_weighted() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Weighted Vote Test"),
-        String::from_str(&env, "Test token-weighted voting"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Weighted Vote Test"),
+        String::from_str(&env, "Test token-weighted voting"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -147,9 +172,15 @@ fn test_verify_campaign_with_votes_quorum_not_met() {
     client.set_voting_params(&admin, &5, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Quorum Test"),
-        String::from_str(&env, "Test quorum requirement"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Quorum Test"),
+        String::from_str(&env, "Test quorum requirement"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -171,9 +202,15 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
     client.set_voting_params(&admin, &3, &8000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Threshold Test"),
-        String::from_str(&env, "Test approval threshold"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Threshold Test"),
+        String::from_str(&env, "Test approval threshold"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -197,9 +234,15 @@ fn test_verify_campaign_with_votes_success() {
     client.set_voting_params(&admin, &3, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Success Verify Test"),
-        String::from_str(&env, "Test successful verification"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Success Verify Test"),
+        String::from_str(&env, "Test successful verification"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -229,9 +272,15 @@ fn test_min_voting_balance_threshold_enforcement() {
     token_admin.mint(&contributor2, &200);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Min Balance Vote Test"),
-        String::from_str(&env, "Testing minimum voting balance"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Min Balance Vote Test"),
+        String::from_str(&env, "Testing minimum voting balance"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     client.set_min_voting_balance(&admin, &100);

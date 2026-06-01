@@ -1,5 +1,7 @@
 use super::*;
-use soroban_sdk::{testutils::Ledger, Address, Env, testutils::Address as _, testutils::Events as _};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Events as _, testutils::Ledger, Address, Env,
+};
 
 use crate::test::setup_env;
 
@@ -289,7 +291,9 @@ fn test_vote_weight_overflow_fails() {
 
     // Set high weight manually in storage to simulate a whale or accumulation that would overflow i128::MAX
     env.as_contract(&client.address, || {
-        env.storage().persistent().set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
+        env.storage()
+            .persistent()
+            .set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
     });
 
     // Cast a vote with balance 501, which overflows i128::MAX when added to i128::MAX - 500

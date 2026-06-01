@@ -8,9 +8,15 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cap persistence"),
-        String::from_str(&env, "lifetime cap test"), 2_000, 1,
-        Category::Learner, false, 0, 1_000i128,
+        creator.clone(),
+        String::from_str(&env, "Cap persistence"),
+        String::from_str(&env, "lifetime cap test"),
+        2_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        1_000i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -18,7 +24,10 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     client.cancel_campaign(&campaign_id);
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
-    assert_eq!(client.get_lifetime_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor1),
+        0
+    );
 }
 
 #[test]
@@ -27,9 +36,15 @@ fn test_personal_cap_enforcement() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cap Test"),
-        String::from_str(&env, "Testing caps"), 5000, 30,
-        Category::Educator, false, 0, 1000i128,
+        creator.clone(),
+        String::from_str(&env, "Cap Test"),
+        String::from_str(&env, "Testing caps"),
+        5000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1000i128,
     ));
     client.verify_campaign(&campaign_id);
 
@@ -55,9 +70,15 @@ fn test_anomaly_auto_pause_huge_contribution() {
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Science Book"),
-        String::from_str(&env, "Teaching science to kids"), 2000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Science Book"),
+        String::from_str(&env, "Teaching science to kids"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
 
@@ -80,9 +101,15 @@ fn test_anomaly_auto_pause_burst() {
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Burst Test"),
-        String::from_str(&env, "Testing burst"), 2000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Burst Test"),
+        String::from_str(&env, "Testing burst"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
 

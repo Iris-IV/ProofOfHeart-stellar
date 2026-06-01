@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category};
+use crate::Category;
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]

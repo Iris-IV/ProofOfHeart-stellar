@@ -7,9 +7,15 @@ fn test_extend_campaign_deadline_happy_path() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Extend Me"),
-        String::from_str(&env, "Will be extended"), 1000, 10,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Extend Me"),
+        String::from_str(&env, "Will be extended"),
+        1000,
+        10,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     let original_deadline = client.get_campaign(&id).deadline;
@@ -25,9 +31,15 @@ fn test_extend_deadline_emits_event() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Event Extension"),
-        String::from_str(&env, "Check event"), 1000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Event Extension"),
+        String::from_str(&env, "Check event"),
+        1000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.extend_campaign_deadline(&id, &5);
@@ -42,9 +54,15 @@ fn test_extend_deadline_double_extension_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Double Extension"),
-        String::from_str(&env, "Only one extension"), 1000, 10,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Double Extension"),
+        String::from_str(&env, "Only one extension"),
+        1000,
+        10,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     client.extend_campaign_deadline(&id, &7);
@@ -58,9 +76,15 @@ fn test_extend_deadline_post_deadline_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Expired"),
-        String::from_str(&env, "Past deadline"), 1000, 1,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Expired"),
+        String::from_str(&env, "Past deadline"),
+        1000,
+        1,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     let deadline = client.get_campaign(&id).deadline;
@@ -84,9 +108,15 @@ fn test_extend_deadline_too_many_days_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Too Long"),
-        String::from_str(&env, "Extension too long"), 1000, 10,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Too Long"),
+        String::from_str(&env, "Extension too long"),
+        1000,
+        10,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     let res = client.try_extend_campaign_deadline(&id, &31);
@@ -101,9 +131,15 @@ fn test_extend_deadline_max_30_days_allowed() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Max Extension"),
-        String::from_str(&env, "Exactly 30 days"), 1000, 10,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Max Extension"),
+        String::from_str(&env, "Exactly 30 days"),
+        1000,
+        10,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     let original_deadline = client.get_campaign(&id).deadline;

@@ -8,9 +8,15 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Early Withdraw"),
-        String::from_str(&env, "Desc"), 10_000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Early Withdraw"),
+        String::from_str(&env, "Desc"),
+        10_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
@@ -25,9 +31,15 @@ fn test_withdraw_after_deadline_goal_not_met_returns_typed_error() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Late Withdraw"),
-        String::from_str(&env, "Desc"), 10_000, 1,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Late Withdraw"),
+        String::from_str(&env, "Desc"),
+        10_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
@@ -53,9 +65,15 @@ fn test_withdraw_funds_requires_verified_campaign() {
     let (env, _admin, creator, _contributor1, _, _token, token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Unverified Campaign"),
-        String::from_str(&env, "Description"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Unverified Campaign"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     let contract_id = env.register_contract(None, crate::ProofOfHeart);
@@ -76,9 +94,15 @@ fn test_withdraw_funds_succeeds_when_verified() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Verified Campaign"),
-        String::from_str(&env, "Description"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Verified Campaign"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1500);
@@ -92,23 +116,33 @@ fn test_claim_refund_removes_contribution_storage_key() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Refund storage cleanup"),
-        String::from_str(&env, "Contribution key should be removed"), 5_000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Refund storage cleanup"),
+        String::from_str(&env, "Contribution key should be removed"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
     client.cancel_campaign(&campaign_id);
 
     env.as_contract(&client.address, || {
-        assert!(env.storage().persistent()
+        assert!(env
+            .storage()
+            .persistent()
             .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
     });
 
     client.claim_refund(&campaign_id, &contributor1);
 
     env.as_contract(&client.address, || {
-        assert!(!env.storage().persistent()
+        assert!(!env
+            .storage()
+            .persistent()
             .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
     });
 }

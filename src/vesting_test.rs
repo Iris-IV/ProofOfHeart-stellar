@@ -100,7 +100,10 @@ fn test_get_campaign_reserve_view_function() {
         .expect("reserve should exist after withdraw_funds");
     assert_eq!(reserve.amount, 194);
     assert_eq!(reserve.released, false);
-    assert_eq!(reserve.release_timestamp, env.ledger().timestamp() + 7 * 86400);
+    assert_eq!(
+        reserve.release_timestamp,
+        env.ledger().timestamp() + 7 * 86400
+    );
 }
 
 #[test]

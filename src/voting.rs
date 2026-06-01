@@ -33,7 +33,11 @@ pub fn set_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    if min_votes_quorum == 0 || min_votes_quorum > MAX_VOTES_QUORUM || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS || approval_threshold_bps > 10000 {
+    if min_votes_quorum == 0
+        || min_votes_quorum > MAX_VOTES_QUORUM
+        || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS
+        || approval_threshold_bps > 10000
+    {
         return Err(Error::ValidationFailed);
     }
     set_min_votes_quorum(env, min_votes_quorum);
@@ -79,18 +83,6 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     if approve {
         set_approve_votes(env, campaign_id, get_approve_votes(env, campaign_id) + 1);
-        set_approve_weight(
-            env,
-            campaign_id,
-            get_approve_weight(env, campaign_id) + balance,
-        );
-    } else {
-        set_reject_votes(env, campaign_id, get_reject_votes(env, campaign_id) + 1);
-        set_reject_weight(
-            env,
-            campaign_id,
-            get_reject_weight(env, campaign_id) + balance,
-        );
         let new_weight = get_approve_weight(env, campaign_id)
             .checked_add(balance)
             .ok_or(Error::Overflow)?;
@@ -106,8 +98,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     set_has_voted(env, campaign_id, &voter);
 
     let vote_weight = balance;
-    env.events()
-        .publish(("campaign_vote_cast", campaign_id, voter), (approve, balance, vote_weight));
+    env.events().publish(
+        ("campaign_vote_cast", campaign_id, voter),
+        (approve, balance, vote_weight),
+    );
 
     Ok(())
 }

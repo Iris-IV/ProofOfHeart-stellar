@@ -826,7 +826,9 @@ pub fn get_pending_token(env: &Env) -> Option<Address> {
 /// Removes the pending token state.
 pub fn remove_pending_token(env: &Env) {
     env.storage().instance().remove(&DataKey::PendingToken);
-    env.storage().instance().remove(&DataKey::PendingTokenRelease);
+    env.storage()
+        .instance()
+        .remove(&DataKey::PendingTokenRelease);
 }
 
 /// Stores the release timestamp for the pending token update.

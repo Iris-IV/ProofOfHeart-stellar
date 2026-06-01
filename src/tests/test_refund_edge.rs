@@ -9,9 +9,15 @@ fn test_claim_refund_state_mutation_order() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Refund Order Test"),
-        String::from_str(&env, "Testing state mutation order"), 10000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Refund Order Test"),
+        String::from_str(&env, "Testing state mutation order"),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -40,9 +46,15 @@ fn test_claim_refund_multiple_contributors_isolation() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Multi Refund Test"),
-        String::from_str(&env, "Testing multiple refunds"), 10000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Multi Refund Test"),
+        String::from_str(&env, "Testing multiple refunds"),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &2000);
@@ -69,9 +81,15 @@ fn test_claim_refund_expired_campaign() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Expired Campaign"),
-        String::from_str(&env, "Will expire"), 10000, duration_days,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Expired Campaign"),
+        String::from_str(&env, "Will expire"),
+        10000,
+        duration_days,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -136,7 +154,10 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
         String::from_str(&env, "Revenue Refund Denominator"),
-        String::from_str(&env, "Remaining contributor receives full share after refund"),
+        String::from_str(
+            &env,
+            "Remaining contributor receives full share after refund",
+        ),
         2000,
         10,
         Category::EducationalStartup,

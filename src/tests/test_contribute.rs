@@ -9,9 +9,15 @@ fn test_contribute_and_withdraw_success() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Code Camp"),
-        String::from_str(&env, "Learn Rust"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Code Camp"),
+        String::from_str(&env, "Learn Rust"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -36,9 +42,15 @@ fn test_creator_cannot_contribute_to_own_campaign() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Self Funding Block"),
-        String::from_str(&env, "Creator should not contribute"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Self Funding Block"),
+        String::from_str(&env, "Creator should not contribute"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -53,9 +65,15 @@ fn test_failure_states() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Deadline Test"),
-        String::from_str(&env, "Desc"), 1000, duration_days,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Deadline Test"),
+        String::from_str(&env, "Desc"),
+        1000,
+        duration_days,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -101,23 +119,41 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     token_admin.mint(&creator3, &10000);
 
     let campaign_1 = client.create_campaign(&make_params(
-        creator1.clone(), String::from_str(&env, "Campaign 1"),
-        String::from_str(&env, "Educator campaign"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator1.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Educator campaign"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_1);
 
     let campaign_2 = client.create_campaign(&make_params(
-        creator2.clone(), String::from_str(&env, "Campaign 2"),
-        String::from_str(&env, "Learner campaign"), 1500, 30,
-        Category::Learner, false, 0, 0i128,
+        creator2.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Learner campaign"),
+        1500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_2);
 
     let campaign_3 = client.create_campaign(&make_params(
-        creator3.clone(), String::from_str(&env, "Campaign 3"),
-        String::from_str(&env, "Startup campaign"), 2000, 30,
-        Category::EducationalStartup, true, 1500, 0i128,
+        creator3.clone(),
+        String::from_str(&env, "Campaign 3"),
+        String::from_str(&env, "Startup campaign"),
+        2000,
+        30,
+        Category::EducationalStartup,
+        true,
+        1500,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_3);
 
@@ -171,9 +207,15 @@ fn test_deadline_boundary() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Boundary Test"),
-        String::from_str(&env, "Testing exact deadline boundary"), 1000, 2,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Boundary Test"),
+        String::from_str(&env, "Testing exact deadline boundary"),
+        1000,
+        2,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -220,9 +262,15 @@ fn test_contribution_accounting_invariant() {
     token_admin.mint(&contributor3, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Invariant Campaign"),
-        String::from_str(&env, "Accounting invariant check"), 5000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Invariant Campaign"),
+        String::from_str(&env, "Accounting invariant check"),
+        5000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -249,9 +297,15 @@ fn test_view_functions_error_handling() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "View Test"),
-        String::from_str(&env, "Testing view functions"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "View Test"),
+        String::from_str(&env, "Testing view functions"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -274,9 +328,15 @@ fn test_contribute_one_second_before_deadline() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Almost Deadline"),
-        String::from_str(&env, "Desc"), 1000, 1,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Almost Deadline"),
+        String::from_str(&env, "Desc"),
+        1000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
