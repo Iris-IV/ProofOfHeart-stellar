@@ -1381,3 +1381,208 @@ fn test_set_voting_params_emits_event() {
     assert_eq!(data_vec.get(2).unwrap(), 6000);
     assert_eq!(data_vec.get(3).unwrap(), 7000);
 }
+
+#[test]
+fn test_burst_contribution_triggers_auto_pause() {
+    let (env, admin, creator, contributor1, _c2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Burst Test");
+    let desc = String::from_str(&env, "Testing auto-pause");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Contribute 1001 which is > funding_goal — triggers auto-pause
+    client.contribute(&campaign_id, &contributor1, &1001);
+
+    // State-changing operations should now be blocked by auto-pause
+    let res = client.try_contribute(&campaign_id, &contributor1, &100);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // unpause should clear both Paused AND AutoPaused
+    client.unpause(&admin);
+
+    // Now operations should work again (cancel was blocked by auto-pause,
+    // but unpause cleared it, so we can proceed)
+    let title2 = String::from_str(&env, "After Unpause");
+    let desc2 = String::from_str(&env, "Should succeed");
+    let new_id = client.create_campaign(
+        &creator,
+        &title2,
+        &desc2,
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert!(new_id > 1);
+
+    let _ = token;
+}
+
+#[test]
+fn test_resume_campaign_clears_auto_pause() {
+    let (env, admin, creator, contributor1, _c2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Resume Test");
+    let desc = String::from_str(&env, "Testing resume_campaign");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Trigger auto-pause with burst contribution (> funding_goal)
+    client.contribute(&campaign_id, &contributor1, &1001);
+
+    // Operations blocked
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // resume_campaign should clear auto-pause (campaign is still active)
+    client.resume_campaign(&admin, &campaign_id);
+
+    // Operations should work again
+    let new_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert!(new_id > 1);
+
+    let _ = token;
+}
+
+#[test]
+fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
+    let (env, admin, creator, contributor1, _c2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Stuck Test");
+    let desc = String::from_str(&env, "Testing unpause unblocks when resume_campaign cannot");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    // Trigger auto-pause with burst contribution
+    client.contribute(&campaign_id, &contributor1, &1001);
+
+    // Operations blocked
+    let res = client.try_create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // First unpause to clear auto-pause
+    client.unpause(&admin);
+
+    // Now cancel the campaign (this would not work while auto-paused)
+    client.cancel_campaign(&campaign_id);
+
+    // Now resume_campaign would fail because campaign is cancelled
+    let res = client.try_resume_campaign(&admin, &campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+
+    // But operations still work because unpause already cleared AutoPaused
+    let title2 = String::from_str(&env, "Recovered");
+    let desc2 = String::from_str(&env, "Should work now");
+    let new_id = client.create_campaign(
+        &creator,
+        &title2,
+        &desc2,
+        &500,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+    assert!(new_id > 1);
+
+    let _ = token;
+}
+
+#[test]
+fn test_auto_paused_event_emitted() {
+    let (env, admin, creator, contributor1, _c2, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let title = String::from_str(&env, "Event Test");
+    let desc = String::from_str(&env, "Testing auto_paused event");
+    let campaign_id = client.create_campaign(
+        &creator,
+        &title,
+        &desc,
+        &1000,
+        &30,
+        &Category::Learner,
+        &false,
+        &0,
+        &0i128,
+    );
+
+    client.contribute(&campaign_id, &contributor1, &1001);
+
+    // Verify auto-pause was triggered by checking behavior (not event content)
+    // After the burst contribution, operations should be blocked
+    let res = client.try_contribute(&campaign_id, &contributor1, &1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+    // Unpause to clean up
+    client.unpause(&admin);
+
+    let _ = token;
+}

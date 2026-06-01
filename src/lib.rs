@@ -26,13 +26,18 @@ pub struct ProofOfHeart;
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl ProofOfHeart {
-    /// Checks if the contract is paused and returns an error if it is.
+    /// Checks if the contract is paused (manually or auto) and returns an error if it is.
     fn require_not_paused(env: &Env) -> Result<(), Error> {
         if env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false)
+            || env
+                .storage()
+                .instance()
+                .get(&DataKey::AutoPaused)
+                .unwrap_or(false)
         {
             return Err(Error::ContractPaused);
         }
@@ -221,8 +226,17 @@ impl ProofOfHeart {
         set_campaign(&env, campaign_id, &campaign);
         set_contribution(&env, campaign_id, &contributor, current + amount);
 
-        env.events()
-            .publish(("contribution_made", campaign_id, contributor), amount);
+        env.events().publish(
+            ("contribution_made", campaign_id, contributor.clone()),
+            amount,
+        );
+
+        // Auto-pause on burst contribution (single contribution > funding goal).
+        if amount > campaign.funding_goal {
+            env.storage().instance().set(&DataKey::AutoPaused, &true);
+            env.events()
+                .publish(("auto_paused", campaign_id, contributor), amount);
+        }
 
         Ok(())
     }
@@ -308,7 +322,7 @@ impl ProofOfHeart {
         set_campaign(&env, campaign_id, &campaign);
 
         env.events()
-            .publish(("campaign_cancelled", campaign_id), ());
+            .publish(("campaign_cancelled", campaign_id), campaign.amount_raised);
 
         Ok(())
     }
@@ -386,11 +400,12 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        let new_desc = description.clone();
         campaign.description = description;
         set_campaign(&env, campaign_id, &campaign);
 
         env.events()
-            .publish(("campaign_description_updated", campaign_id), ());
+            .publish(("campaign_description_updated", campaign_id), new_desc);
 
         Ok(())
     }
@@ -591,6 +606,7 @@ impl ProofOfHeart {
     }
 
     /// Unpauses the contract, allowing state-changing operations.
+    /// Also clears any auto-pause state so the contract can resume.
     ///
     /// # Authorization
     /// Requires admin authorization.
@@ -600,7 +616,27 @@ impl ProofOfHeart {
             return Err(Error::NotAuthorized);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().set(&DataKey::AutoPaused, &false);
         env.events().publish(("contract_unpaused", admin), ());
+        Ok(())
+    }
+
+    /// Resumes the contract from an auto-paused state.
+    /// Requires the referenced campaign to exist and be active.
+    ///
+    /// # Authorization
+    /// Requires admin authorization.
+    pub fn resume_campaign(env: Env, admin: Address, campaign_id: u32) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != get_admin(&env) {
+            return Err(Error::NotAuthorized);
+        }
+        let campaign = get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)?;
+        if !campaign.is_active || campaign.is_cancelled {
+            return Err(Error::CampaignNotActive);
+        }
+        env.storage().instance().set(&DataKey::AutoPaused, &false);
+        env.events().publish(("campaign_resumed", campaign_id), ());
         Ok(())
     }
 

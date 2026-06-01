@@ -31,6 +31,8 @@ pub enum DataKey {
     Version,
     /// Whether the contract is paused.
     Paused,
+    /// Whether the contract is auto-paused (e.g., triggered by a burst contribution).
+    AutoPaused,
     /// Number of approval votes cast for a campaign, keyed by campaign ID.
     ApproveVotes(u32),
     /// Number of rejection votes cast for a campaign, keyed by campaign ID.
