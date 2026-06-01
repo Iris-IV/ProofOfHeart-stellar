@@ -27,6 +27,7 @@ source "$HOME/.cargo/env"
 ```
 
 Verify installation:
+
 ```bash
 rustc --version
 cargo --version
@@ -40,17 +41,28 @@ Add the WebAssembly target for Soroban contracts:
 rustup target add wasm32-unknown-unknown
 ```
 
-### 3. Install Soroban CLI
+> **Note:** The repo includes a `rust-toolchain.toml` file that pins the correct Rust toolchain. `rustup` will pick it up automatically — no manual version selection needed.
 
-Install the Soroban command-line tool:
+### 3. Install Stellar CLI
+
+> **Important:** The CLI was previously called `soroban-cli` (binary: `soroban`). It has been rebranded to `stellar-cli` (binary: `stellar`). All commands in this guide use `stellar`.
+
+Install via Cargo:
 
 ```bash
-cargo install soroban-cli
+cargo install --locked stellar-cli --features opt
+```
+
+Or via Homebrew (macOS/Linux):
+
+```bash
+brew install stellar-cli
 ```
 
 Verify installation:
+
 ```bash
-soroban --version
+stellar --version
 ```
 
 ### 4. Clone and Build the Repository
@@ -66,6 +78,8 @@ cd ProofOfHeart-stellar
 
 Build the WASM binary for deployment:
 
+> **Heads up:** The first build downloads and compiles all Rust dependencies. Expect **10–20 minutes** and **1–2 GB** of disk space on a clean machine. Subsequent builds are much faster.
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
@@ -73,6 +87,7 @@ cargo build --target wasm32-unknown-unknown --release
 **Output:** `target/wasm32-unknown-unknown/release/proof_of_heart.wasm`
 
 Verify the WASM file was created:
+
 ```bash
 ls -lh target/wasm32-unknown-unknown/release/proof_of_heart.wasm
 ```
@@ -88,15 +103,15 @@ Expected size: ~500 KB (WASM files are compressed).
 Generate a new keypair for the deployer account:
 
 ```bash
-soroban keys generate --global deployer
+stellar keys generate --global deployer
 ```
 
-**Output:** A keypair is generated and stored in `~/.soroban/keys/deployer.json`
+**Output:** A keypair is generated and stored in `~/.config/stellar/identity/deployer.toml`
 
 (Optional) If you already have a secret key, import it:
 
 ```bash
-soroban keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
+stellar keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
 ```
 
 ### Step 2: Fund Your Testnet Account
@@ -104,14 +119,15 @@ soroban keys generate --global deployer --secret-key <YOUR_SECRET_KEY>
 Request testnet lumens (XLM) to pay for deployment and initialization:
 
 ```bash
-soroban keys fund deployer --network testnet
+stellar keys fund deployer --network testnet
 ```
 
 This command uses the official Stellar testnet friendbot to fund your account with 10,000 XLM.
 
 **Verify funding:**
+
 ```bash
-soroban account balance --source deployer --network testnet
+stellar account balance --source deployer --network testnet
 ```
 
 Expected balance: ~10,000 XLM (minus any spent on previous deployments).
@@ -121,7 +137,7 @@ Expected balance: ~10,000 XLM (minus any spent on previous deployments).
 Deploy the compiled WASM binary:
 
 ```bash
-soroban contract deploy \
+stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
   --source deployer \
   --network testnet
@@ -136,6 +152,7 @@ export CONTRACT_ID="<CONTRACT_ID_FROM_DEPLOY>"
 ```
 
 **Example:**
+
 ```bash
 export CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 ```
@@ -158,27 +175,30 @@ export CONTRACT_ID="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4"
 If you don't have a mainnet account, create one:
 
 ```bash
-soroban keys generate --global deployer-mainnet
+stellar keys generate --global deployer-mainnet
 ```
 
 Fund your mainnet account using an exchange or other means:
+
 - Minimum: 2–3 XLM (deployment: ~0.5 XLM, initialization: ~0.05 XLM, buffer for fees)
 
 **Verify mainnet balance:**
+
 ```bash
-soroban account balance --source deployer-mainnet --network mainnet
+stellar account balance --source deployer-mainnet --network mainnet
 ```
 
 ### Step 2: Deploy the Contract to Mainnet
 
 ```bash
-soroban contract deploy \
+stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
   --source deployer-mainnet \
   --network mainnet
 ```
 
 **Save the contract ID:**
+
 ```bash
 export CONTRACT_ID_MAINNET="<CONTRACT_ID_FROM_DEPLOY>"
 ```
@@ -187,13 +207,13 @@ export CONTRACT_ID_MAINNET="<CONTRACT_ID_FROM_DEPLOY>"
 
 ### Cost Summary
 
-| Operation | Estimated Cost |
-| --- | --- |
-| Deploy contract | ~0.5 XLM |
-| Initialize contract | ~0.05 XLM |
-| **Total** | **~0.55 XLM** |
+| Operation           | Estimated Cost |
+| ------------------- | -------------- |
+| Deploy contract     | ~0.5 XLM       |
+| Initialize contract | ~0.05 XLM      |
+| **Total**           | **~0.55 XLM**  |
 
-*Costs may vary with network congestion.*
+_Costs may vary with network congestion._
 
 ---
 
@@ -203,13 +223,14 @@ The contract must be initialized before use. This sets the admin, token address,
 
 ### Parameters Explained
 
-| Parameter | Type | Example | Description |
-| --- | --- | --- | --- |
-| `admin` | Address | `GBRPGWUSZSTZ...` | Account that can govern the contract (usually the deployer) |
-| `token` | Address | `CBQHD3V2OMK2...` | The token contract address used for contributions (usually a wrapped asset or native Stellar asset) |
-| `platform_fee` | u32 | `300` | Fee in basis points (1/100th of a percent). `300` = 3%, max 10% (1000) |
+| Parameter      | Type    | Example           | Description                                                                                         |
+| -------------- | ------- | ----------------- | --------------------------------------------------------------------------------------------------- |
+| `admin`        | Address | `GBRPGWUSZSTZ...` | Account that can govern the contract (usually the deployer)                                         |
+| `token`        | Address | `CBQHD3V2OMK2...` | The token contract address used for contributions (usually a wrapped asset or native Stellar asset) |
+| `platform_fee` | u32     | `300`             | Fee in basis points (1/100th of a percent). `300` = 3%, max 10% (1000)                              |
 
 **Fee Calculation Example:**
+
 - If a campaign raises 1,000 tokens and the fee is 300 (3%):
   - Platform receives: 30 tokens
   - Creator receives: 970 tokens
@@ -221,7 +242,7 @@ If you haven't set up a token yet, see [Token Setup](#token-setup) first.
 Once you have a token address, initialize the contract:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -233,8 +254,9 @@ soroban contract invoke \
 ```
 
 **Example:**
+
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4" \
   --source deployer \
   --network testnet \
@@ -250,7 +272,7 @@ soroban contract invoke \
 Identical to testnet, but use `--network mainnet` and the mainnet `CONTRACT_ID`:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID_MAINNET" \
   --source deployer-mainnet \
   --network mainnet \
@@ -272,6 +294,7 @@ ProofOfHeart uses a token contract for contributions. You have two options:
 Stellar provides wrapped assets for common tokens. For testnet, use the USDC wrapped asset:
 
 **Testnet USDC contract address:**
+
 ```
 CBQHD3V2OMK2HLAQYAOIMJG753VQULQYSIU3IM27YPUYVISFSFSOSDE
 ```
@@ -283,15 +306,17 @@ Use this address directly in contract initialization.
 If you want full control over the token:
 
 1. Create a token contract (e.g., using the Soroban token template):
+
    ```bash
-   soroban contract init token
+   stellar contract init token
    cd token
    cargo build --target wasm32-unknown-unknown --release
    ```
 
 2. Deploy it:
+
    ```bash
-   soroban contract deploy \
+   stellar contract deploy \
      --wasm token/target/wasm32-unknown-unknown/release/soroban_token_contract.wasm \
      --source deployer \
      --network testnet
@@ -304,7 +329,7 @@ If you want full control over the token:
 If you control the token, mint some tokens to test contributions:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$TOKEN_CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -323,7 +348,7 @@ soroban contract invoke \
 Check that the contract was deployed:
 
 ```bash
-soroban contract info --id "$CONTRACT_ID" --network testnet
+stellar contract info --id "$CONTRACT_ID" --network testnet
 ```
 
 Expected output includes contract ID, WASM hash, and deployment info.
@@ -333,7 +358,7 @@ Expected output includes contract ID, WASM hash, and deployment info.
 Call the `get_version()` function to verify the contract was initialized:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -349,7 +374,7 @@ Expected output: `1` (the contract version).
 Create a test campaign to verify everything works:
 
 ```bash
-soroban contract invoke \
+stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source deployer \
   --network testnet \
@@ -372,20 +397,33 @@ Expected output: Campaign ID `1` (if it's the first campaign).
 Check that your account has enough XLM to pay for operations:
 
 ```bash
-soroban account balance --source deployer --network testnet
+stellar account balance --source deployer --network testnet
 ```
 
 ---
 
 ## Troubleshooting
 
+### Error: "stellar: command not found"
+
+**Cause:** The CLI is not installed or not on your `PATH`.
+
+**Solution:**
+
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Then reload your shell (`source ~/.bashrc` / `source ~/.zshrc`) or open a new terminal.
+
 ### Error: "Source account does not exist"
 
 **Cause:** Your account wasn't funded.
 
 **Solution:**
+
 ```bash
-soroban keys fund deployer --network testnet
+stellar keys fund deployer --network testnet
 ```
 
 ### Error: "Invalid contract ID"
@@ -393,6 +431,7 @@ soroban keys fund deployer --network testnet
 **Cause:** The contract ID format is wrong or the contract doesn't exist on that network.
 
 **Solution:**
+
 - Verify the contract ID starts with `C` and is 56 characters long.
 - Check you're using the correct network (`--network testnet` or `--network mainnet`).
 - Redeploy if necessary.
@@ -402,7 +441,8 @@ soroban keys fund deployer --network testnet
 **Cause:** Your account doesn't have enough XLM.
 
 **Solution:**
-- Testnet: Run `soroban keys fund deployer --network testnet` again.
+
+- Testnet: Run `stellar keys fund deployer --network testnet` again.
 - Mainnet: Transfer XLM from an exchange to your account.
 
 ### Error: "Invalid source key"
@@ -410,9 +450,10 @@ soroban keys fund deployer --network testnet
 **Cause:** The deployer key doesn't exist or is named incorrectly.
 
 **Solution:**
+
 ```bash
-soroban keys list
-soroban keys generate --global deployer  # Recreate if needed
+stellar keys list
+stellar keys generate --global deployer  # Recreate if needed
 ```
 
 ### Contract Invocation Hangs
@@ -420,6 +461,7 @@ soroban keys generate --global deployer  # Recreate if needed
 **Cause:** Network connectivity issue or the network is overloaded.
 
 **Solution:**
+
 - Check your internet connection.
 - Try again in a few moments.
 - Check the [Stellar status page](https://status.stellar.org/).
@@ -429,6 +471,7 @@ soroban keys generate --global deployer  # Recreate if needed
 **Cause:** The contract wasn't built yet.
 
 **Solution:**
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
@@ -444,13 +487,91 @@ cargo build --target wasm32-unknown-unknown --release
 
 ---
 
-## Additional Resources
+## Contract Upgrades & Migration (#266)
 
-- [Soroban Documentation](https://soroban.stellar.org/docs)
-- [Stellar Testnet](https://developers.stellar.org/docs/fundamentals-and-concepts/testnet-public-network)
-- [Soroban CLI Reference](https://github.com/stellar/rs-soroban-cli)
-- [Stellar Account Federation](https://developers.stellar.org/docs/learn/smart-contracts/stellar-asset-contract)
+Soroban contracts can be upgraded by uploading a new WASM and calling `update_current_contract_wasm`. The `migrate` entry point provides a safe, version-guarded migration step that must be called in the same transaction.
+
+### Upgrade Procedure
+
+1. **Increment `CONTRACT_VERSION`** in `src/lib.rs` (e.g., `1` → `2`).
+2. **Build the new WASM:**
+   ```bash
+   cargo build --target wasm32-unknown-unknown --release
+   ```
+3. **Upload the new WASM** to get its hash:
+   ```bash
+   soroban contract upload \
+     --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
+     --source deployer --network testnet
+   # → <NEW_WASM_HASH>
+   ```
+4. **Upgrade the contract** (replaces the running WASM):
+   ```bash
+   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+     -- update_current_contract_wasm --wasm_hash <NEW_WASM_HASH>
+   ```
+5. **Run migration** immediately after upgrade:
+   ```bash
+   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+     -- migrate --admin <ADMIN_ADDRESS> --expected_old_version 1
+   ```
+
+### Migration Safety Rules
+
+- `migrate` fails if `expected_old_version` does not match the stored version — prevents double-migration.
+- `migrate` requires admin authorization.
+- After a successful migration the stored version is updated to the new `CONTRACT_VERSION`.
+- Always test the full upgrade + migrate sequence on testnet before mainnet.
 
 ---
 
-**Last Updated:** March 28, 2026
+## Token Migration Procedure (#267)
+
+If the accepted token contract needs to change (e.g., token deprecation or compromise), use the two-step token update with a mandatory 7-day delay.
+
+### Step 1 — Propose the new token
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- propose_token_update \
+  --admin <ADMIN_ADDRESS> \
+  --new_token <NEW_TOKEN_ADDRESS>
+```
+
+This stores the pending token and a `release_after` timestamp (now + 7 days). The current token remains active.
+
+### Step 2 — Wait 7 days
+
+The delay gives stakeholders time to react. The update cannot be accepted before the delay elapses.
+
+### Step 3 — Accept the update
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- accept_token_update --admin <ADMIN_ADDRESS>
+```
+
+The new token becomes the accepted token immediately.
+
+### Cancelling a pending update
+
+```bash
+soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+  -- cancel_token_update --admin <ADMIN_ADDRESS>
+```
+
+This clears the pending state with no effect on the current token.
+
+---
+
+## Additional Resources
+
+- [Stellar CLI Docs](https://developers.stellar.org/docs/tools/stellar-cli)
+- [Soroban Documentation](https://soroban.stellar.org/docs)
+- [Stellar Testnet](https://developers.stellar.org/docs/fundamentals-and-concepts/testnet-public-network)
+- [Stellar CLI Reference](https://github.com/stellar/stellar-cli)
+- [Stellar Asset Contract](https://developers.stellar.org/docs/learn/smart-contracts/stellar-asset-contract)
+
+---
+
+**Last Updated:** May 27, 2026

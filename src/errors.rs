@@ -55,4 +55,34 @@ pub enum Error {
     ContractPaused = 24,
     /// The contribution would exceed the per-user cap set by the campaign creator.
     ContributionCapExceeded = 25,
+    /// The campaign requires verification before actions can occur.
+    CampaignNotVerified = 26,
+    /// Revenue claim calculation is invalid because `amount_raised` is zero.
+    AmountRaisedIsZero = 27,
+    /// Revenue deposit attempted on a campaign without revenue sharing enabled.
+    RevenueSharingNotEnabled = 28,
+    /// Campaign cancellation is disallowed because funds have already been withdrawn.
+    CancellationNotAllowed = 29,
+    /// An arithmetic operation overflowed.
+    Overflow = 30,
+    /// The provided address is not a valid SEP-41 token contract.
+    InvalidTokenContract = 31,
+    /// Campaign creation is disabled by the admin.
+    CreationDisabled = 32,
+    /// The funding goal is below the configured minimum.
+    FundingGoalTooLow = 33,
+    /// Admin verification was attempted on an already verified campaign.
+    AdminVerificationConflict = 34,
+    /// Community verification was attempted on an already verified campaign.
+    CommunityVerificationConflict = 35,
+    /// The campaign deadline has already been extended once.
+    DeadlineAlreadyExtended = 36,
+    /// Extension would push the deadline past the allowed maximum.
+    ExtensionTooLong = 37,
+    /// The funding goal exceeds the configured maximum (anti-spam cap).
+    FundingGoalTooHigh = 38,
+    /// The provided platform fee exceeds the maximum allowed basis points.
+    InvalidPlatformFee = 39,
+    /// A campaign transfer is already pending; cancel it before initiating a new one.
+    TransferAlreadyPending = 40,
 }

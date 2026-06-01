@@ -2,7 +2,13 @@
 Provide a clear and concise description of the changes in this PR.
 
 ## 🔗 Related Issues
-Closes #(issue number)
+Use GitHub's auto-close keywords with the `#` prefix (one issue per line):
+
+Closes #123
+Fixes #456
+Resolves #789
+
+Multiple issues can be closed by repeating the keyword on separate lines.
 
 ## 🧪 Changes Made
 - [ ] Bug fix

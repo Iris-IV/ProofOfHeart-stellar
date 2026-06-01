@@ -50,15 +50,25 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 ### View Functions
 - `get_campaign` — Retrieve campaign details by ID.
 - `get_contribution` — Check a contributor's amount for a given campaign.
+- `get_lifetime_contribution` — Check a contributor's lifetime amount used for cap enforcement.
 - `get_revenue_pool` — View the total revenue pool for a campaign.
 - `get_revenue_claimed` — Check how much revenue a contributor has already claimed.
+- `get_campaigns_by_category` — List campaigns by category with pagination.
+- `get_platform_stats` — Return aggregate platform metrics.
+
+## Documentation
+
+- Authorization requirements for every public method: `docs/AUTHORIZATION.md`
+- Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
+- Contribution cap semantics: `docs/CONTRIBUTION_CAP_POLICY.md`
+- Storage TTL behavior: `docs/STORAGE_TTL_POLICY.md`
 
 ## Getting Started
 
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install)
-- [Soroban CLI](https://soroban.stellar.org/docs/getting-started/setup)
+- [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli) — install with `cargo install --locked stellar-cli --features opt` (previously named `soroban-cli`)
 - `wasm32-unknown-unknown` target:
   ```bash
   rustup target add wasm32-unknown-unknown
@@ -68,7 +78,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ```bash
 # Clone the repository
-git clone https://github.com/dmystical-coder/ProofOfHeart-stellar.git
+git clone https://github.com/Iris-IV/ProofOfHeart-stellar.git
 cd ProofOfHeart-stellar
 
 # Build the contract
@@ -96,17 +106,24 @@ For detailed instructions on deploying the contract to Stellar testnet and mainn
 
 ```
 ProofOfHeart-stellar/
-├── Cargo.toml          # Project manifest & dependencies
+├── Cargo.toml                        # Project manifest & dependencies
 └── src/
-    ├── lib.rs          # Smart contract implementation
-    └── test.rs         # Unit tests
+    ├── lib.rs                        # Smart contract entry-points and business logic
+    ├── errors.rs                     # Contract error enum (Error)
+    ├── storage.rs                    # Storage helpers and DataKey definitions
+    ├── types.rs                      # Shared types: Campaign, Category, etc.
+    ├── voting.rs                     # Community voting logic and helpers
+    ├── test.rs                       # Integration and unit tests
+    ├── update_admin_test.rs          # Admin transfer / update tests
+    ├── revenue_share_proptest.rs     # Property-based tests for revenue sharing
+    └── voting_proptest.rs            # Property-based tests for voting
 ```
 
 ## Related Repositories
 
 | Repository | Description |
 | --- | --- |
-| [ProofOfHeart-frontend](https://github.com/dmystical-coder/ProofOfHeart-frontend) | Next.js frontend application |
+| [ProofOfHeart-frontend](https://github.com/Iris-IV/ProofOfHeart-frontend) | Next.js frontend application |
 
 ## Contributing
 

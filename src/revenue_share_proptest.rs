@@ -13,6 +13,7 @@
 //!   (no tokens are lost or created).
 //! * All results remain non-negative.
 
+use proptest::collection::vec as prop_vec;
 use proptest::prelude::*;
 
 // ── Pure arithmetic helpers ──────────────────────────────────────────────────
@@ -165,5 +166,46 @@ proptest! {
         let due = contributor_due(contribution, cp, amount_raised);
         prop_assert_eq!(cp, 0);
         prop_assert_eq!(due, 0);
+    }
+
+    /// Issue #210: across any sequence of deposit_revenue + claim_revenue operations,
+    /// a contributor's total claimed amount never exceeds their proportional pool share
+    /// (contribution / amount_raised) * (total_pool * bps / 10_000).
+    ///
+    /// Proptest uses 1 000 shrink iterations by default, satisfying the ≥100 requirement.
+    #[test]
+    fn prop_claim_never_exceeds_pool_share(
+        bps in arb_revenue_bps(),
+        amount_raised in arb_amount_raised(),
+        contribution in arb_amount_raised(),
+        deposits in prop_vec(0i128..=1_000_000_000i128, 1..=20),
+    ) {
+        // Clamp contribution to the total raised (single-contributor upper bound).
+        let contribution = contribution.min(amount_raised);
+        let mut total_pool = 0i128;
+        let mut already_claimed = 0i128;
+
+        for deposit in &deposits {
+            total_pool = total_pool.saturating_add(*deposit);
+            let cp = contributor_pool(total_pool, bps);
+            let total_due = contributor_due(contribution, cp, amount_raised);
+
+            // Simulate claiming everything available in this round.
+            let claimable = (total_due - already_claimed).max(0);
+            already_claimed += claimable;
+
+            // Invariant: cumulative claimed must never exceed the contributor's
+            // proportional share of the current pool.
+            prop_assert!(
+                already_claimed <= total_due,
+                "claimed ({already_claimed}) > proportional due ({total_due}) \
+                 [pool={total_pool}, bps={bps}, contribution={contribution}, amount_raised={amount_raised}]"
+            );
+            // Also: must not exceed the whole contributor pool.
+            prop_assert!(
+                already_claimed <= cp,
+                "claimed ({already_claimed}) > contributor pool ({cp})"
+            );
+        }
     }
 }

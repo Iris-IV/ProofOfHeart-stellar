@@ -1,1 +1,0 @@
-/home/blackghost/Documents/ProofOfHeart-stellar4/ProofOfHeart-stellar/target/wasm32-unknown-unknown/release/libproof_of_heart.rlib: /home/blackghost/Documents/ProofOfHeart-stellar4/ProofOfHeart-stellar/src/lib.rs /home/blackghost/Documents/ProofOfHeart-stellar4/ProofOfHeart-stellar/src/test.rs
