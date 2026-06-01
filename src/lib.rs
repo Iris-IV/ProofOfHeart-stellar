@@ -489,10 +489,7 @@ impl ProofOfHeart {
     }
 
     pub fn has_pending_campaign_transfer(env: Env, campaign_id: u32) -> bool {
-        match get_campaign(&env, campaign_id) {
-            Some(c) => c.pending_creator != MaybePendingCreator::None,
-            None => false,
-        }
+        get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
 
     // ── Listing & pagination ──────────────────────────────────────────────────

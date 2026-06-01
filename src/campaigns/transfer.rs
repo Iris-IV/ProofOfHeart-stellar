@@ -27,12 +27,12 @@ pub(crate) fn initiate_campaign_transfer(
         return Err(Error::InvalidNewOwner);
     }
 
-    if campaign.pending_creator != MaybePendingCreator::None {
+    if campaign.pending_creator.is_some() {
         return Err(Error::TransferAlreadyPending);
     }
 
     bump_instance_ttl(env);
-    campaign.pending_creator = MaybePendingCreator::Some(new_creator.clone());
+    campaign.pending_creator = MaybePendingCreator::from(new_creator.clone());
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(

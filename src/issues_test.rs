@@ -359,3 +359,84 @@ fn test_resume_after_campaign_transfer_uses_new_creator() {
     let result = client.try_resume_campaign(&campaign_id, &original_creator);
     assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
 }
+
+// ── #409/#410 MaybePendingCreator round-trip (binary compat) ─────────────
+
+#[test]
+fn test_pending_creator_none_round_trip() {
+    let env = Env::default();
+    let contract_id = Address::generate(&env);
+    env.register_contract(&contract_id, crate::ProofOfHeart);
+    let addr = Address::generate(&env);
+    let campaign = Campaign {
+        id: 1,
+        creator: addr.clone(),
+        first_creator: addr,
+        pending_creator: MaybePendingCreator::None,
+        title: String::from_str(&env, "test"),
+        description: String::from_str(&env, "desc"),
+        funding_goal: 1000,
+        deadline: 1000000,
+        amount_raised: 0,
+        is_active: true,
+        funds_withdrawn: false,
+        is_cancelled: false,
+        is_verified: false,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+        fee_override: None,
+        deadline_extended: false,
+        effective_amount_raised: 0,
+    };
+
+    env.as_contract(&contract_id, || {
+        let _ = env.storage().instance().extend_ttl(100, 100);
+        env.storage()
+            .instance()
+            .set(&DataKey::Campaign(1), &campaign);
+        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+        assert!(read.pending_creator.is_none());
+    });
+}
+
+#[test]
+fn test_pending_creator_some_round_trip() {
+    let env = Env::default();
+    let contract_id = Address::generate(&env);
+    let _ = env.register_contract(&contract_id, crate::ProofOfHeart);
+    let addr = Address::generate(&env);
+    let pending = Address::generate(&env);
+    let campaign = Campaign {
+        id: 1,
+        creator: addr.clone(),
+        first_creator: addr,
+        pending_creator: MaybePendingCreator::Some(pending.clone()),
+        title: String::from_str(&env, "test"),
+        description: String::from_str(&env, "desc"),
+        funding_goal: 1000,
+        deadline: 1000000,
+        amount_raised: 0,
+        is_active: true,
+        funds_withdrawn: false,
+        is_cancelled: false,
+        is_verified: false,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+        fee_override: None,
+        deadline_extended: false,
+        effective_amount_raised: 0,
+    };
+
+    env.as_contract(&contract_id, || {
+        let _ = env.storage().instance().extend_ttl(100, 100);
+        env.storage()
+            .instance()
+            .set(&DataKey::Campaign(1), &campaign);
+        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+        assert_eq!(read.pending_creator, MaybePendingCreator::Some(pending));
+    });
+}
