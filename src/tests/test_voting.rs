@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{String, Vec};
+use soroban_sdk::String;
 
 #[test]
 fn test_community_voting_verification_success() {

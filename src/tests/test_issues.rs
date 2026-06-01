@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{storage, Campaign, DataKey, Error, MaybePendingCreator};
+use crate::{Campaign, DataKey, Error, MaybePendingCreator};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
@@ -365,7 +365,7 @@ fn test_pending_creator_none_round_trip() {
     };
 
     env.as_contract(&contract_id, || {
-        let _ = env.storage().instance().extend_ttl(100, 100);
+        env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
             .set(&DataKey::Campaign(1), &campaign);
@@ -405,7 +405,7 @@ fn test_pending_creator_some_round_trip() {
     };
 
     env.as_contract(&contract_id, || {
-        let _ = env.storage().instance().extend_ttl(100, 100);
+        env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
             .set(&DataKey::Campaign(1), &campaign);
