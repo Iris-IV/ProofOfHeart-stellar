@@ -4,7 +4,8 @@ use soroban_sdk::String;
 
 #[test]
 fn test_storage_ttl_persistence_365_days() {
-    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
 
     // 1. Create a campaign with 365 days duration
     let id = client.create_campaign(&make_params(
@@ -28,7 +29,7 @@ fn test_storage_ttl_persistence_365_days() {
     // 17280 ledgers per day * 365 days = 6,307,200 ledgers
     let days_365_ledgers = 17280 * 365;
     let current_ledger = env.ledger().sequence();
-    
+
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
         timestamp: env.ledger().timestamp() + (365 * 86400),
         protocol_version: 22,

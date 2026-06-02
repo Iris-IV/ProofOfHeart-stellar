@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::{Category};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use crate::Category;
+use soroban_sdk::String;
 
 #[test]
 fn test_list_campaigns_exclusive_cursor_semantics() {

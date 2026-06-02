@@ -1,4 +1,5 @@
 use super::helpers::*;
+use crate::storage;
 use crate::{Category, Error};
 use soroban_sdk::String;
 
@@ -9,9 +10,15 @@ fn test_claim_refund_state_mutation_order() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Refund Order Test"),
-        String::from_str(&env, "Testing state mutation order"), 10000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Refund Order Test"),
+        String::from_str(&env, "Testing state mutation order"),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -40,9 +47,15 @@ fn test_claim_refund_multiple_contributors_isolation() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Multi Refund Test"),
-        String::from_str(&env, "Testing multiple refunds"), 10000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Multi Refund Test"),
+        String::from_str(&env, "Testing multiple refunds"),
+        10000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &2000);
@@ -69,9 +82,15 @@ fn test_claim_refund_expired_campaign() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Expired Campaign"),
-        String::from_str(&env, "Will expire"), 10000, duration_days,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Expired Campaign"),
+        String::from_str(&env, "Will expire"),
+        10000,
+        duration_days,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -93,6 +112,107 @@ fn test_claim_refund_expired_campaign() {
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
 }
 
+#[test]
+fn test_claim_refund_clears_existing_revenue_claimed_key() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Refund Cleans Revenue Claim"),
+        description: String::from_str(&env, "Ensure RevenueClaimed key is removed"),
+        funding_goal: 5000,
+        duration_days: 2,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // Artificially mark funds as withdrawn so deposit/claim_revenue bypass the guard.
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.funds_withdrawn = true;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+
+    client.deposit_revenue(&campaign_id, &1000);
+    client.claim_revenue(&campaign_id, &contributor1);
+
+    let claimed_before_refund = client.get_revenue_claimed(&campaign_id, &contributor1);
+    assert!(claimed_before_refund > 0);
+
+    // Advance past deadline so claim_refund accepts failed_due_to_goal
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (2 * 86450),
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    // claim_refund with deadline passed and goal not met clears revenue_claimed.
+    client.claim_refund(&campaign_id, &contributor1);
+
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_claim_revenue_after_single_refund_uses_live_raised() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Revenue Refund Denominator"),
+        String::from_str(
+            &env,
+            "Remaining contributor receives full share after refund",
+        ),
+        2000,
+        10,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.contribute(&campaign_id, &contributor2, &1000);
+
+    // Withdraw funds so funds_withdrawn = true (required for deposit/claim revenue).
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &1000);
+
+    // Simulate a refund for contributor1 via storage: zero out their contribution
+    // and reduce effective_amount_raised — without cancelling the campaign.
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.effective_amount_raised = 1000;
+        storage::set_campaign(&env, campaign_id, &campaign);
+        storage::remove_contribution(&env, campaign_id, &contributor1);
+    });
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+
+    // Contributor2 can still claim their full revenue share
+    // (1000 / 1000 * 5000 / 10000 * 1000 = 500).
+    client.claim_revenue(&campaign_id, &contributor2);
+
+    assert_eq!(token.balance(&contributor2), 4500);
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 500);
+}
 // Issue #341: claim_revenue is gated on funds_withdrawn. The prior "claim
 // then cancel then refund" flow this test exercised is now structurally
 // impossible (cancel is blocked once funds are withdrawn). Covered by

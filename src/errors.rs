@@ -81,6 +81,8 @@ pub enum Error {
     ExtensionTooLong = 37,
     /// The funding goal exceeds the configured maximum (anti-spam cap).
     FundingGoalTooHigh = 38,
+    /// The provided platform fee exceeds the maximum allowed basis points.
+    InvalidPlatformFee = 39,
     /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 39,
+    TransferAlreadyPending = 40,
 }

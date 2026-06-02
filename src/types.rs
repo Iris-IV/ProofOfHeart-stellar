@@ -32,8 +32,8 @@ pub struct Campaign {
     pub id: u32,
     /// The address of the campaign creator.
     pub creator: Address,
-    /// The address of the original creator at campaign creation.
-    pub original_creator: Address,
+    /// Immutable-by-design (always the first creator).
+    pub first_creator: Address,
     /// The address of the proposed new creator (for two-step transfer).
     pub pending_creator: MaybePendingCreator,
     /// Short display name of the campaign.
@@ -66,6 +66,8 @@ pub struct Campaign {
     pub fee_override: Option<u32>,
     /// Whether the deadline has already been extended once.
     pub deadline_extended: bool,
+    /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
+    pub effective_amount_raised: i128,
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.
@@ -84,7 +86,9 @@ pub struct PlatformStats {
     pub total_amount_raised: i128,
     /// Whether the counts are partial due to scan limit. When true,
     /// active/verified/cancelled counts may not reflect all campaigns.
-    pub is_partial: bool,
+    pub stats_are_partial: bool,
+    /// The ID up to which the scan was performed.
+    pub scanned_up_to: u32,
 }
 
 /// Parameters for `create_campaign`, grouped into a single struct to avoid

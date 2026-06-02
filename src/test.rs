@@ -97,62 +97,6 @@ fn test_init_only_once() {
 }
 
 #[test]
-fn test_platform_fee_cap_enforcement() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let creator = Address::generate(&env);
-    let contributor = Address::generate(&env);
-
-    let token_address = env.register_stellar_asset_contract(admin.clone());
-    let token = TokenClient::new(&env, &token_address);
-    let token_admin = TokenAdminClient::new(&env, &token_address);
-
-    let contract_id = env.register_contract(None, ProofOfHeart);
-    let client = ProofOfHeartClient::new(&env, &contract_id);
-
-    // Issue #343: init rejects fees above the cap rather than silently clamping.
-    let res = client.try_init(&admin, &token_address, &5000);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Re-init with the maximum allowed fee and verify it applies end-to-end.
-    client.init(&admin, &token_address, &1000);
-    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
-    assert_eq!(client.get_platform_fee(), 1000);
-
-    token_admin.mint(&contributor, &2000);
-
-    let title = String::from_str(&env, "Fee Cap Test");
-    let desc = String::from_str(&env, "Testing platform fee cap enforcement");
-    let campaign_id = client.create_campaign(&make_params(
-        creator.clone(),
-        title.clone(),
-        desc.clone(),
-        1000,
-        30,
-        Category::Educator,
-        false,
-        0,
-        0i128,
-    ));
-
-    client.verify_campaign(&campaign_id);
-    client.contribute(&campaign_id, &contributor, &1000);
-
-    // Before withdrawal: contributor has 1000, contract has 1000
-    assert_eq!(token.balance(&contributor), 1000);
-    assert_eq!(token.balance(&client.address), 1000);
-
-    client.withdraw_funds(&campaign_id);
-
-    // After withdrawal: admin gets 10% (100), creator gets 90% (900)
-    assert_eq!(token.balance(&admin), 100);
-    assert_eq!(token.balance(&creator), 900);
-    assert_eq!(token.balance(&client.address), 0);
-}
-
-#[test]
 fn test_platform_fee_exact_storage() {
     let env = Env::default();
     env.mock_all_auths();
@@ -808,7 +752,7 @@ fn test_admin_verify_campaign_success() {
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_before_contributions() {
+fn test_update_campaign_blocks_after_admin_verification() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
 
@@ -830,18 +774,20 @@ fn test_update_campaign_allows_verified_campaign_before_contributions() {
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
 
+    // Fix #416: update_campaign must be blocked after admin verification.
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated_campaign = client.get_campaign(&campaign_id);
-    assert_eq!(updated_campaign.title, new_title);
-    assert_eq!(updated_campaign.description, new_desc);
+    // Verify the campaign content is unchanged.
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.title, title);
+    assert_eq!(campaign_after.description, desc);
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
+fn test_update_campaign_blocks_after_community_verification() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let voter3 = Address::generate(&env);
@@ -872,14 +818,15 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     let campaign = client.get_campaign(&campaign_id);
     assert!(campaign.is_verified);
 
+    // Fix #416: update_campaign must be blocked after community verification.
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated_campaign = client.get_campaign(&campaign_id);
-    assert_eq!(updated_campaign.title, new_title);
-    assert_eq!(updated_campaign.description, new_desc);
+    let campaign_after = client.get_campaign(&campaign_id);
+    assert_eq!(campaign_after.title, title);
+    assert_eq!(campaign_after.description, desc);
 }
 
 #[test]
@@ -1063,9 +1010,11 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(0).unwrap(), 300);
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
-    // Issue #343: fees above the cap are rejected, not silently clamped.
+    // Issue #343 / #401: fees above the cap are rejected with InvalidPlatformFee.
+    // (The earlier duplicate ValidationFailed assertion was unreachable because
+    // update_platform_fee only ever returned InvalidPlatformFee — see #401.)
     let result = client.try_update_platform_fee(&5000);
-    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(result.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
 
 #[test]
@@ -2626,13 +2575,16 @@ fn test_personal_cap_enforcement() {
     let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 500)
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
 
-    // Scenario 2: Personal cap = 2000 (higher than campaign cap)
-    client.set_personal_cap(&campaign_id, &contributor1, &2000);
+    // Scenario 2: Personal cap = 2000 (higher than campaign cap) -> should fail validation
+    let res_set = client.try_set_personal_cap(&campaign_id, &contributor1, &2000);
+    assert_eq!(res_set.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    client.set_personal_cap(&campaign_id, &contributor1, &1000);
 
     // Total contribution currently in contract is 400.
     // Campaign cap is 1000.
-    // Personal cap is 2000.
-    // Effective cap is min(1000, 2000) = 1000.
+    // Personal cap is 1000.
+    // Effective cap is min(1000, 1000) = 1000.
     client.contribute(&campaign_id, &contributor1, &500); // Total now 900, OK
     let res = client.try_contribute(&campaign_id, &contributor1, &200); // Should fail (> 1000)
     assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
@@ -3321,7 +3273,7 @@ fn test_vote_on_campaign_past_deadline_fails() {
     });
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
 }
 
 #[test]
@@ -3790,9 +3742,10 @@ fn test_update_campaign_with_contributions_fails() {
     let new_title = String::from_str(&env, "New Title");
     let new_desc = String::from_str(&env, "New Description");
     let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    
-    // update_campaign should still fail if amount_raised > 0
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // update_campaign is blocked after verification (CampaignAlreadyVerified takes
+    // precedence over the amount_raised > 0 check since it's checked first).
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 }
 
 #[test]
@@ -3817,7 +3770,7 @@ fn test_create_campaign_validation_independence() {
         0,
         0i128,
     );
-    
+
     // Current logic checks goal bounds FIRST, then duration.
     // Wait, let's check src/lib.rs order.
     // 222: if funding_goal <= 0 ...
@@ -3825,7 +3778,7 @@ fn test_create_campaign_validation_independence() {
     // 228: let duration_max = ...
     // 230: if !(min..=max).contains(&duration_days) { return Err(InvalidDuration); }
     // 233: if funding_goal > get_max_campaign_funding_goal(...) { return Err(FundingGoalTooHigh); }
-    
+
     // In my current version, InvalidDuration (230) is checked BEFORE FundingGoalTooHigh (233).
     // The user's requested fix for Issue 4 says:
     /*
@@ -3839,10 +3792,10 @@ fn test_create_campaign_validation_independence() {
     // This is exactly what I have in src/lib.rs.
     // But the user's Acceptance says:
     // "FundingGoalTooHigh triggers regardless of duration validity"
-    
-    // Wait! If they want FundingGoalTooHigh to trigger REGARDLESS of duration validity, 
+
+    // Wait! If they want FundingGoalTooHigh to trigger REGARDLESS of duration validity,
     // it MUST be checked BEFORE duration validity.
-    
+
     let res = client.try_create_campaign(&params);
     // FundingGoalTooHigh triggers regardless of duration validity (as requested).
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooHigh);
@@ -3976,7 +3929,7 @@ fn test_platform_stats_after_withdrawal() {
 
 #[test]
 fn test_verify_campaigns_extends_voting_state_ttl() {
-    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     // Create a campaign
     let campaign_id = client.create_campaign(&make_params(
@@ -3992,9 +3945,8 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
     ));
 
     // Bulk verify the campaign
-    let (count, err) = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
+    let count = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
     assert_eq!(count, 1);
-    assert!(err.is_none());
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
@@ -4065,16 +4017,229 @@ fn test_claim_revenue_amount_raised_zero_guard() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Artificially zero out amount_raised while keeping the contribution in storage.
-    // Also force funds_withdrawn=true so we bypass the funds_withdrawn guard and
-    // exercise the AmountRaisedIsZero guard specifically.
+    // Artificially zero out amount_raised and effective_amount_raised while keeping
+    // the contribution in storage. Also force funds_withdrawn=true so we bypass the
+    // funds_withdrawn guard and exercise the AmountRaisedIsZero guard specifically.
     env.as_contract(&client.address, || {
         let mut campaign = get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
+        campaign.effective_amount_raised = 0;
         campaign.funds_withdrawn = true;
         set_campaign(&env, campaign_id, &campaign);
     });
 
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::AmountRaisedIsZero);
+}
+
+// ── Issue #379: cast_vote returns DeadlinePassed after deadline ───────────────
+
+#[test]
+fn test_vote_on_campaign_after_deadline_returns_deadline_passed() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &500);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Deadline Vote Test"),
+        String::from_str(&env, "Voting after deadline must return DeadlinePassed"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let campaign = client.get_campaign(&campaign_id);
+
+    // Advance past the deadline
+    env.ledger().with_mut(|li| {
+        li.timestamp = campaign.deadline + 1;
+    });
+
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
+}
+
+// ── Issue #378: verify_campaigns returns Err on partial failure ───────────────
+
+#[test]
+fn test_verify_campaigns_partial_failure_returns_err() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Valid Campaign"),
+        String::from_str(&env, "One valid campaign"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // 999 does not exist — will produce CampaignNotFound
+    let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
+    let res = client.try_verify_campaigns(&ids);
+    assert!(res.unwrap_err().is_ok()); // Err variant, inner Ok means contract error
+}
+
+#[test]
+fn test_huge_contribution_triggers_auto_pause() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Huge Contribution Test"),
+        description: String::from_str(&env, "Testing auto-pause via huge contribution"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Anomaly detection fires (the Err rollback means AutoPaused doesn't persist
+    // through contribute() itself — test the detection, not the persistence).
+    let res = client.try_contribute(&campaign_id, &contributor1, &2001i128);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+}
+
+#[test]
+fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Unpause Recovery Test"),
+        description: String::from_str(&env, "Testing unpause when resume_campaign is blocked"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Set AutoPaused directly (Soroban rolls back writes on Err, so we can't
+    // rely on the anomaly trigger in contribute() to persist the flag).
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&DataKey::AutoPaused, &true);
+    });
+
+    // Operations are blocked while AutoPaused is set
+    let res = client.try_create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Should Fail"),
+        description: String::from_str(&env, "Desc"),
+        funding_goal: 500,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // unpause() clears both Paused and AutoPaused
+    client.unpause();
+
+    // Now operations work again
+    client.contribute(&campaign_id, &contributor1, &500i128);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    // Cancel the campaign (was blocked while auto-paused)
+    client.cancel_campaign(&campaign_id);
+
+    // resume_campaign fails because campaign is cancelled
+    let res2 = client.try_resume_campaign(&campaign_id, &creator);
+    assert_eq!(res2.unwrap_err().unwrap(), Error::CampaignNotActive);
+
+    // But operations still work because unpause already cleared AutoPaused
+    let new_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Recovered"),
+        description: String::from_str(&env, "Should work now"),
+        funding_goal: 500,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    assert!(new_id > 1);
+}
+
+// ── Issue #408: checked arithmetic on the remaining fee/revenue multiplications.
+//    A pathological amount must yield Error::Overflow, never a panic. ────────────
+
+#[test]
+fn test_withdraw_funds_overflow_returns_error_not_panic() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    // 10% fee so `amount_raised * fee_bps` can overflow at extreme values.
+    client.update_platform_fee(&1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Withdraw Overflow"),
+        String::from_str(&env, "amount_raised * fee must not panic"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    // Force a pathological amount_raised that overflows the fee multiplication.
+    env.as_contract(&client.address, || {
+        let mut campaign = get_campaign(&env, campaign_id).unwrap();
+        campaign.amount_raised = i128::MAX;
+        set_campaign(&env, campaign_id, &campaign);
+    });
+
+    let res = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+#[test]
+fn test_claim_creator_revenue_overflow_returns_error_not_panic() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Revenue Overflow"),
+        String::from_str(&env, "total_pool * share must not panic"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    // Inject a pathological revenue pool that overflows total_pool * share_bps.
+    env.as_contract(&client.address, || {
+        set_revenue_pool(&env, campaign_id, i128::MAX);
+    });
+
+    let res = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }

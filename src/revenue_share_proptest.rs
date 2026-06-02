@@ -33,6 +33,18 @@ fn contributor_due(contribution: i128, contributor_pool: i128, amount_raised: i1
     (contribution * contributor_pool) / amount_raised
 }
 
+/// Checked mirror of the `claim_creator_revenue` contributor-pool multiply
+/// (`revenue.rs`): returns `None` instead of panicking on i128 overflow (#408).
+fn contributor_pool_checked(total_pool: i128, revenue_share_bps: i128) -> Option<i128> {
+    Some(total_pool.checked_mul(revenue_share_bps)? / 10_000)
+}
+
+/// Checked mirror of the `withdraw_funds` ceiling-division fee multiply
+/// (`withdraw.rs`): `(amount * bps + 9_999) / 10_000`, overflow-safe (#408).
+fn fee_amount_checked(amount: i128, fee_bps: i128) -> Option<i128> {
+    Some(amount.checked_mul(fee_bps)?.checked_add(9_999)? / 10_000)
+}
+
 // ── Strategies ───────────────────────────────────────────────────────────────
 
 /// Revenue pool: allow 0 up to a realistic ceiling (~10 billion stroops).
@@ -206,6 +218,36 @@ proptest! {
                 already_claimed <= cp,
                 "claimed ({already_claimed}) > contributor pool ({cp})"
             );
+        }
+    }
+
+    /// #408: the checked contributor-pool multiply never panics across the full
+    /// i128 range, returns None exactly when the multiply overflows, and divides
+    /// correctly otherwise.
+    #[test]
+    fn prop_contributor_pool_checked_is_overflow_safe(
+        total_pool in any::<i128>(),
+        bps in 0i128..=10_000i128,
+    ) {
+        let result = contributor_pool_checked(total_pool, bps);
+        prop_assert_eq!(result.is_some(), total_pool.checked_mul(bps).is_some());
+        if let Some(cp) = result {
+            prop_assert_eq!(cp, total_pool.checked_mul(bps).unwrap() / 10_000);
+        }
+    }
+
+    /// #408: the checked fee multiply (`amount * bps + 9_999`) never panics across
+    /// the full i128 range and returns None exactly when the computation overflows.
+    #[test]
+    fn prop_fee_amount_checked_is_overflow_safe(
+        amount in any::<i128>(),
+        fee_bps in 0i128..=10_000i128,
+    ) {
+        let result = fee_amount_checked(amount, fee_bps);
+        let ground = amount.checked_mul(fee_bps).and_then(|n| n.checked_add(9_999));
+        prop_assert_eq!(result.is_some(), ground.is_some());
+        if let Some(fee) = result {
+            prop_assert_eq!(fee, ground.unwrap() / 10_000);
         }
     }
 }

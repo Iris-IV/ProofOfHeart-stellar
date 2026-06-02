@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::String;
 
 #[test]
 fn test_pull_based_revenue_distribution() {
@@ -12,9 +12,15 @@ fn test_pull_based_revenue_distribution() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Next Gen AI"),
-        String::from_str(&env, "Build AI"), 2000, 30,
-        Category::EducationalStartup, true, 2000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Next Gen AI"),
+        String::from_str(&env, "Build AI"),
+        2000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -46,9 +52,15 @@ fn test_revenue_sharing_edge_cases() {
         setup_env();
 
     let campaign_nr = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "No Revenue"),
-        String::from_str(&env, "Non-revenue campaign"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "No Revenue"),
+        String::from_str(&env, "Non-revenue campaign"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_nr);
     let res = client.try_claim_revenue(&campaign_nr, &contributor1);
@@ -59,9 +71,15 @@ fn test_revenue_sharing_edge_cases() {
     token_admin.mint(&creator, &100);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Rounding Test"),
-        String::from_str(&env, "Test rounding and pool edge cases"), 3, 30,
-        Category::EducationalStartup, true, 5000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Rounding Test"),
+        String::from_str(&env, "Test rounding and pool edge cases"),
+        3,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -90,9 +108,15 @@ fn test_claim_revenue_requires_contributor_auth() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Revenue Claim Auth"),
-        String::from_str(&env, "Testing claim revenue auth"), 1000, 10,
-        Category::EducationalStartup, true, 1000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Revenue Claim Auth"),
+        String::from_str(&env, "Testing claim revenue auth"),
+        1000,
+        10,
+        Category::EducationalStartup,
+        true,
+        1000,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -128,9 +152,18 @@ fn test_revenue_lifecycle_e2e() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Revenue Sharing Campaign"),
-        String::from_str(&env, "Full lifecycle test: create, fund, withdraw, deposit revenue, claim"),
-        6000, 30, Category::EducationalStartup, true, 2000, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Revenue Sharing Campaign"),
+        String::from_str(
+            &env,
+            "Full lifecycle test: create, fund, withdraw, deposit revenue, claim",
+        ),
+        6000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -163,8 +196,12 @@ fn test_revenue_lifecycle_e2e() {
 
     client.claim_creator_revenue(&campaign_id);
 
-    assert!(client.try_claim_revenue(&campaign_id, &contributor1).is_err());
-    assert!(client.try_claim_revenue(&campaign_id, &contributor2).is_err());
+    assert!(client
+        .try_claim_revenue(&campaign_id, &contributor1)
+        .is_err());
+    assert!(client
+        .try_claim_revenue(&campaign_id, &contributor2)
+        .is_err());
 
     assert!(!env.events().all().is_empty());
 }

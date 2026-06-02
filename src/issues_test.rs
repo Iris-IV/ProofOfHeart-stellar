@@ -1,5 +1,7 @@
 use super::*;
-use soroban_sdk::{testutils::Ledger, Address, Env};
+use soroban_sdk::{
+    testutils::Address as _, testutils::Events as _, testutils::Ledger, Address, Env,
+};
 
 use crate::test::setup_env;
 
@@ -7,7 +9,7 @@ use crate::test::setup_env;
 
 #[test]
 fn test_migrate_success() {
-    let (env, admin, _, _, _, _, _, client) = setup_env();
+    let (_env, admin, _, _, _, _, _, client) = setup_env();
     // version is 1 after init; migrate from 1 → CONTRACT_VERSION (1)
     let result = client.try_migrate(&admin, &1u32);
     assert!(result.is_ok());
@@ -23,10 +25,13 @@ fn test_migrate_wrong_version_fails() {
 
 #[test]
 fn test_migrate_double_run_fails() {
-    let (_, admin, _, _, _, _, _, client) = setup_env();
-    client.migrate(&admin, &1u32);
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&DataKey::Version, &0u32);
+    });
+    client.migrate(&admin, &0u32);
     // version is now CONTRACT_VERSION; calling again with old version fails
-    let result = client.try_migrate(&admin, &1u32);
+    let result = client.try_migrate(&admin, &0u32);
     assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
@@ -199,4 +204,158 @@ fn test_get_campaigns_by_category_small_limit_respected() {
     }
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &5u32);
     assert_eq!(result.len(), 5);
+}
+
+// ── #348 resume_campaign spurious events/state writes ─────────────────────────
+
+#[test]
+fn test_resume_campaign_rejects_when_contract_not_paused() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    let events_before = env.events().all().len();
+    let result = client.try_resume_campaign(&campaign_id, &creator);
+    let events_after = env.events().all().len();
+
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(events_before, events_after);
+}
+
+#[test]
+fn test_resume_campaign_clears_auto_pause_when_active() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&DataKey::AutoPaused, &true);
+    });
+
+    assert!(client.is_paused());
+    client.resume_campaign(&campaign_id, &creator);
+    assert!(!client.is_paused());
+}
+
+// ── #353 pause checks ──
+#[test]
+fn test_paused_admin_parameter_setting_functions_fail() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    client.pause();
+
+    // set_campaign_fee_override should fail when paused
+    let result_fee = client.try_set_campaign_fee_override(&admin, &campaign_id, &100u32);
+    assert_eq!(result_fee.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // set_creation_disabled should fail when paused
+    let result_disabled = client.try_set_creation_disabled(&true);
+    assert_eq!(result_disabled.unwrap_err().unwrap(), Error::ContractPaused);
+}
+
+// ── #355 set_personal_cap limits check ──
+#[test]
+fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
+    let (env, _, creator, contributor, _, _, _, client) = setup_env();
+
+    // Create a campaign with a max_contribution_per_user cap of 500
+    let params = CreateCampaignParams {
+        creator: creator.clone(),
+        title: soroban_sdk::String::from_str(&env, "T"),
+        description: soroban_sdk::String::from_str(&env, "D"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 500,
+    };
+    let campaign_id = client.create_campaign(&params);
+
+    // Setting personal cap equal to or less than 500 should succeed
+    let res1 = client.try_set_personal_cap(&campaign_id, &contributor, &500);
+    assert!(res1.is_ok());
+
+    // Setting personal cap greater than 500 should fail
+    let res2 = client.try_set_personal_cap(&campaign_id, &contributor, &501);
+    assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+// ── #354 vote weight checked addition ──
+#[test]
+fn test_vote_weight_overflow_fails() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    // Mint contributor tokens
+    token_admin.mint(&contributor, &1000);
+
+    // Set high weight manually in storage to simulate a whale or accumulation that would overflow i128::MAX
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
+    });
+
+    // Cast a vote with balance 501, which overflows i128::MAX when added to i128::MAX - 500
+    token_admin.mint(&contributor, &501);
+
+    // cast vote should return Overflow error
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+// ── #360 resume_campaign admin-path coverage ──────────────────────────────────
+
+/// Helper: set the contract into auto-paused state directly in storage.
+fn set_auto_paused(env: &Env, client_address: &Address, paused: bool) {
+    env.as_contract(client_address, || {
+        env.storage().instance().set(&DataKey::AutoPaused, &paused);
+    });
+}
+
+#[test]
+fn test_resume_by_admin() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    set_auto_paused(&env, &client.address, true);
+    assert!(client.is_paused());
+
+    // Admin (not the creator) should be able to resume.
+    client.resume_campaign(&campaign_id, &admin);
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_resume_unauthorized_fails() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let stranger = Address::generate(&env);
+
+    set_auto_paused(&env, &client.address, true);
+
+    let result = client.try_resume_campaign(&campaign_id, &stranger);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
+fn test_resume_after_campaign_transfer_uses_new_creator() {
+    let (env, _admin, original_creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &original_creator));
+
+    let new_creator = Address::generate(&env);
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    client.accept_campaign_transfer(&campaign_id);
+
+    set_auto_paused(&env, &client.address, true);
+    assert!(client.is_paused());
+
+    // New creator can resume; original creator can no longer.
+    client.resume_campaign(&campaign_id, &new_creator);
+    assert!(!client.is_paused());
+
+    // Re-pause and verify the original creator is now rejected.
+    set_auto_paused(&env, &client.address, true);
+    let result = client.try_resume_campaign(&campaign_id, &original_creator);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
 }

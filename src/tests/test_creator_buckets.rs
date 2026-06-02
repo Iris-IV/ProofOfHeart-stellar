@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, LIST_MAX_LIMIT};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{Address, Env, String};
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&make_params(
@@ -17,7 +17,11 @@ fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address
 }
 
 /// Returns all campaign IDs for a creator by paginating.
-fn all_creator_ids(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address) -> soroban_sdk::Vec<u32> {
+fn all_creator_ids(
+    env: &Env,
+    client: &ProofOfHeartClient<'_>,
+    creator: &Address,
+) -> soroban_sdk::Vec<u32> {
     let mut ids = soroban_sdk::Vec::new(env);
     let mut start = 0u32;
     loop {
@@ -57,7 +61,7 @@ fn test_creator_buckets_100_campaigns() {
 
     // LIST_MAX_LIMIT cap
     let big_page = client.get_creator_campaigns(&creator, &0, &u32::MAX);
-    assert_eq!(big_page.len(), LIST_MAX_LIMIT as u32);
+    assert_eq!(big_page.len(), LIST_MAX_LIMIT);
 }
 
 #[test]
@@ -139,7 +143,12 @@ fn test_creator_buckets_transfer_multiple() {
     assert_eq!(receiver_ids.get(2).unwrap(), 7);
 }
 
-fn verify_missing(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, missing_id: u32) -> bool {
+fn verify_missing(
+    env: &Env,
+    client: &ProofOfHeartClient<'_>,
+    creator: &Address,
+    missing_id: u32,
+) -> bool {
     let ids = all_creator_ids(env, client, creator);
     for i in 0..ids.len() {
         if ids.get(i).unwrap() == missing_id {

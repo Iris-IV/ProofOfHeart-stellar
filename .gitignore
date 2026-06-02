@@ -51,6 +51,4 @@ issue*.json
 pr_data.json
 pr_response.json
 
-# target files
-
 fix.md

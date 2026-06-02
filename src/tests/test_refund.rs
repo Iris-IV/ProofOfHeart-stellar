@@ -14,9 +14,15 @@ fn test_cancel_and_refund() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Failed Idea"),
-        String::from_str(&env, "Desc"), 5000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Failed Idea"),
+        String::from_str(&env, "Desc"),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -41,9 +47,15 @@ fn test_claim_refund_requires_contributor_auth() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Auth Refund"),
-        String::from_str(&env, "Only contributor can claim"), 5000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Auth Refund"),
+        String::from_str(&env, "Only contributor can claim"),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -76,9 +88,15 @@ fn test_double_refund_prevention() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Double Refund"),
-        String::from_str(&env, "Test double refund"), 5000, 10,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Double Refund"),
+        String::from_str(&env, "Test double refund"),
+        5000,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -99,9 +117,15 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Failed Campaign"),
-        String::from_str(&env, "Desc"), 10_000, 1,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Failed Campaign"),
+        String::from_str(&env, "Desc"),
+        10_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -132,9 +156,15 @@ fn test_no_refund_when_goal_reached() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Successful Campaign"),
-        String::from_str(&env, "Desc"), 500, 1,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Successful Campaign"),
+        String::from_str(&env, "Desc"),
+        500,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 

@@ -30,11 +30,13 @@ pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 /// * `ValidationFailed` - Quorum or threshold values are out of range.
 pub fn set_params(
     env: &Env,
-    _admin: Address,
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    if min_votes_quorum == 0 || min_votes_quorum > MAX_VOTES_QUORUM || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS || approval_threshold_bps > 10000 {
+    if min_votes_quorum == 0
+        || min_votes_quorum > MAX_VOTES_QUORUM
+        || !(MIN_APPROVAL_THRESHOLD_BPS..=10000).contains(&approval_threshold_bps)
+    {
         return Err(Error::ValidationFailed);
     }
     set_min_votes_quorum(env, min_votes_quorum);
@@ -48,15 +50,19 @@ pub fn set_params(
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignAlreadyVerified` - The campaign is already verified.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
 /// * `NotTokenHolder` - The voter holds no tokens.
 /// * `AlreadyVoted` - The voter has already cast a vote on this campaign.
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
     voter.require_auth();
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn {
+        return Err(Error::CampaignNotActive);
+    }
     require_active_campaign(&campaign)?;
     if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::CampaignNotActive);
+        return Err(Error::DeadlinePassed);
     }
     require_unverified_campaign(&campaign)?;
 
@@ -75,24 +81,32 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     if approve {
-        set_approve_votes(env, campaign_id, get_approve_votes(env, campaign_id) + 1);
-        set_approve_weight(
-            env,
-            campaign_id,
-            get_approve_weight(env, campaign_id) + balance,
-        );
+        let new_count = get_approve_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_votes(env, campaign_id, new_count);
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
     } else {
-        set_reject_votes(env, campaign_id, get_reject_votes(env, campaign_id) + 1);
-        set_reject_weight(
-            env,
-            campaign_id,
-            get_reject_weight(env, campaign_id) + balance,
-        );
+        let new_count = get_reject_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_votes(env, campaign_id, new_count);
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(balance)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
     }
 
     set_has_voted(env, campaign_id, &voter);
-    env.events()
-        .publish(("campaign_vote_cast", campaign_id, voter), approve);
+
+    let vote_weight = balance;
+    env.events().publish(
+        ("campaign_vote_cast", campaign_id, voter),
+        (approve, balance, vote_weight),
+    );
 
     Ok(())
 }
@@ -111,6 +125,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_verified {
         return Err(Error::AdminVerificationConflict);
     }
+    require_active_campaign(&campaign)?;
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
@@ -136,10 +151,13 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_verified {
         return Err(Error::CommunityVerificationConflict);
     }
+    require_active_campaign(&campaign)?;
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);
-    let total_votes = approve_votes + reject_votes;
+    let total_votes = approve_votes
+        .checked_add(reject_votes)
+        .ok_or(Error::Overflow)?;
 
     let min_quorum = get_min_votes_quorum(env, DEFAULT_MIN_VOTES_QUORUM);
     if total_votes < min_quorum {
@@ -149,7 +167,9 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     // Use token-weighted sums for the approval-threshold check.
     let approve_weight = get_approve_weight(env, campaign_id);
     let reject_weight = get_reject_weight(env, campaign_id);
-    let total_weight = approve_weight + reject_weight;
+    let total_weight = approve_weight
+        .checked_add(reject_weight)
+        .ok_or(Error::Overflow)?;
 
     let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
     let approval_bps = if total_weight > 0 {

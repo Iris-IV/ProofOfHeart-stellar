@@ -17,7 +17,7 @@ mod test_refund;
 mod test_refund_edge;
 mod test_revenue;
 mod test_revenue_deposit;
+mod test_storage_ttl;
 mod test_voting;
 mod test_voting_verify;
 mod test_withdraw;
-mod test_storage_ttl;

@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use crate::{Category, Error};
+use soroban_sdk::String;
 
 #[test]
 fn test_community_voting_verification_success() {
@@ -13,9 +13,15 @@ fn test_community_voting_verification_success() {
     token_admin.mint(&voter3, &100);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Community Verified"),
-        String::from_str(&env, "Verify by voting"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Community Verified"),
+        String::from_str(&env, "Verify by voting"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -31,7 +37,10 @@ fn test_community_voting_verification_success() {
     assert!(campaign.is_verified);
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CommunityVerificationConflict);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::CommunityVerificationConflict
+    );
 }
 
 #[test]
@@ -42,9 +51,15 @@ fn test_vote_prevents_double_voting_and_requires_token_holder() {
     token_admin.mint(&contributor1, &100);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Vote Safety"),
-        String::from_str(&env, "No duplicate votes"), 500, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Vote Safety"),
+        String::from_str(&env, "No duplicate votes"),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -73,9 +88,15 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
     assert_eq!(client.get_approval_threshold_bps(), 7500);
 
     let campaign_id_1 = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Quorum Campaign"),
-        String::from_str(&env, "Needs 4 votes"), 700, 30,
-        Category::Publisher, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Quorum Campaign"),
+        String::from_str(&env, "Needs 4 votes"),
+        700,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id_1, &contributor1, &true);
@@ -90,9 +111,15 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
     assert!(client.get_campaign(&campaign_id_1).is_verified);
 
     let campaign_id_2 = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Threshold Campaign"),
-        String::from_str(&env, "Fails threshold"), 700, 30,
-        Category::Publisher, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Threshold Campaign"),
+        String::from_str(&env, "Fails threshold"),
+        700,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id_2, &contributor1, &true);
@@ -155,9 +182,15 @@ fn test_vote_on_campaign_basic_flow() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Voting Test"),
-        String::from_str(&env, "Test voting"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Voting Test"),
+        String::from_str(&env, "Test voting"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -177,9 +210,15 @@ fn test_vote_on_campaign_double_vote_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Double Vote Test"),
-        String::from_str(&env, "Test double voting"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Double Vote Test"),
+        String::from_str(&env, "Test double voting"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -193,9 +232,15 @@ fn test_vote_on_campaign_no_tokens_fails() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "No Token Vote Test"),
-        String::from_str(&env, "Test voting without tokens"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "No Token Vote Test"),
+        String::from_str(&env, "Test voting without tokens"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -210,9 +255,15 @@ fn test_vote_on_campaign_below_minimum_balance_fails() {
     client.set_min_voting_balance(&admin, &500);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Min Balance Vote Test"),
-        String::from_str(&env, "Test voting with insufficient balance"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Min Balance Vote Test"),
+        String::from_str(&env, "Test voting with insufficient balance"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -225,9 +276,15 @@ fn test_vote_on_verified_campaign_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Already Verified"),
-        String::from_str(&env, "Test voting on verified campaign"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Already Verified"),
+        String::from_str(&env, "Test voting on verified campaign"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.verify_campaign(&campaign_id);
