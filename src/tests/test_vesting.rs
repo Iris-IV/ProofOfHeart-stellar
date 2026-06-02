@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::Error;
-use soroban_sdk::testutils::{Address as _, Ledger, Events};
+use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{Address, TryFromVal};
 
 #[test]
@@ -156,8 +156,12 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let last_event = events.last().unwrap();
     let topics = &last_event.1;
     assert_eq!(topics.len(), 2);
-    let topic_str: soroban_sdk::String = soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
-    assert_eq!(topic_str, soroban_sdk::String::from_str(&env, "vesting_disabled"));
+    let topic_str: soroban_sdk::String =
+        soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(
+        topic_str,
+        soroban_sdk::String::from_str(&env, "vesting_disabled")
+    );
     let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
     assert_eq!(admin_in_topics, admin);
 
@@ -204,7 +208,8 @@ fn test_withdraw_event_payload_tuple() {
         .find(|event| {
             let topics = &event.1;
             if topics.len() >= 3 {
-                let topic_str = soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).ok();
+                let topic_str =
+                    soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).ok();
                 topic_str == Some(soroban_sdk::String::from_str(&env, "withdrawal"))
             } else {
                 false

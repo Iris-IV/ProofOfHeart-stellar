@@ -173,8 +173,7 @@ pub(crate) fn set_vesting_params(
     set_withdraw_reserve_percentage(env, reserve_bps);
 
     if delay_days == 0 && reserve_bps == 0 {
-        env.events()
-            .publish(("vesting_disabled", admin), ());
+        env.events().publish(("vesting_disabled", admin), ());
     } else {
         env.events()
             .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
