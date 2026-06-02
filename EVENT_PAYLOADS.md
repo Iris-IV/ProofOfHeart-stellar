@@ -329,8 +329,8 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaign_deadline_extended", campaign_id: u32)`         |
-| Data    | `additional_days: u64`                                     |
-| Source  | `lib.rs:1526` — `extend_campaign_deadline()`               |
+| Data    | `(old_deadline: u64, new_deadline: u64)`                   |
+| Source  | `src/campaigns/update.rs:82` — `extend_campaign_deadline()` |
 
 ---
 
