@@ -122,10 +122,9 @@ pub(crate) fn extend_campaign_deadline(
     campaign.deadline_extended = true;
     set_campaign(env, campaign_id, &campaign);
 
-    env.events()
-        .publish(
-            ("campaign_deadline_extended", campaign_id),
-            (old_deadline, campaign.deadline),
-        );
+    env.events().publish(
+        ("campaign_deadline_extended", campaign_id),
+        (old_deadline, campaign.deadline),
+    );
     Ok(())
 }
