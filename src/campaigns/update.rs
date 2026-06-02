@@ -117,11 +117,14 @@ pub(crate) fn extend_campaign_deadline(
     }
 
     bump_instance_ttl(env);
+    let old_deadline = campaign.deadline;
     campaign.deadline = new_deadline;
     campaign.deadline_extended = true;
     set_campaign(env, campaign_id, &campaign);
 
-    env.events()
-        .publish(("campaign_deadline_extended", campaign_id), additional_days);
+    env.events().publish(
+        ("campaign_deadline_extended", campaign_id),
+        (old_deadline, campaign.deadline),
+    );
     Ok(())
 }

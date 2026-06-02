@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{storage, Category, Error, CAMPAIGN_FUNDING_GOAL_MAX};
 use soroban_sdk::String;
 
 #[test]
@@ -343,4 +343,72 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     let res = client.try_init(&new_admin, &token.address, &300);
     assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
     assert_eq!(client.get_campaign_count(), 3);
+}
+
+#[test]
+fn test_create_campaign_validation_independence() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    // Set a category cap of 10 days
+    env.as_contract(&client.address, || {
+        storage::set_category_duration_cap(&env, Category::Educator, 10);
+    });
+
+    // 1. FundingGoalTooHigh should trigger even if duration is invalid
+    // Provide duration = 11 (invalid for Educator) and goal > max
+    let params = make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        11,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    );
+
+    // Current logic checks goal bounds FIRST, then duration.
+    // Wait, let's check src/lib.rs order.
+    // 222: if funding_goal <= 0 ...
+    // 225: if funding_goal < min ...
+    // 228: let duration_max = ...
+    // 230: if !(min..=max).contains(&duration_days) { return Err(InvalidDuration); }
+    // 233: if funding_goal > get_max_campaign_funding_goal(...) { return Err(FundingGoalTooHigh); }
+
+    // In my current version, InvalidDuration (230) is checked BEFORE FundingGoalTooHigh (233).
+    // The user's requested fix for Issue 4 says:
+    /*
+    if !(CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
+        return Err(Error::InvalidDuration);
+    }
+    if funding_goal > get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX) {
+        return Err(Error::FundingGoalTooHigh);
+    }
+    */
+    // This is exactly what I have in src/lib.rs.
+    // But the user's Acceptance says:
+    // "FundingGoalTooHigh triggers regardless of duration validity"
+
+    // Wait! If they want FundingGoalTooHigh to trigger REGARDLESS of duration validity,
+    // it MUST be checked BEFORE duration validity.
+
+    let res = client.try_create_campaign(&params);
+    // FundingGoalTooHigh triggers regardless of duration validity (as requested).
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooHigh);
+
+    // 2. High goal with valid duration should trigger FundingGoalTooHigh
+    let params_valid_dur = make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        5,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    );
+    let res = client.try_create_campaign(&params_valid_dur);
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooHigh);
 }

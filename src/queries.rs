@@ -1,8 +1,9 @@
 use soroban_sdk::{Address, Env};
 
 use crate::storage::{
-    get_campaign, get_campaign_count, get_category_campaign_bucket, get_category_campaign_count,
-    get_creator_campaign_bucket, get_creator_campaign_count, get_total_raised_global,
+    get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
+    get_category_campaign_bucket, get_category_campaign_count, get_creator_campaign_bucket,
+    get_creator_campaign_count, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, PlatformStats};
@@ -154,37 +155,18 @@ pub(crate) fn get_creator_campaigns(
 }
 
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
+    // O(1) reads from maintained instance-storage counters (#411).
+    // Counters are kept in sync by: create_campaign (+active), cancel_campaign (-active,
+    // +cancelled), withdraw_funds (-active), and admin_verify / verify_with_votes
+    // (+verified). No scan needed; stats_are_partial is always false.
     let total_campaigns = get_campaign_count(env);
-    let mut active_campaigns = 0u32;
-    let mut verified_campaigns = 0u32;
-    let mut cancelled_campaigns = 0u32;
-
-    const MAX_SCAN_LIMIT: u32 = 1000;
-    let scan_end = total_campaigns.min(MAX_SCAN_LIMIT);
-
-    let mut id = 1u32;
-    while id <= scan_end {
-        if let Some(campaign) = get_campaign(env, id) {
-            if campaign.is_active && !campaign.is_cancelled {
-                active_campaigns += 1;
-            }
-            if campaign.is_verified {
-                verified_campaigns += 1;
-            }
-            if campaign.is_cancelled {
-                cancelled_campaigns += 1;
-            }
-        }
-        id += 1;
-    }
-
     PlatformStats {
         total_campaigns,
-        active_campaigns,
-        verified_campaigns,
-        cancelled_campaigns,
+        active_campaigns: get_active_campaign_count(env),
+        verified_campaigns: get_verified_campaign_count(env),
+        cancelled_campaigns: get_cancelled_campaign_count(env),
         total_amount_raised: get_total_raised_global(env),
-        stats_are_partial: total_campaigns > MAX_SCAN_LIMIT,
-        scanned_up_to: scan_end,
+        stats_are_partial: false,
+        scanned_up_to: total_campaigns,
     }
 }

@@ -1,6 +1,9 @@
 use soroban_sdk::{contracttype, Address, String};
 
 /// Represents an optional pending campaign creator for ownership transfers.
+/// Mirrors `Option<Address>` — used instead of the standard `Option` because
+/// Soroban 20.1.0's `#[contracttype]` derive doesn't support `Option<Address>`
+/// as a struct field. Same binary layout (`None == 0`, `Some(addr) == 1(addr)`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MaybePendingCreator {
@@ -8,6 +11,21 @@ pub enum MaybePendingCreator {
     None,
     /// An ownership transfer to this address is pending acceptance.
     Some(Address),
+}
+
+impl MaybePendingCreator {
+    pub fn is_some(&self) -> bool {
+        matches!(self, MaybePendingCreator::Some(_))
+    }
+    pub fn is_none(&self) -> bool {
+        matches!(self, MaybePendingCreator::None)
+    }
+}
+
+impl From<Address> for MaybePendingCreator {
+    fn from(addr: Address) -> Self {
+        MaybePendingCreator::Some(addr)
+    }
 }
 
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.

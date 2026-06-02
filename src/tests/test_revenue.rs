@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -204,4 +204,104 @@ fn test_revenue_lifecycle_e2e() {
         .is_err());
 
     assert!(!env.events().all().is_empty());
+}
+
+#[test]
+fn test_revenue_claim_after_full_refunds_no_panic() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Revenue Refund Test"),
+        String::from_str(&env, "Testing revenue claim after full refund"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000, // 20% revenue share
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Cancel so the contributor is eligible for a refund
+    client.cancel_campaign(&campaign_id);
+
+    // Contributor claims full refund — removes their contribution entry
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 5_000);
+
+    // claim_revenue must not panic; campaign is cancelled so expect CampaignNotActive
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+
+    // claim_creator_revenue must not panic; no revenue deposited so expect NoFundsToWithdraw
+    let res = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
+#[test]
+fn test_claim_creator_revenue_overflow_returns_error_not_panic() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Revenue Overflow"),
+        String::from_str(&env, "total_pool * share must not panic"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    // Inject a pathological revenue pool that overflows total_pool * share_bps.
+    env.as_contract(&client.address, || {
+        storage::set_revenue_pool(&env, campaign_id, i128::MAX);
+    });
+
+    let res = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+#[test]
+fn test_claim_revenue_blocked_before_funds_withdrawn() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Claim Gated On Withdraw"),
+        description: String::from_str(&env, "Revenue claim must wait for funds_withdrawn"),
+        funding_goal: 5000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 2000,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &5000);
+
+    // Funds not yet withdrawn — claim must be rejected.
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Revenue deposits are also blocked before withdrawal.
+    let deposit_res = client.try_deposit_revenue(&campaign_id, &1000);
+    assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // After withdrawal, deposit + claim succeeds.
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &1000);
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert!(client.get_revenue_claimed(&campaign_id, &contributor1) > 0);
 }

@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{Category, CreateCampaignParams, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -139,4 +139,29 @@ fn test_anomaly_auto_pause_burst() {
 
     client.contribute(&campaign_id, &contributor1, &10);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
+}
+
+#[test]
+fn test_huge_contribution_triggers_auto_pause() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Huge Contribution Test"),
+        description: String::from_str(&env, "Testing auto-pause via huge contribution"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Anomaly detection fires (the Err rollback means AutoPaused doesn't persist
+    // through contribute() itself — test the detection, not the persistence).
+    let res = client.try_contribute(&campaign_id, &contributor1, &2001i128);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 }

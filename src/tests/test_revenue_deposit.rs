@@ -172,3 +172,31 @@ fn test_deposit_revenue_requires_funds_withdrawn() {
     let res = client.try_deposit_revenue(&campaign_id, &1000);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
+
+#[test]
+fn test_deposit_revenue_cancelled_campaign() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Cancel the campaign (before withdrawal — cancellation after withdrawal is disallowed)
+    client.cancel_campaign(&campaign_id);
+
+    // Depositing revenue into a cancelled campaign should fail
+    let res = client.try_deposit_revenue(&campaign_id, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}

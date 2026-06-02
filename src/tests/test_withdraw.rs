@@ -155,3 +155,36 @@ fn test_view_function_get_campaign_not_found() {
     let res = client.try_get_campaign(&999);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
 }
+
+#[test]
+fn test_withdraw_funds_overflow_returns_error_not_panic() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    // 10% fee so `amount_raised * fee_bps` can overflow at extreme values.
+    client.update_platform_fee(&1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Withdraw Overflow"),
+        String::from_str(&env, "amount_raised * fee must not panic"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    // Force a pathological amount_raised that overflows the fee multiplication.
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.amount_raised = i128::MAX;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+
+    let res = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}

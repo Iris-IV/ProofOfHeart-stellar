@@ -265,3 +265,124 @@ fn test_creator_campaigns_listing_and_transfer() {
     assert_eq!(list2_after.len(), 1);
     assert_eq!(list2_after.get(0).unwrap().id, id1);
 }
+
+#[test]
+fn test_platform_stats_after_withdrawal() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    // Campaign 1: fund and withdraw
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Withdrawn"),
+        String::from_str(&env, "w"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&c1);
+    client.contribute(&c1, &contributor1, &1000);
+    client.withdraw_funds(&c1);
+
+    // Campaign 2: still active, funded
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Active"),
+        String::from_str(&env, "a"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&c2);
+    client.contribute(&c2, &contributor2, &500);
+
+    let stats = client.get_platform_stats();
+    // Only currently held funds (campaign 2's 500), not the withdrawn 1000
+    assert_eq!(stats.total_amount_raised, 500);
+}
+
+#[test]
+fn list_campaigns_boundary_cases() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    for idx in 0..3 {
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Pagination test"),
+            1_000 + idx as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+        assert_eq!(id, idx + 1);
+    }
+
+    let first_page = client.list_campaigns(&0, &2);
+    assert_eq!(first_page.len(), 2);
+    assert_eq!(first_page.get(0).unwrap().id, 1);
+    assert_eq!(first_page.get(1).unwrap().id, 2);
+
+    let all = client.list_campaigns(&0, &u32::MAX);
+    assert_eq!(all.len(), 3);
+    assert_eq!(all.get(0).unwrap().id, 1);
+    assert_eq!(all.get(2).unwrap().id, 3);
+
+    let total = client.get_campaign_count();
+    assert_eq!(client.list_campaigns(&total, &5).len(), 0);
+    assert_eq!(client.list_campaigns(&(total + 1), &5).len(), 0);
+    assert_eq!(client.list_campaigns(&0, &0).len(), 0);
+}
+
+#[test]
+fn list_active_campaigns_boundary_cases_and_sparse_results() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    for idx in 0..5 {
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Pagination test"),
+            1_000 + idx as i128,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    client.cancel_campaign(&2);
+    client.cancel_campaign(&4);
+
+    let first_page = client.list_active_campaigns(&0, &2);
+    assert_eq!(first_page.0.len(), 2);
+    assert_eq!(first_page.0.get(0).unwrap().id, 1);
+    assert_eq!(first_page.0.get(1).unwrap().id, 3);
+
+    let sparse_page = client.list_active_campaigns(&1, &2);
+    assert_eq!(sparse_page.0.len(), 2);
+    assert_eq!(sparse_page.0.get(0).unwrap().id, 3);
+    assert_eq!(sparse_page.0.get(1).unwrap().id, 5);
+
+    let all = client.list_active_campaigns(&0, &u32::MAX);
+    assert_eq!(all.0.len(), 3);
+    assert_eq!(all.0.get(0).unwrap().id, 1);
+    assert_eq!(all.0.get(1).unwrap().id, 3);
+    assert_eq!(all.0.get(2).unwrap().id, 5);
+
+    let total = client.get_campaign_count();
+    assert_eq!(client.list_active_campaigns(&total, &5).0.len(), 0);
+    assert_eq!(client.list_active_campaigns(&(total + 1), &5).0.len(), 0);
+    assert_eq!(client.list_active_campaigns(&0, &0).0.len(), 0);
+}

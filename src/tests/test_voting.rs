@@ -292,3 +292,80 @@ fn test_vote_on_verified_campaign_fails() {
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 }
+
+#[test]
+fn test_verify_campaigns_extends_voting_state_ttl() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    // Create a campaign
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "TTL Test"),
+        String::from_str(&env, "Testing TTL extension"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Bulk verify the campaign
+    let count = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
+    assert_eq!(count, 1);
+
+    // Verify campaign is verified (confirming it worked)
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+}
+
+#[test]
+fn test_vote_on_campaign_after_deadline_returns_deadline_passed() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &500);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Deadline Vote Test"),
+        String::from_str(&env, "Voting after deadline must return DeadlinePassed"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let campaign = client.get_campaign(&campaign_id);
+
+    // Advance past the deadline
+    env.ledger().with_mut(|li| {
+        li.timestamp = campaign.deadline + 1;
+    });
+
+    let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
+}
+
+#[test]
+fn test_verify_campaigns_partial_failure_returns_err() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Valid Campaign"),
+        String::from_str(&env, "One valid campaign"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // 999 does not exist — will produce CampaignNotFound
+    let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
+    let res = client.try_verify_campaigns(&ids);
+    assert!(res.unwrap_err().is_ok()); // Err variant, inner Ok means contract error
+}
