@@ -555,3 +555,38 @@ fn test_platform_stats_never_partial() {
     assert!(!stats.stats_are_partial);
     assert_eq!(stats.active_campaigns, 5);
 }
+
+// ── #386 creator-claim precision bias ─────────────────────────────────────────
+
+/// Issue #386 — creator claim must not take the contributor-side truncation dust.
+#[test]
+fn test_creator_claim_does_not_absorb_contributor_rounding() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &20_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Issue 386"),
+        description: String::from_str(&env, "Creator claim precision regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let creator_after = token.balance(&creator);
+
+    // Previous residual math paid 5001 here; direct creator-side math must pay 5000.
+    assert_eq!(creator_after - creator_before, 5_000);
+}

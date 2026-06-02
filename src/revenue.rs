@@ -118,13 +118,14 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     }
 
     let total_pool = get_revenue_pool(env, campaign_id);
-    // Checked multiply so a pathological pool yields Error::Overflow, not a panic (#408).
-    // Matches the hardened `claim_revenue` path above.
-    let contributor_pool = total_pool
-        .checked_mul(campaign.revenue_share_percentage as i128)
-        .ok_or(Error::Overflow)?
-        / 10000;
-    let creator_share_total = total_pool - contributor_pool;
+    // Compute creator entitlement directly instead of as a residual from the
+    // contributor pool. This avoids biasing creator payouts upward when
+    // contributor-side division truncates (#386).
+    let creator_share_bps = 10000i128 - campaign.revenue_share_percentage as i128;
+    let creator_share_total = total_pool
+        .checked_mul(creator_share_bps)
+        .and_then(|n| n.checked_div(10000))
+        .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
     let claimable = creator_share_total - already_claimed;
