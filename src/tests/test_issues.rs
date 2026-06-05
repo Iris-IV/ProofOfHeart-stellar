@@ -221,19 +221,28 @@ fn test_resume_campaign_clears_auto_pause_when_active() {
     assert!(!client.is_paused());
 }
 
-// ── #353 pause checks ──
+// ── #353 / #388 pause checks ──
+// Updated for #388: admin governance functions must succeed even while paused so the
+// admin can adjust parameters and recover ownership during an emergency pause.
 #[test]
-fn test_paused_admin_parameter_setting_functions_fail() {
+fn test_paused_admin_parameter_setting_functions_succeed() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
 
     client.pause();
 
     let result_fee = client.try_set_campaign_fee_override(&admin, &campaign_id, &100u32);
-    assert_eq!(result_fee.unwrap_err().unwrap(), Error::ContractPaused);
+    assert!(
+        result_fee.is_ok(),
+        "set_campaign_fee_override must succeed while paused"
+    );
 
     let result_disabled = client.try_set_creation_disabled(&true);
-    assert_eq!(result_disabled.unwrap_err().unwrap(), Error::ContractPaused);
+    assert!(
+        result_disabled.is_ok(),
+        "set_creation_disabled must succeed while paused"
+    );
+    let _ = campaign_id;
 }
 
 // ── #355 set_personal_cap limits check ──
@@ -412,4 +421,137 @@ fn test_pending_creator_some_round_trip() {
         let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
         assert_eq!(read.pending_creator, MaybePendingCreator::Some(pending));
     });
+}
+
+// ── #388 admin governance unblocked during pause ──────────────────────────────
+
+fn pause_contract(client: &ProofOfHeartClient) {
+    client.pause();
+    assert!(client.is_paused());
+}
+
+/// Issue #388 — admin can update the platform fee while the contract is paused.
+#[test]
+fn test_update_platform_fee_while_paused() {
+    let (_, _admin, _, _, _, _, _, client) = setup_env();
+    pause_contract(&client);
+    let result = client.try_update_platform_fee(&100u32);
+    assert!(
+        result.is_ok(),
+        "admin must be able to update fee while paused"
+    );
+    assert_eq!(client.get_platform_fee(), 100);
+}
+
+/// Issue #388 — admin can initiate an ownership transfer while the contract is paused
+/// (critical recovery path: compromised key → transfer to safe address while paused).
+#[test]
+fn test_initiate_admin_transfer_while_paused() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    pause_contract(&client);
+    let new_admin = Address::generate(&env);
+    let result = client.try_initiate_admin_transfer(&admin, &new_admin);
+    assert!(
+        result.is_ok(),
+        "admin transfer must be initiable while paused"
+    );
+    assert_eq!(client.get_pending_admin(), Some(new_admin));
+}
+
+/// Issue #388 — pending admin can accept the transfer while paused.
+#[test]
+fn test_accept_admin_transfer_while_paused() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    let new_admin = Address::generate(&env);
+    client.initiate_admin_transfer(&admin, &new_admin);
+    pause_contract(&client);
+    let result = client.try_accept_admin_transfer();
+    assert!(
+        result.is_ok(),
+        "pending admin must be able to accept while paused"
+    );
+    assert_eq!(client.get_admin(), new_admin);
+}
+
+/// Issue #388 — admin can cancel a pending admin transfer while paused.
+#[test]
+fn test_cancel_admin_transfer_while_paused() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    let new_admin = Address::generate(&env);
+    client.initiate_admin_transfer(&admin, &new_admin);
+    pause_contract(&client);
+    let result = client.try_cancel_admin_transfer(&admin);
+    assert!(
+        result.is_ok(),
+        "admin must be able to cancel transfer while paused"
+    );
+    assert_eq!(client.get_pending_admin(), None);
+}
+
+/// Issue #388 — admin can adjust voting parameters while paused.
+#[test]
+fn test_set_voting_params_while_paused() {
+    let (_, admin, _, _, _, _, _, client) = setup_env();
+    pause_contract(&client);
+    let result = client.try_set_voting_params(&admin, &5u32, &6000u32);
+    assert!(
+        result.is_ok(),
+        "admin must be able to set voting params while paused"
+    );
+}
+
+// ── #411 get_platform_stats O(1) counter reads ────────────────────────────────
+
+/// Issue #411 — stats counters match actual campaign lifecycle transitions.
+#[test]
+fn test_platform_stats_counters_track_lifecycle() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    // Baseline: no campaigns yet.
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.cancelled_campaigns, 0);
+    assert_eq!(stats.verified_campaigns, 0);
+    assert!(!stats.stats_are_partial);
+
+    // Create two campaigns.
+    let p1 = make_campaign_params_simple(&env, &creator);
+    let p2 = make_campaign_params_simple(&env, &creator);
+    let id1 = client.create_campaign(&p1);
+    let id2 = client.create_campaign(&p2);
+
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 2);
+
+    // Cancel one — active count drops, cancelled count rises.
+    client.cancel_campaign(&id1);
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.active_campaigns, 1);
+    assert_eq!(stats.cancelled_campaigns, 1);
+
+    // Verify the remaining active campaign.
+    client.verify_campaign(&id2);
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.verified_campaigns, 1);
+
+    // stats_are_partial must always be false after the O(1) refactor.
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.scanned_up_to, stats.total_campaigns);
+    let _ = (id1, id2, admin);
+}
+
+/// Issue #411 — stats_are_partial is always false regardless of campaign count.
+#[test]
+fn test_platform_stats_never_partial() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    for _ in 0..5 {
+        client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    }
+
+    let stats = client.get_platform_stats();
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.active_campaigns, 5);
 }

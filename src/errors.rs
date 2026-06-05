@@ -85,4 +85,6 @@ pub enum Error {
     InvalidPlatformFee = 39,
     /// A campaign transfer is already pending; cancel it before initiating a new one.
     TransferAlreadyPending = 40,
+    /// Vesting delay days must be greater than zero.
+    InvalidVestingDelay = 41,
 }

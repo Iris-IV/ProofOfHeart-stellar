@@ -194,10 +194,10 @@ impl ProofOfHeart {
 
         for idx in 0..batch_size {
             if let Some(campaign_id) = campaign_ids.get(idx) {
+                storage::extend_voting_state_ttl(&env, campaign_id);
                 match voting::admin_verify(&env, campaign_id) {
                     Ok(()) => {
                         verified_count += 1;
-                        storage::extend_voting_state_ttl(&env, campaign_id);
                     }
                     Err(e) => {
                         if first_error.is_none() {

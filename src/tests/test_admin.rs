@@ -196,8 +196,12 @@ fn test_pause_blocks_state_changing_operations() {
     let res = client.try_verify_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 
+    // Admin governance functions must succeed while paused (#388).
     let res = client.try_update_platform_fee(&400);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+    assert!(
+        res.is_ok(),
+        "update_platform_fee must succeed while paused (#388)"
+    );
 
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.title, String::from_str(&env, "Paused Test"));
