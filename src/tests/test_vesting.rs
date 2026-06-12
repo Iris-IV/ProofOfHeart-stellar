@@ -1,6 +1,7 @@
 use super::helpers::*;
 use crate::Error;
-use soroban_sdk::testutils::Ledger;
+use soroban_sdk::testutils::{Events, Ledger};
+use soroban_sdk::{Address, TryFromVal};
 
 #[test]
 fn test_withdrawal_vesting_full_flow() {
@@ -138,4 +139,87 @@ fn test_withdraw_reserve_when_paused_fails() {
     client.pause();
     let res = client.try_withdraw_reserve(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+}
+
+#[test]
+fn test_set_vesting_params_validation_and_disabled_event() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+
+    // 1. Try setting delay_days = 0 with reserve_bps > 0 - should fail with InvalidVestingDelay
+    let res = client.try_set_vesting_params(&admin, &0, &2000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidVestingDelay);
+
+    // 2. Try setting both to 0 - should succeed and emit vesting_disabled event
+    client.set_vesting_params(&admin, &0, &0);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let topics = &last_event.1;
+    assert_eq!(topics.len(), 2);
+    let topic_str: soroban_sdk::String =
+        soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(
+        topic_str,
+        soroban_sdk::String::from_str(&env, "vesting_disabled")
+    );
+    let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(admin_in_topics, admin);
+
+    let data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, ());
+}
+
+#[test]
+fn test_withdraw_event_payload_tuple() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    // Setup vesting params: 7 days delay, 20% reserve (2000 bps)
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let params = CreateCampaignParams {
+        creator: creator.clone(),
+        title: soroban_sdk::String::from_str(&env, "Withdraw Event"),
+        description: soroban_sdk::String::from_str(&env, "Test event data"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    };
+    let campaign_id = client.create_campaign(&params);
+    client.verify_campaign(&campaign_id);
+
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    // Fast forward to deadline
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * 86400;
+    });
+
+    client.withdraw_funds(&campaign_id);
+
+    // Filter events for "withdrawal"
+    let events = env.events().all();
+    let withdraw_event = events
+        .iter()
+        .find(|event| {
+            let topics = &event.1;
+            if topics.len() >= 3 {
+                let topic_str =
+                    soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).ok();
+                topic_str == Some(soroban_sdk::String::from_str(&env, "withdrawal"))
+            } else {
+                false
+            }
+        })
+        .expect("should find withdrawal event");
+
+    // data payload should be a tuple (fee_amount, creator_amount, reserve_amount)
+    // Goal: 1000. Fee (3% default): 30. Remaining: 970.
+    // Reserve (20% of 970): 194. Immediate: 776.
+    let data: (i128, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
+    assert_eq!(data, (30, 776, 194));
 }

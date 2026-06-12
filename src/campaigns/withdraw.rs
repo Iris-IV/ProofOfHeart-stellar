@@ -102,7 +102,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     env.events().publish(
         ("withdrawal", campaign_id, campaign.creator.clone()),
-        creator_amount,
+        (fee_amount, creator_amount, reserve_amount),
     );
 
     if reserve_amount > 0 {
@@ -165,12 +165,19 @@ pub(crate) fn set_vesting_params(
     if reserve_bps > 10000 || delay_days > 365 {
         return Err(Error::ValidationFailed);
     }
+    if delay_days == 0 && reserve_bps > 0 {
+        return Err(Error::InvalidVestingDelay);
+    }
 
     set_withdraw_release_delay_days(env, delay_days);
     set_withdraw_reserve_percentage(env, reserve_bps);
 
-    env.events()
-        .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
+    if delay_days == 0 && reserve_bps == 0 {
+        env.events().publish(("vesting_disabled", admin), ());
+    } else {
+        env.events()
+            .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
+    }
 
     Ok(())
 }

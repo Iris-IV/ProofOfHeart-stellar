@@ -59,7 +59,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("withdrawal", campaign_id: u32, creator: Address)`       |
-| Data    | `creator_amount: i128`                                     |
+| Data    | `(fee_amount: i128, creator_amount: i128, reserve_amount: i128)` |
 | Source  | `lib.rs:533` — `withdraw_funds()`                          |
 
 ---
@@ -90,6 +90,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 |---------|------------------------------------------------------------|
 | Topics  | `("vesting_params_updated", admin: Address)`               |
 | Data    | `(delay_days: u64, reserve_bps: u32)`                      |
+| Source  | `lib.rs:606` — `set_vesting_params()`                      |
+
+---
+
+### `vesting_disabled`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("vesting_disabled", admin: Address)`                     |
+| Data    | `()`                                                       |
 | Source  | `lib.rs:606` — `set_vesting_params()`                      |
 
 ---
