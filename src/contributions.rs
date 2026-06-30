@@ -8,8 +8,8 @@ use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
     get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
     increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
-    set_campaign, set_campaign_block_contribution_count, set_contribution, set_lifetime_contribution,
-    set_personal_cap, set_total_raised_global, DataKey,
+    set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_lifetime_contribution, set_personal_cap, set_total_raised_global, DataKey,
 };
 use crate::types::Campaign;
 

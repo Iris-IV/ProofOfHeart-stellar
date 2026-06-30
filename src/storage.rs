@@ -289,6 +289,7 @@ pub fn remove_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
 }
 
 /// Removes a contributor's lifetime contribution record.
+#[expect(dead_code)]
 pub fn remove_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::LifetimeContribution(campaign_id, contributor.clone());
     env.storage().persistent().remove(&key);
