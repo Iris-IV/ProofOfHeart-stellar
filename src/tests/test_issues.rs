@@ -1,5 +1,7 @@
 use super::helpers::*;
-use crate::{Campaign, DataKey, Error, MaybePendingCreator, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS};
+use crate::{
+    Campaign, DataKey, Error, MaybePendingCreator, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
