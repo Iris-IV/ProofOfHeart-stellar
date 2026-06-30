@@ -301,6 +301,23 @@ impl ProofOfHeart {
         admin::remove_category_duration_cap(&env, admin, category)
     }
 
+    pub fn set_category_funding_goal_cap(
+        env: Env,
+        admin: Address,
+        category: Category,
+        max_goal: i128,
+    ) -> Result<(), Error> {
+        admin::set_category_funding_goal_cap(&env, admin, category, max_goal)
+    }
+
+    pub fn remove_category_funding_goal_cap(
+        env: Env,
+        admin: Address,
+        category: Category,
+    ) -> Result<(), Error> {
+        admin::remove_category_funding_goal_cap(&env, admin, category)
+    }
+
     pub fn set_min_campaign_funding_goal(
         env: Env,
         admin: Address,
@@ -454,6 +471,14 @@ impl ProofOfHeart {
 
     pub fn get_max_campaign_funding_goal(env: Env) -> i128 {
         get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX)
+    }
+
+    pub fn get_category_funding_goal_cap(env: Env, category: Category) -> i128 {
+        let global_max_goal = get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX);
+        match storage::get_category_funding_goal_cap(&env, category) {
+            Some(category_max_goal) if category_max_goal < global_max_goal => category_max_goal,
+            _ => global_max_goal,
+        }
     }
 
     pub fn get_min_voting_balance(env: Env) -> i128 {

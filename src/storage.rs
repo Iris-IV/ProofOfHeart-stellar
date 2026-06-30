@@ -109,6 +109,8 @@ pub enum DataKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
+    /// Per-category maximum funding goal cap, keyed by category discriminant.
+    CategoryFundingGoalCap(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -248,6 +250,24 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
     env.storage()
         .instance()
         .set(&DataKey::MaxCampaignFundingGoal, &max_goal);
+}
+
+/// Returns the maximum funding goal configured for a category, if present.
+pub fn get_category_funding_goal_cap(env: &Env, category: Category) -> Option<i128> {
+    let key = DataKey::CategoryFundingGoalCap(category as u32);
+    env.storage().instance().get(&key)
+}
+
+/// Stores the maximum funding goal configured for a category.
+pub fn set_category_funding_goal_cap(env: &Env, category: Category, max_goal: i128) {
+    let key = DataKey::CategoryFundingGoalCap(category as u32);
+    env.storage().instance().set(&key, &max_goal);
+}
+
+/// Removes a per-category funding goal cap, reverting to the global maximum.
+pub fn remove_category_funding_goal_cap(env: &Env, category: Category) {
+    let key = DataKey::CategoryFundingGoalCap(category as u32);
+    env.storage().instance().remove(&key);
 }
 
 // ── Contributions ─────────────────────────────────────────────────────────────

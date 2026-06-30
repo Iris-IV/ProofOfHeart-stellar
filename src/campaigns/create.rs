@@ -4,12 +4,12 @@ use crate::errors::Error;
 use crate::lifecycle::{calculate_deadline, require_not_paused};
 use crate::storage::{
     bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
-    get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
-    get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
-    get_min_campaign_funding_goal, set_campaign, set_campaign_count, set_campaign_start_time,
-    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_category_campaign_count, get_category_duration_cap, get_category_funding_goal_cap,
+    get_creation_disabled, get_creator_campaign_bucket, get_creator_campaign_count,
+    get_max_campaign_funding_goal, get_min_campaign_funding_goal, set_campaign, set_campaign_count,
+    set_campaign_start_time, set_category_campaign_bucket, set_category_campaign_count,
+    set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -38,7 +38,14 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     if funding_goal < get_min_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MIN) {
         return Err(Error::FundingGoalTooLow);
     }
-    if funding_goal > get_max_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MAX) {
+    let global_max_goal = get_max_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MAX);
+    let category_max_goal = get_category_funding_goal_cap(env, category).unwrap_or(global_max_goal);
+    let effective_max_goal = if category_max_goal < global_max_goal {
+        category_max_goal
+    } else {
+        global_max_goal
+    };
+    if funding_goal > effective_max_goal {
         return Err(Error::FundingGoalTooHigh);
     }
     let duration_max =

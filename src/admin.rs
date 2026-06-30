@@ -220,6 +220,42 @@ pub(crate) fn remove_category_duration_cap(
     Ok(())
 }
 
+pub(crate) fn set_category_funding_goal_cap(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+    max_goal: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if max_goal <= 0 {
+        return Err(Error::FundingGoalMustBePositive);
+    }
+    if max_goal < get_min_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MIN) {
+        return Err(Error::ValidationFailed);
+    }
+    if max_goal > get_max_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MAX) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    storage::set_category_funding_goal_cap(env, category, max_goal);
+    env.events()
+        .publish(("category_funding_goal_cap_set", category as u32), max_goal);
+    Ok(())
+}
+
+pub(crate) fn remove_category_funding_goal_cap(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    bump_instance_ttl(env);
+    storage::remove_category_funding_goal_cap(env, category);
+    env.events()
+        .publish(("category_funding_goal_cap_removed", category as u32), ());
+    Ok(())
+}
+
 pub(crate) fn set_min_campaign_funding_goal_fn(
     env: &Env,
     admin: Address,
