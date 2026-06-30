@@ -1,12 +1,15 @@
 use soroban_sdk::{Address, Env};
 
+use crate::errors::Error;
+use crate::lifecycle::get_campaign_or_error;
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
-    get_category_campaign_bucket, get_category_campaign_count, get_creator_campaign_bucket,
-    get_creator_campaign_count, get_total_raised_global, get_verified_campaign_count,
+    get_category_campaign_bucket, get_category_campaign_count, get_contributor_count,
+    get_creator_campaign_bucket, get_creator_campaign_count, get_last_contribution_time,
+    get_top_contributor, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, PlatformStats};
+use crate::types::{Campaign, CampaignStats, Category, PlatformStats};
 
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
@@ -152,6 +155,23 @@ pub(crate) fn get_creator_campaigns(
     }
 
     campaigns
+}
+
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> Result<CampaignStats, Error> {
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let avg_contribution = if contributor_count > 0 {
+        campaign.effective_amount_raised / i128::from(contributor_count)
+    } else {
+        0
+    };
+
+    Ok(CampaignStats {
+        contributor_count,
+        top_contributor: get_top_contributor(env, campaign_id),
+        avg_contribution,
+        last_contribution_time: get_last_contribution_time(env, campaign_id),
+    })
 }
 
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {

@@ -412,6 +412,10 @@ impl ProofOfHeart {
         get_contributor_count(&env, campaign_id)
     }
 
+    pub fn get_campaign_stats(env: Env, campaign_id: u32) -> Result<CampaignStats, Error> {
+        queries::get_campaign_stats(&env, campaign_id)
+    }
+
     pub fn get_contribution(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_contribution(&env, campaign_id, &contributor)
     }

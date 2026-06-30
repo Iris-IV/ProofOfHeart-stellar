@@ -5,12 +5,14 @@ use crate::lifecycle::{
     get_campaign_or_error, require_active_campaign, require_not_paused, token_client,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
+    bump_instance_ttl, clear_top_contributor, decrement_contributor_count,
+    get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
+    get_personal_cap, get_top_contribution_amount, get_top_contributor, get_total_raised_global,
     increment_contributor_count, remove_contribution, remove_lifetime_contribution,
     remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count, set_contribution, set_lifetime_contribution,
-    set_personal_cap, set_total_raised_global, DataKey,
+    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
+    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
+    DataKey,
 };
 
 pub(crate) fn contribute(
@@ -100,6 +102,13 @@ pub(crate) fn contribute(
         increment_contributor_count(env, campaign_id);
     }
 
+    let new_contribution = current + amount;
+    let top_amount = get_top_contribution_amount(env, campaign_id);
+    if new_contribution >= top_amount {
+        set_top_contributor(env, campaign_id, &contributor, new_contribution);
+    }
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(env, total_raised + amount);
 
@@ -128,6 +137,9 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     }
 
     bump_instance_ttl(env);
+    if get_top_contributor(env, campaign_id).as_ref() == Some(&contributor) {
+        clear_top_contributor(env, campaign_id);
+    }
     remove_contribution(env, campaign_id, &contributor);
     remove_lifetime_contribution(env, campaign_id, &contributor);
     remove_revenue_claimed(env, campaign_id, &contributor);
