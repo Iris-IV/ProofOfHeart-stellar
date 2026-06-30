@@ -15,6 +15,7 @@ pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 pub(crate) const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
+pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = 10000; // 100% — hard limit, basis-point formula requires fee <= 10000
 pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
