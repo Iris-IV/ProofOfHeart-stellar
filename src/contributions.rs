@@ -109,6 +109,13 @@ pub(crate) fn contribute(
         increment_contributor_count(env, campaign_id);
     }
 
+    let new_contribution = current + amount;
+    let top_amount = get_top_contribution_amount(env, campaign_id);
+    if new_contribution >= top_amount {
+        set_top_contributor(env, campaign_id, &contributor, new_contribution);
+    }
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(env, total_raised + amount);
 
@@ -137,6 +144,9 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     }
 
     bump_instance_ttl(env);
+    if get_top_contributor(env, campaign_id).as_ref() == Some(&contributor) {
+        clear_top_contributor(env, campaign_id);
+    }
     remove_contribution(env, campaign_id, &contributor);
     remove_revenue_claimed(env, campaign_id, &contributor);
     remove_personal_cap(env, campaign_id, &contributor);

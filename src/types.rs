@@ -106,6 +106,20 @@ pub struct Campaign {
     pub uses_milestones: bool,
 }
 
+/// Aggregate contribution metrics for a single campaign detail view.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignStats {
+    /// Number of contributors with a non-zero live balance.
+    pub contributor_count: u32,
+    /// Address of the largest current contributor, if any.
+    pub top_contributor: Option<Address>,
+    /// Mean live contribution per current contributor (`effective_amount_raised / contributor_count`).
+    pub avg_contribution: i128,
+    /// Ledger timestamp of the most recent contribution to this campaign.
+    pub last_contribution_time: u64,
+}
+
 /// Aggregate platform metrics for dashboard and indexer consumers.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
