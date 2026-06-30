@@ -95,7 +95,10 @@ pub struct CampaignStats {
     /// Number of contributors with a non-zero live balance.
     pub contributor_count: u32,
     /// Address of the largest current contributor, if any.
-    pub top_contributor: Option<Address>,
+    /// Uses `MaybePendingCreator` instead of `Option<Address>` because
+    /// Soroban 20.1.0's `#[contracttype]` derive doesn't support
+    /// `Option<Address>` as a struct field.
+    pub top_contributor: MaybePendingCreator,
     /// Mean live contribution per current contributor (`effective_amount_raised / contributor_count`).
     pub avg_contribution: i128,
     /// Ledger timestamp of the most recent contribution to this campaign.
