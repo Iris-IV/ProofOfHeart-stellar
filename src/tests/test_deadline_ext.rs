@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{Category, Error, SECONDS_PER_DAY};
 use soroban_sdk::String;
 
 #[test]
@@ -22,7 +22,7 @@ fn test_extend_campaign_deadline_happy_path() {
     client.extend_campaign_deadline(&id, &7);
 
     let new_deadline = client.get_campaign(&id).deadline;
-    assert_eq!(new_deadline, original_deadline + 7 * 86400);
+    assert_eq!(new_deadline, original_deadline + 7 * SECONDS_PER_DAY);
     assert!(client.get_campaign(&id).deadline_extended);
 }
 
@@ -51,7 +51,7 @@ fn test_extend_deadline_emits_event() {
 
     let payload: (u64, u64) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
     assert_eq!(payload.0, original_deadline);
-    assert_eq!(payload.1, original_deadline + 5 * 86400);
+    assert_eq!(payload.1, original_deadline + 5 * SECONDS_PER_DAY);
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn test_extend_deadline_max_30_days_allowed() {
     client.extend_campaign_deadline(&id, &30);
 
     let new_deadline = client.get_campaign(&id).deadline;
-    assert_eq!(new_deadline, original_deadline + 30 * 86400);
+    assert_eq!(new_deadline, original_deadline + 30 * SECONDS_PER_DAY);
 }
 
 #[test]

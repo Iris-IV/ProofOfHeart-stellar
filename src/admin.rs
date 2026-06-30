@@ -303,7 +303,7 @@ pub(crate) fn propose_token_update(
     let release_after = env
         .ledger()
         .timestamp()
-        .checked_add(7 * 86400)
+        .checked_add(crate::TOKEN_UPDATE_DELAY_SECS)
         .ok_or(Error::ValidationFailed)?;
 
     bump_instance_ttl(env);

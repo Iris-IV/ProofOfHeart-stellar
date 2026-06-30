@@ -100,7 +100,7 @@ pub(crate) fn extend_campaign_deadline(
 
     let new_deadline = campaign
         .deadline
-        .checked_add(additional_days * 86400)
+        .checked_add(additional_days * crate::SECONDS_PER_DAY)
         .ok_or(Error::Overflow)?;
 
     let start_time = campaign_start_time_or_error(env, campaign_id)?;
@@ -110,7 +110,7 @@ pub(crate) fn extend_campaign_deadline(
     let total_duration_seconds = new_deadline
         .checked_sub(start_time)
         .ok_or(Error::Overflow)?;
-    let total_duration_days = total_duration_seconds / 86400;
+    let total_duration_days = total_duration_seconds / crate::SECONDS_PER_DAY;
 
     if total_duration_days > category_cap {
         return Err(Error::InvalidDuration);

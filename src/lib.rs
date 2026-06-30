@@ -20,6 +20,8 @@ pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
 pub(crate) const LIST_MAX_LIMIT: u32 = 50;
+pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
+pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 
 mod admin;
 mod campaigns;

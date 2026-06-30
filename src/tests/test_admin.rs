@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{Category, Error, TOKEN_UPDATE_DELAY_SECS};
 use soroban_sdk::{Address, String};
 
 #[test]
@@ -242,7 +242,7 @@ fn test_token_swap_blocked_with_active_campaign() {
 
     // Advance timestamp past the 7-day delay.
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     // Must fail: there is still an active campaign with escrowed funds.
@@ -278,7 +278,7 @@ fn test_token_swap_succeeds_after_all_campaigns_terminal() {
     client.propose_token_update(&admin, &new_token_address);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     // All campaigns terminal (withdrawn) → swap must succeed.
@@ -309,7 +309,7 @@ fn test_token_swap_succeeds_after_campaign_cancelled() {
     client.propose_token_update(&admin, &new_token_address);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     let res = client.try_accept_token_update(&admin);
@@ -347,7 +347,7 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     // Must still be blocked: outstanding balance remains in the old token.

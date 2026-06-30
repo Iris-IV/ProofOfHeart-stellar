@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::storage;
-use crate::{Category, DataKey, Error};
+use crate::{Category, DataKey, Error, SECONDS_PER_DAY};
 use soroban_sdk::String;
 
 #[test]
@@ -281,7 +281,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
     client.contribute(&id, &contributor1, &500);
 
     env.ledger().with_mut(|li| {
-        li.timestamp += 31 * 86400;
+        li.timestamp += 31 * SECONDS_PER_DAY;
     });
 
     client.claim_refund(&id, &contributor1);

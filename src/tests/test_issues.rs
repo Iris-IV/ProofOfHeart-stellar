@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Campaign, DataKey, Error, MaybePendingCreator};
+use crate::{Campaign, DataKey, Error, MaybePendingCreator, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
@@ -68,7 +68,7 @@ fn test_accept_token_update_after_delay_succeeds() {
     client.propose_token_update(&admin, &new_token);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     client.accept_token_update(&admin);
@@ -159,7 +159,7 @@ fn test_platform_stats_after_withdraw() {
     client.contribute(&id, &contributor, &1);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 31 * 86400;
+        l.timestamp += 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&id);
