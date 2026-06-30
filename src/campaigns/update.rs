@@ -61,6 +61,7 @@ pub(crate) fn update_campaign_description(
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
 
+    require_unverified_campaign(&campaign)?;
     require_active_campaign(&campaign)?;
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
         || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
@@ -71,6 +72,7 @@ pub(crate) fn update_campaign_description(
     bump_instance_ttl(env);
     let event_desc = description.clone();
     campaign.description = description;
+    campaign.is_verified = false;
     set_campaign(env, campaign_id, &campaign);
 
     env.events()

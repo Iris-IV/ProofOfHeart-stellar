@@ -159,7 +159,7 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
-    if new_fee > crate::PLATFORM_FEE_MAX_BPS {
+    if new_fee > crate::PLATFORM_FEE_MAX_BPS || new_fee > 10000 {
         return Err(Error::InvalidPlatformFee);
     }
     let old_fee = get_platform_fee(env);
