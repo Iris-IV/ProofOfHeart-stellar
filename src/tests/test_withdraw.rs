@@ -111,6 +111,44 @@ fn test_withdraw_funds_succeeds_when_verified() {
 }
 
 #[test]
+fn test_withdraw_funds_fee_uses_effective_amount_after_refund() {
+    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+    token_admin.mint(&contributor2, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Effective Fee Basis"),
+        String::from_str(&env, "Refunded funds must not pay platform fees"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+    client.contribute(&campaign_id, &contributor2, &1_000);
+
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.effective_amount_raised = 1_000;
+        storage::set_campaign(&env, campaign_id, &campaign);
+        storage::remove_contribution(&env, campaign_id, &contributor2);
+        storage::set_total_raised_global(&env, 1_000);
+    });
+    token.transfer(&client.address, &contributor2, &1_000);
+
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 30);
+    assert_eq!(token.balance(&creator), 970);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
 fn test_claim_refund_removes_contribution_storage_key() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);
@@ -178,10 +216,10 @@ fn test_withdraw_funds_overflow_returns_error_not_panic() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
 
-    // Force a pathological amount_raised that overflows the fee multiplication.
+    // Force a pathological effective_amount_raised that overflows the fee multiplication.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.amount_raised = i128::MAX;
+        campaign.effective_amount_raised = i128::MAX;
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
