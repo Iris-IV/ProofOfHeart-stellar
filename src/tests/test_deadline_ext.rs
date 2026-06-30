@@ -246,3 +246,32 @@ fn test_extend_deadline_without_start_time_keeps_deadline_unchanged() {
     assert_eq!(client.get_campaign(&id).deadline, original_deadline);
     assert!(!client.get_campaign(&id).deadline_extended);
 }
+
+#[test]
+fn test_extend_deadline_absolute_max_cap_enforced() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // Create a campaign with 350 days duration (within 365-day absolute cap)
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Absolute Cap"),
+        String::from_str(&env, "Absolute cap test"),
+        1000,
+        350,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Trying to extend by 30 days would push total to 380 > 365 absolute cap
+    let res = client.try_extend_campaign_deadline(&id, &30);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
+
+    // Extending by 15 days is fine: total = 365, which equals the cap
+    let res = client.try_extend_campaign_deadline(&id, &15);
+    assert!(res.is_ok());
+
+    let campaign = client.get_campaign(&id);
+    assert!(campaign.deadline_extended);
+}

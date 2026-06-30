@@ -115,6 +115,9 @@ pub(crate) fn extend_campaign_deadline(
     if total_duration_days > category_cap {
         return Err(Error::InvalidDuration);
     }
+    if total_duration_days > crate::CAMPAIGN_EXTENSION_MAX_DAYS {
+        return Err(Error::InvalidDuration);
+    }
 
     bump_instance_ttl(env);
     let old_deadline = campaign.deadline;

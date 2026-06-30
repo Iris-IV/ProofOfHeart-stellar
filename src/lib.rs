@@ -11,6 +11,7 @@ pub(crate) const CAMPAIGN_DESCRIPTION_MIN_LEN: u32 = 1;
 pub(crate) const CAMPAIGN_DESCRIPTION_MAX_LEN: u32 = 1000;
 pub(crate) const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
 pub(crate) const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
+pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 pub(crate) const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
