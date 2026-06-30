@@ -38,3 +38,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo test --features testutils
       - run: cargo build --target wasm32-unknown-unknown --release
+
+  stellar-cli-sandbox:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo install --locked stellar-cli
+      - run: cargo build --target wasm32-unknown-unknown --release
+      - run: bash scripts/stellar_cli_happy_path.sh
