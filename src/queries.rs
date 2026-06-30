@@ -9,7 +9,7 @@ use crate::storage::{
     get_top_contributor, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, CampaignStats, Category, PlatformStats};
+use crate::types::{Campaign, CampaignStats, Category, MaybePendingCreator, PlatformStats};
 
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
@@ -166,9 +166,14 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> Result<Campaign
         0
     };
 
+    let top_contributor = match get_top_contributor(env, campaign_id) {
+        Some(addr) => MaybePendingCreator::Some(addr),
+        None => MaybePendingCreator::None,
+    };
+
     Ok(CampaignStats {
         contributor_count,
-        top_contributor: get_top_contributor(env, campaign_id),
+        top_contributor,
         avg_contribution,
         last_contribution_time: get_last_contribution_time(env, campaign_id),
     })
