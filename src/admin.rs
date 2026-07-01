@@ -9,12 +9,11 @@ use crate::storage::{
     get_pending_token_release, get_platform_fee, get_token, get_total_raised_global, get_version,
     is_initialized, remove_has_voted, remove_pending_admin, remove_pending_token,
     remove_voting_state, set_admin, set_approval_threshold_bps, set_campaign_count,
-    set_campaign_milestone_count, set_campaign_milestones, set_creation_disabled,
-    set_initialized, set_max_campaign_funding_goal,
-    set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
-    set_pending_token, set_pending_token_release, set_platform_fee, set_token,
-    set_total_raised_global, set_version, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage, DataKey,
+    set_campaign_milestone_count, set_campaign_milestones, set_creation_disabled, set_initialized,
+    set_max_campaign_funding_goal, set_min_campaign_funding_goal, set_min_votes_quorum,
+    set_min_voting_balance, set_pending_admin, set_pending_token, set_pending_token_release,
+    set_platform_fee, set_token, set_total_raised_global, set_version,
+    set_withdraw_release_delay_days, set_withdraw_reserve_percentage, DataKey,
 };
 use crate::voting;
 
@@ -520,7 +519,7 @@ pub(crate) fn add_campaign_milestones(
 
     bump_instance_ttl(env);
     set_campaign_milestones(env, campaign_id, &milestones);
-    set_campaign_milestone_count(env, campaign_id, milestones.len() as u32);
+    set_campaign_milestone_count(env, campaign_id, milestones.len());
     env.events()
         .publish(("campaign_milestones_added", campaign_id), milestones.len());
     Ok(())
@@ -535,7 +534,7 @@ pub(crate) fn verify_milestone(
     assert_admin(env, &admin)?;
     get_campaign_or_error(env, campaign_id)?;
 
-    let mut milestones = get_campaign_milestones(env, campaign_id);
+    let milestones = get_campaign_milestones(env, campaign_id);
     let mut found = false;
     for mut m in milestones.iter() {
         if m.id == milestone_id {
