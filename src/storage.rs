@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, IntoVal, Val};
+use soroban_sdk::{Address, Env, IntoVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -147,7 +147,7 @@ impl IntoVal<Env, Val> for DataKey {
 }
 
 impl IntoVal<Env, Val> for &DataKey {
-    fn into_val(self, env: &Env) -> Val {
+    fn into_val(&self, env: &Env) -> Val {
         self.into_storage_val(env)
     }
 }
