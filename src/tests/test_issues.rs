@@ -584,6 +584,8 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
         has_revenue_sharing: true,
         revenue_share_percentage: 5000, // 50%
         max_contribution_per_user: 0i128,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
