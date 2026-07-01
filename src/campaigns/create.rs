@@ -6,7 +6,7 @@ use crate::storage::{
     bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
-    get_min_campaign_funding_goal, set_campaign, set_campaign_count, set_campaign_start_time,
+    get_min_campaign_funding_goal, get_token, set_campaign, set_campaign_count, set_campaign_start_time,
     set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
     set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
     CREATOR_CAMPAIGNS_BUCKET_SIZE,
@@ -30,6 +30,8 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
+        token,
+        uses_milestones,
     } = params;
 
     if funding_goal <= 0 {
@@ -58,8 +60,6 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         return Err(Error::RevenueShareOnlyForStartup);
     }
 
-    // Normalise: force percentage to 0 when revenue sharing is disabled so
-    // the stored (has_revenue_sharing, percentage) pair is always coherent.
     let revenue_share_percentage = if !has_revenue_sharing {
         0u32
     } else {
@@ -82,6 +82,19 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
+    let campaign_token = if let Some(t) = token {
+        env.try_invoke_contract::<u32, Error>(
+            &t,
+            &soroban_sdk::Symbol::new(env, "decimals"),
+            soroban_sdk::Vec::new(env),
+        )
+        .map_err(|_| Error::InvalidTokenContract)?
+        .map_err(|_| Error::InvalidTokenContract)?;
+        t
+    } else {
+        get_token(env)
+    };
+
     let campaign = Campaign {
         id: count,
         creator: creator.clone(),
@@ -103,6 +116,8 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
+        token: campaign_token,
+        uses_milestones,
     };
 
     set_campaign(env, count, &campaign);

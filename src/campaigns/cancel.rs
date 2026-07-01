@@ -15,6 +15,11 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     if campaign.funds_withdrawn {
         return Err(Error::CancellationNotAllowed);
     }
+    // Prevent rug-pull: reject cancellation after the funding goal has been met but
+    // funds have not yet been withdrawn.
+    if campaign.amount_raised >= campaign.funding_goal {
+        return Err(Error::GoalMetCancellationNotAllowed);
+    }
 
     bump_instance_ttl(env);
 
