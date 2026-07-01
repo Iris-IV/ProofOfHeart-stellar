@@ -5,15 +5,26 @@ use crate::lifecycle::{
     get_campaign_or_error, require_active_campaign, require_not_paused, token_client,
 };
 use crate::storage::{
-    bump_instance_ttl, clear_top_contributor, decrement_contributor_count,
-    get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
-    get_personal_cap, get_top_contribution_amount, get_top_contributor, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_lifetime_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
-    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    DataKey,
+    bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
+    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
+    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
+    set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_lifetime_contribution, set_personal_cap, set_total_raised_global, DataKey,
 };
+use crate::types::Campaign;
+
+fn check_contribution_caps(
+    campaign: &Campaign,
+    current_lifetime_contribution: i128,
+    amount: i128,
+) -> Result<(), Error> {
+    if campaign.max_contribution_per_user > 0
+        && current_lifetime_contribution + amount > campaign.max_contribution_per_user
+    {
+        return Err(Error::ContributionCapExceeded);
+    }
+    Ok(())
+}
 
 pub(crate) fn contribute(
     env: &Env,
@@ -45,11 +56,7 @@ pub(crate) fn contribute(
     let current = get_contribution(env, campaign_id, &contributor);
     let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
 
-    if campaign.max_contribution_per_user > 0
-        && lifetime + amount > campaign.max_contribution_per_user
-    {
-        return Err(Error::ContributionCapExceeded);
-    }
+    check_contribution_caps(&campaign, lifetime, amount)?;
 
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
         if current + amount > cap {
@@ -141,7 +148,6 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         clear_top_contributor(env, campaign_id);
     }
     remove_contribution(env, campaign_id, &contributor);
-    remove_lifetime_contribution(env, campaign_id, &contributor);
     remove_revenue_claimed(env, campaign_id, &contributor);
     remove_personal_cap(env, campaign_id, &contributor);
 

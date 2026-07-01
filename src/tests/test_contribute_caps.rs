@@ -26,7 +26,35 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
     assert_eq!(
         client.get_lifetime_contribution(&campaign_id, &contributor1),
-        0
+        900
+    );
+}
+
+#[test]
+fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Multi tx cap"),
+        String::from_str(&env, "lifetime cap across txs"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        1_000i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &600);
+    let res = client.try_contribute(&campaign_id, &contributor1, &600);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 600);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor1),
+        600
     );
 }
 
