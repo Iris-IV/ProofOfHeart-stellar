@@ -79,7 +79,10 @@ pub(crate) fn token_client(env: &Env) -> token::Client<'_> {
     token::Client::new(env, &get_token(env))
 }
 
-pub(crate) fn token_client_for_address(env: &Env, token_addr: &Address) -> token::Client<'_> {
+pub(crate) fn token_client_for_address<'a>(
+    env: &'a Env,
+    token_addr: &'a Address,
+) -> token::Client<'a> {
     token::Client::new(env, token_addr)
 }
 
