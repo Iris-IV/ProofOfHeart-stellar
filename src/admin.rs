@@ -537,7 +537,7 @@ pub(crate) fn verify_milestone(
 
     let mut milestones = get_campaign_milestones(env, campaign_id);
     let mut found = false;
-    for m in milestones.iter() {
+    for mut m in milestones.iter() {
         if m.id == milestone_id {
             m.verified = true;
             found = true;

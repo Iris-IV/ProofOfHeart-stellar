@@ -141,7 +141,7 @@ impl DataKey {
 }
 
 impl IntoVal<Env, Val> for DataKey {
-    fn into_val(self, env: &Env) -> Val {
+    fn into_val(&self, env: &Env) -> Val {
         self.into_storage_val(env)
     }
 }
