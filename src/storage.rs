@@ -70,7 +70,7 @@ pub enum DataKey {
 }
 
 impl DataKey {
-    fn into_storage_val(&self, env: &Env) -> Val {
+    fn to_storage_val(&self, env: &Env) -> Val {
         match self {
             DataKey::Admin => 0u32.into_val(env),
             DataKey::PendingAdmin => 1u32.into_val(env),
@@ -96,7 +96,9 @@ impl DataKey {
             DataKey::AutoPaused => 15u32.into_val(env),
             DataKey::ApproveVotes(campaign_id) => (16u32, *campaign_id).into_val(env),
             DataKey::RejectVotes(campaign_id) => (17u32, *campaign_id).into_val(env),
-            DataKey::HasVoted(campaign_id, voter) => (18u32, *campaign_id, voter.clone()).into_val(env),
+            DataKey::HasVoted(campaign_id, voter) => {
+                (18u32, *campaign_id, voter.clone()).into_val(env)
+            }
             DataKey::MinVotesQuorum => 19u32.into_val(env),
             DataKey::ApprovalThresholdBps => 20u32.into_val(env),
             DataKey::ApproveWeight(campaign_id) => (21u32, *campaign_id).into_val(env),
@@ -118,7 +120,9 @@ impl DataKey {
                 (32u32, *campaign_id, contributor.clone()).into_val(env)
             }
             DataKey::BlockContributionCount => 33u32.into_val(env),
-            DataKey::BlockCampaignContributionCount(campaign_id) => (34u32, *campaign_id).into_val(env),
+            DataKey::BlockCampaignContributionCount(campaign_id) => {
+                (34u32, *campaign_id).into_val(env)
+            }
             DataKey::WithdrawReleaseDelayDays => 35u32.into_val(env),
             DataKey::WithdrawReservePercentage => 36u32.into_val(env),
             DataKey::CampaignReserve(campaign_id) => (37u32, *campaign_id).into_val(env),
@@ -142,13 +146,13 @@ impl DataKey {
 
 impl IntoVal<Env, Val> for DataKey {
     fn into_val(&self, env: &Env) -> Val {
-        self.into_storage_val(env)
+        self.to_storage_val(env)
     }
 }
 
 impl IntoVal<Env, Val> for &DataKey {
     fn into_val(&self, env: &Env) -> Val {
-        self.into_storage_val(env)
+        self.to_storage_val(env)
     }
 }
 
