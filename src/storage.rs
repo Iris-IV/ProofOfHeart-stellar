@@ -13,113 +13,60 @@ pub fn bump_instance_ttl(env: &Env) {
         .extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
-/// Keys representing the unique storage state for the contract.
+/// Storage keys for all contract state.
 #[contracttype]
 pub enum DataKey {
-    /// The global admin address.
     Admin,
-    /// Pending admin during two-step admin transfer.
     PendingAdmin,
-    /// The contract's accepted token address.
     Token,
-    /// Platform fee in basis points (e.g. 300 = 3%).
     PlatformFee,
-    /// Minimum funding goal required for new campaigns.
     MinCampaignFundingGoal,
-    /// Maximum funding goal allowed for new campaigns (anti-spam cap).
     MaxCampaignFundingGoal,
-    /// Total number of campaigns ever created.
     CampaignCount,
-    /// Campaign data, keyed by campaign ID.
     Campaign(u32),
-    /// A contributor's total contribution to a campaign, keyed by `(campaign_id, contributor)`.
     Contribution(u32, Address),
-    /// A contributor's lifetime contribution to a campaign, keyed by `(campaign_id, contributor)`.
     LifetimeContribution(u32, Address),
-    /// Total revenue deposited into a campaign's pool, keyed by campaign ID.
     RevenuePool(u32),
-    /// Revenue already claimed by a contributor, keyed by `(campaign_id, contributor)`.
     RevenueClaimed(u32, Address),
-    /// Revenue already claimed by the campaign creator, keyed by campaign ID.
     CreatorRevenueClaimed(u32),
-    /// The stored contract version number.
     Version,
-    /// Whether the contract is paused by admin.
     Paused,
-    /// Whether the contract is auto-paused (e.g., triggered by a burst contribution).
-    /// Whether the contract is auto-paused by anomaly detection.
     AutoPaused,
-    /// Number of approval votes cast for a campaign, keyed by campaign ID.
     ApproveVotes(u32),
-    /// Number of rejection votes cast for a campaign, keyed by campaign ID.
     RejectVotes(u32),
-    /// Whether a specific voter has already voted on a campaign, keyed by `(campaign_id, voter)`.
     HasVoted(u32, Address),
-    /// Minimum number of votes required to reach quorum.
     MinVotesQuorum,
-    /// Required approval percentage in basis points (e.g. 6000 = 60%).
     ApprovalThresholdBps,
-    /// Total token-weight of approval votes for a campaign, keyed by campaign ID.
     ApproveWeight(u32),
-    /// Total token-weight of rejection votes for a campaign, keyed by campaign ID.
     RejectWeight(u32),
-    /// Whether the contract has been initialized.
     Initialized,
-    /// Minimum token balance required to vote on campaigns.
     MinVotingBalance,
-    /// Campaign ids grouped by category as append-only creation index.
     CategoryCampaigns(u32),
-    /// Campaign ids grouped by category into fixed-size buckets.
     CategoryCampaignsBucket(u32, u32),
-    /// Total number of campaigns in a category.
     CategoryCampaignCount(u32),
-    /// Total amount raised across all campaigns.
     TotalRaised,
-    /// Unix timestamp when the campaign was created, keyed by campaign ID.
     CampaignStartTime(u32),
-    /// Number of campaigns owned by a creator.
     CreatorCampaignCount(Address),
-    /// Bucket of campaign IDs owned by a creator (≤ CREATOR_CAMPAIGNS_BUCKET_SIZE per bucket).
     CreatorCampaignsBucket(Address, u32),
-    /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
-    /// Tracking contributions per block for anomaly detection (global, legacy).
     BlockContributionCount,
-    /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
     BlockCampaignContributionCount(u32),
-    /// Delay in days before the reserve can be released.
     WithdrawReleaseDelayDays,
-    /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
-    /// Held reserve for a campaign, keyed by campaign ID.
     CampaignReserve(u32),
-    /// Whether campaign creation is disabled.
     CreationDisabled,
-    /// Contributor count for a campaign.
     ContributorCount(u32),
-    /// Address of the largest current contributor for a campaign.
     TopContributor(u32),
-    /// Live contribution amount of the top contributor for a campaign.
     TopContributorAmount(u32),
-    /// Ledger timestamp of the most recent contribution to a campaign.
     LastContributionTime(u32),
-    /// Per-category maximum duration cap in days, keyed by category discriminant.
     CategoryDurationCap(u32),
-    /// Pending token address during two-step token update.
     PendingToken,
-    /// Ledger timestamp after which the pending token update can be accepted.
     PendingTokenRelease,
-    /// Number of currently active (non-cancelled, non-withdrawn) campaigns.
     ActiveCampaignCount,
-    /// Number of campaigns that have been verified.
     VerifiedCampaignCount,
-    /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
-    /// Emergency pause signers set by admin.
     EmergencyPauseSigners,
-    /// Milestones for a campaign, keyed by campaign ID.
     CampaignMilestones(u32),
-    /// Count of milestones for a campaign.
     CampaignMilestoneCount(u32),
 }
 
@@ -989,7 +936,11 @@ pub fn get_campaign_milestones(env: &Env, campaign_id: u32) -> Vec<crate::types:
         .unwrap_or_else(|| Vec::new(env))
 }
 
-pub fn set_campaign_milestones(env: &Env, campaign_id: u32, milestones: &Vec<crate::types::Milestone>) {
+pub fn set_campaign_milestones(
+    env: &Env,
+    campaign_id: u32,
+    milestones: &Vec<crate::types::Milestone>,
+) {
     let key = DataKey::CampaignMilestones(campaign_id);
     env.storage().persistent().set(&key, milestones);
     env.storage()

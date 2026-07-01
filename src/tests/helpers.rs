@@ -1,4 +1,5 @@
 pub use crate::storage::set_min_campaign_funding_goal;
+pub use crate::types::MaybePendingCreator;
 pub use crate::{Category, CreateCampaignParams, ProofOfHeart, ProofOfHeartClient};
 pub use soroban_sdk::token::Client as TokenClient;
 pub use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
@@ -29,6 +30,8 @@ pub(crate) fn make_params(
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     }
 }
 

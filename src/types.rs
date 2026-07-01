@@ -169,7 +169,7 @@ pub struct CreateCampaignParams {
     /// Per-user contribution cap in tokens. `0` means no cap.
     pub max_contribution_per_user: i128,
     /// Token address for this campaign. If None, uses global default.
-    pub token: Option<Address>,
+    pub token: MaybePendingCreator,
     /// Whether this campaign uses milestone-based withdrawals.
     pub uses_milestones: bool,
 }

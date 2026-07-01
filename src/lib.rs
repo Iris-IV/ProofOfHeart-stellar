@@ -562,7 +562,10 @@ impl ProofOfHeart {
         admin::verify_milestone(&env, admin, campaign_id, milestone_id)
     }
 
-    pub fn get_campaign_milestones(env: Env, campaign_id: u32) -> soroban_sdk::Vec<types::Milestone> {
+    pub fn get_campaign_milestones(
+        env: Env,
+        campaign_id: u32,
+    ) -> soroban_sdk::Vec<types::Milestone> {
         storage::get_campaign_milestones(&env, campaign_id)
     }
 
