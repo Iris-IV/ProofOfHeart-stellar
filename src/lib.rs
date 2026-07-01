@@ -249,6 +249,18 @@ impl ProofOfHeart {
         admin::unpause(&env)
     }
 
+    pub fn emergency_pause(env: Env, caller: Address) -> Result<(), Error> {
+        admin::emergency_pause(&env, caller)
+    }
+
+    pub fn set_emergency_pause_signers(
+        env: Env,
+        admin: Address,
+        signers: soroban_sdk::Vec<Address>,
+    ) -> Result<(), Error> {
+        admin::set_emergency_pause_signers(&env, admin, signers)
+    }
+
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
@@ -526,6 +538,32 @@ impl ProofOfHeart {
 
     pub fn get_platform_stats(env: Env) -> PlatformStats {
         queries::get_platform_stats(&env)
+    }
+
+    pub fn add_campaign_milestones(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        milestones: soroban_sdk::Vec<types::Milestone>,
+    ) -> Result<(), Error> {
+        admin::add_campaign_milestones(&env, admin, campaign_id, milestones)
+    }
+
+    pub fn verify_milestone(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        milestone_id: u32,
+    ) -> Result<(), Error> {
+        admin::verify_milestone(&env, admin, campaign_id, milestone_id)
+    }
+
+    pub fn get_campaign_milestones(env: Env, campaign_id: u32) -> soroban_sdk::Vec<types::Milestone> {
+        storage::get_campaign_milestones(&env, campaign_id)
+    }
+
+    pub fn get_campaign_milestone_count(env: Env, campaign_id: u32) -> u32 {
+        storage::get_campaign_milestone_count(&env, campaign_id)
     }
 }
 
