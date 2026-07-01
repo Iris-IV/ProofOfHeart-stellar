@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{Address, Env, IntoVal, Val};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -14,7 +14,6 @@ pub fn bump_instance_ttl(env: &Env) {
 }
 
 /// Storage keys for all contract state.
-#[contracttype]
 pub enum DataKey {
     Admin,
     PendingAdmin,
@@ -68,6 +67,89 @@ pub enum DataKey {
     EmergencyPauseSigners,
     CampaignMilestones(u32),
     CampaignMilestoneCount(u32),
+}
+
+impl DataKey {
+    fn into_storage_val(&self, env: &Env) -> Val {
+        match self {
+            DataKey::Admin => 0u32.into_val(env),
+            DataKey::PendingAdmin => 1u32.into_val(env),
+            DataKey::Token => 2u32.into_val(env),
+            DataKey::PlatformFee => 3u32.into_val(env),
+            DataKey::MinCampaignFundingGoal => 4u32.into_val(env),
+            DataKey::MaxCampaignFundingGoal => 5u32.into_val(env),
+            DataKey::CampaignCount => 6u32.into_val(env),
+            DataKey::Campaign(id) => (7u32, *id).into_val(env),
+            DataKey::Contribution(campaign_id, contributor) => {
+                (8u32, *campaign_id, contributor.clone()).into_val(env)
+            }
+            DataKey::LifetimeContribution(campaign_id, contributor) => {
+                (9u32, *campaign_id, contributor.clone()).into_val(env)
+            }
+            DataKey::RevenuePool(campaign_id) => (10u32, *campaign_id).into_val(env),
+            DataKey::RevenueClaimed(campaign_id, contributor) => {
+                (11u32, *campaign_id, contributor.clone()).into_val(env)
+            }
+            DataKey::CreatorRevenueClaimed(campaign_id) => (12u32, *campaign_id).into_val(env),
+            DataKey::Version => 13u32.into_val(env),
+            DataKey::Paused => 14u32.into_val(env),
+            DataKey::AutoPaused => 15u32.into_val(env),
+            DataKey::ApproveVotes(campaign_id) => (16u32, *campaign_id).into_val(env),
+            DataKey::RejectVotes(campaign_id) => (17u32, *campaign_id).into_val(env),
+            DataKey::HasVoted(campaign_id, voter) => (18u32, *campaign_id, voter.clone()).into_val(env),
+            DataKey::MinVotesQuorum => 19u32.into_val(env),
+            DataKey::ApprovalThresholdBps => 20u32.into_val(env),
+            DataKey::ApproveWeight(campaign_id) => (21u32, *campaign_id).into_val(env),
+            DataKey::RejectWeight(campaign_id) => (22u32, *campaign_id).into_val(env),
+            DataKey::Initialized => 23u32.into_val(env),
+            DataKey::MinVotingBalance => 24u32.into_val(env),
+            DataKey::CategoryCampaigns(category) => (25u32, *category).into_val(env),
+            DataKey::CategoryCampaignsBucket(category, bucket_idx) => {
+                (26u32, *category, *bucket_idx).into_val(env)
+            }
+            DataKey::CategoryCampaignCount(category) => (27u32, *category).into_val(env),
+            DataKey::TotalRaised => 28u32.into_val(env),
+            DataKey::CampaignStartTime(campaign_id) => (29u32, *campaign_id).into_val(env),
+            DataKey::CreatorCampaignCount(creator) => (30u32, creator.clone()).into_val(env),
+            DataKey::CreatorCampaignsBucket(creator, bucket_idx) => {
+                (31u32, creator.clone(), *bucket_idx).into_val(env)
+            }
+            DataKey::PersonalCap(campaign_id, contributor) => {
+                (32u32, *campaign_id, contributor.clone()).into_val(env)
+            }
+            DataKey::BlockContributionCount => 33u32.into_val(env),
+            DataKey::BlockCampaignContributionCount(campaign_id) => (34u32, *campaign_id).into_val(env),
+            DataKey::WithdrawReleaseDelayDays => 35u32.into_val(env),
+            DataKey::WithdrawReservePercentage => 36u32.into_val(env),
+            DataKey::CampaignReserve(campaign_id) => (37u32, *campaign_id).into_val(env),
+            DataKey::CreationDisabled => 38u32.into_val(env),
+            DataKey::ContributorCount(campaign_id) => (39u32, *campaign_id).into_val(env),
+            DataKey::TopContributor(campaign_id) => (40u32, *campaign_id).into_val(env),
+            DataKey::TopContributorAmount(campaign_id) => (41u32, *campaign_id).into_val(env),
+            DataKey::LastContributionTime(campaign_id) => (42u32, *campaign_id).into_val(env),
+            DataKey::CategoryDurationCap(category) => (43u32, *category).into_val(env),
+            DataKey::PendingToken => 44u32.into_val(env),
+            DataKey::PendingTokenRelease => 45u32.into_val(env),
+            DataKey::ActiveCampaignCount => 46u32.into_val(env),
+            DataKey::VerifiedCampaignCount => 47u32.into_val(env),
+            DataKey::CancelledCampaignCount => 48u32.into_val(env),
+            DataKey::EmergencyPauseSigners => 49u32.into_val(env),
+            DataKey::CampaignMilestones(campaign_id) => (50u32, *campaign_id).into_val(env),
+            DataKey::CampaignMilestoneCount(campaign_id) => (51u32, *campaign_id).into_val(env),
+        }
+    }
+}
+
+impl IntoVal<Env, Val> for DataKey {
+    fn into_val(self, env: &Env) -> Val {
+        self.into_storage_val(env)
+    }
+}
+
+impl IntoVal<Env, Val> for &DataKey {
+    fn into_val(self, env: &Env) -> Val {
+        self.into_storage_val(env)
+    }
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────

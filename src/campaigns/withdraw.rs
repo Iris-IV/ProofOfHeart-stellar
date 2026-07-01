@@ -2,8 +2,7 @@ use soroban_sdk::Env;
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client,
-    token_client_for_address,
+    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client_for_address,
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_milestones,

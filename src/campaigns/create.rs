@@ -82,17 +82,18 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
-    let campaign_token = if let Some(t) = token {
-        env.try_invoke_contract::<u32, Error>(
-            &t,
-            &soroban_sdk::Symbol::new(env, "decimals"),
-            soroban_sdk::Vec::new(env),
-        )
-        .map_err(|_| Error::InvalidTokenContract)?
-        .map_err(|_| Error::InvalidTokenContract)?;
-        t
-    } else {
-        get_token(env)
+    let campaign_token = match token {
+        MaybePendingCreator::Some(t) => {
+            env.try_invoke_contract::<u32, Error>(
+                &t,
+                &soroban_sdk::Symbol::new(env, "decimals"),
+                soroban_sdk::Vec::new(env),
+            )
+            .map_err(|_| Error::InvalidTokenContract)?
+            .map_err(|_| Error::InvalidTokenContract)?;
+            t
+        }
+        MaybePendingCreator::None => get_token(env),
     };
 
     let campaign = Campaign {
