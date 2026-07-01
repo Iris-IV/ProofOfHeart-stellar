@@ -30,6 +30,8 @@ fn test_full_lifecycle_event_sequence() {
         has_revenue_sharing: true,
         revenue_share_percentage: 1000,
         max_contribution_per_user: 0,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     });
 
     assert!(

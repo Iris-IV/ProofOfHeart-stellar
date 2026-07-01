@@ -115,6 +115,8 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     }
 }
 
@@ -260,6 +262,8 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 500,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
 
@@ -371,6 +375,8 @@ fn test_pending_creator_none_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
+        token: Address::generate(&env),
+        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {
@@ -411,6 +417,8 @@ fn test_pending_creator_some_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
+        token: Address::generate(&env),
+        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {

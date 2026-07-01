@@ -22,6 +22,8 @@ fn test_cancel_campaign_refunds_revenue_pool() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000, // 20% to contributors
         max_contribution_per_user: 0i128,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
 
@@ -142,6 +144,8 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
         has_revenue_sharing: true,
         revenue_share_percentage: 3000, // 30% to contributors
         max_contribution_per_user: 0i128,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
 

@@ -82,6 +82,8 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        token: MaybePendingCreator::None,
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
 
