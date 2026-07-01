@@ -338,7 +338,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
 }
 
 #[test]
-fn test_claim_refund_clears_lifetime_contribution() {
+fn test_claim_refund_preserves_lifetime_contribution() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &5000);
@@ -361,10 +361,9 @@ fn test_claim_refund_clears_lifetime_contribution() {
     client.cancel_campaign(&campaign_id);
     client.claim_refund(&campaign_id, &contributor1);
 
-    // LifetimeContribution should be cleared after full refund
     assert_eq!(
         client.get_lifetime_contribution(&campaign_id, &contributor1),
-        0,
-        "LifetimeContribution should be 0 after full refund"
+        900,
+        "LifetimeContribution should persist after refund for cap enforcement"
     );
 }

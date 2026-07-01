@@ -4,6 +4,7 @@ mod test_admin;
 mod test_benchmark;
 mod test_campaign_create;
 mod test_campaign_update;
+mod test_cancel_after_goal_met;
 mod test_cancel_revenue_orphan;
 mod test_contribute;
 mod test_contribute_caps;
