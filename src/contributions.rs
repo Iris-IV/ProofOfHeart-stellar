@@ -8,11 +8,10 @@ use crate::storage::{
     bump_instance_ttl, clear_top_contributor, decrement_contributor_count,
     get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
     get_personal_cap, get_top_contribution_amount, get_top_contributor, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_lifetime_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
-    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    DataKey,
+    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
+    set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, DataKey,
 };
 use crate::types::Campaign;
 
@@ -151,7 +150,6 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         clear_top_contributor(env, campaign_id);
     }
     remove_contribution(env, campaign_id, &contributor);
-    remove_lifetime_contribution(env, campaign_id, &contributor);
     remove_revenue_claimed(env, campaign_id, &contributor);
     remove_personal_cap(env, campaign_id, &contributor);
 
