@@ -6,10 +6,10 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_milestones,
-    get_campaign_reserve, get_platform_fee, get_total_raised_global,
+    get_campaign_reserve, get_campaign_withdrawn_amount, get_platform_fee, get_total_raised_global,
     get_withdraw_release_delay_days, get_withdraw_reserve_percentage, set_campaign,
-    set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage,
+    set_campaign_reserve, set_campaign_withdrawn_amount, set_total_raised_global,
+    set_withdraw_release_delay_days, set_withdraw_reserve_percentage,
 };
 use crate::types::CampaignReserve;
 
@@ -35,25 +35,35 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::FundingGoalNotReached);
     }
 
+    let mut withdrawable_gross = campaign.amount_raised;
+
     if campaign.uses_milestones {
         let milestones = get_campaign_milestones(env, campaign_id);
-        let all_verified = milestones.iter().all(|m| m.verified);
-        if !all_verified {
-            return Err(Error::ValidationFailed);
-        }
+        let total_verified_target: i128 = milestones
+            .iter()
+            .filter(|m| m.verified)
+            .map(|m| m.target_amount)
+            .sum();
+        withdrawable_gross = withdrawable_gross.min(total_verified_target);
     }
+
+    let processed = get_campaign_withdrawn_amount(env, campaign_id);
+    if withdrawable_gross <= processed {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
+    let to_process = withdrawable_gross - processed;
 
     bump_instance_ttl(env);
     let platform_fee = campaign
         .fee_override
         .unwrap_or_else(|| get_platform_fee(env));
-    let fee_amount = campaign
-        .amount_raised
+    let fee_amount = to_process
         .checked_mul(platform_fee as i128)
         .and_then(|n| n.checked_add(9999))
         .ok_or(Error::Overflow)?
         / 10000;
-    let total_after_fee = campaign.amount_raised - fee_amount;
+    let total_after_fee = to_process - fee_amount;
 
     let reserve_bps = get_withdraw_reserve_percentage(env);
     let reserve_amount = total_after_fee
@@ -73,10 +83,15 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         &creator_amount,
     );
 
-    campaign.funds_withdrawn = true;
-    campaign.is_active = false;
-    set_campaign(env, campaign_id, &campaign);
-    decrement_active_campaign_count(env);
+    let new_processed = processed + to_process;
+    set_campaign_withdrawn_amount(env, campaign_id, new_processed);
+
+    if new_processed >= campaign.amount_raised {
+        campaign.funds_withdrawn = true;
+        campaign.is_active = false;
+        set_campaign(env, campaign_id, &campaign);
+        decrement_active_campaign_count(env);
+    }
 
     if reserve_amount > 0 {
         let delay_days = get_withdraw_release_delay_days(env);
@@ -86,11 +101,15 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
             .checked_add(delay_days * 86400)
             .ok_or(Error::Overflow)?;
 
-        let reserve = CampaignReserve {
-            amount: reserve_amount,
-            release_timestamp,
+        let mut reserve = get_campaign_reserve(env, campaign_id).unwrap_or(CampaignReserve {
+            amount: 0,
+            release_timestamp: 0,
             released: false,
-        };
+        });
+
+        reserve.amount += reserve_amount;
+        reserve.release_timestamp = reserve.release_timestamp.max(release_timestamp);
+        
         set_campaign_reserve(env, campaign_id, &reserve);
     }
 
@@ -98,7 +117,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.amount_raised - reserve_amount)
+            .checked_sub(to_process - reserve_amount)
             .ok_or(Error::Overflow)?,
     );
 

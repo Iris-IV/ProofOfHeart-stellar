@@ -32,6 +32,8 @@ pub enum DataKey {
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
     Campaign(u32),
+    /// The gross amount withdrawn by the creator so far, keyed by campaign ID.
+    CampaignWithdrawnAmount(u32),
     /// A contributor's total contribution to a campaign, keyed by `(campaign_id, contributor)`.
     Contribution(u32, Address),
     /// A contributor's lifetime contribution to a campaign, keyed by `(campaign_id, contributor)`.
@@ -966,4 +968,24 @@ pub fn set_campaign_milestone_count(env: &Env, campaign_id: u32, count: u32) {
     env.storage()
         .persistent()
         .set(&DataKey::CampaignMilestoneCount(campaign_id), &count);
+}
+
+pub fn get_campaign_withdrawn_amount(env: &Env, campaign_id: u32) -> i128 {
+    let key = DataKey::CampaignWithdrawnAmount(campaign_id);
+    if let Some(val) = env.storage().persistent().get(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        val
+    } else {
+        0
+    }
+}
+
+pub fn set_campaign_withdrawn_amount(env: &Env, campaign_id: u32, amount: i128) {
+    let key = DataKey::CampaignWithdrawnAmount(campaign_id);
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
