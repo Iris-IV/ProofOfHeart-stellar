@@ -62,6 +62,10 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     bump_instance_ttl(env);
     let old_creator = campaign.creator.clone();
 
+    if pending == old_creator {
+        return Err(Error::InvalidNewOwner);
+    }
+
     let old_count = get_creator_campaign_count(env, &old_creator);
     let old_num_buckets = old_count.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
     'outer: for bucket_idx in 0..old_num_buckets {

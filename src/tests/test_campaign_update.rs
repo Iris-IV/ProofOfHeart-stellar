@@ -647,3 +647,30 @@ fn original_creator_can_contribute_after_campaign_transfer() {
     let res = client.try_contribute(&campaign_id, &creator, &100);
     assert!(res.is_ok());
 }
+
+#[test]
+fn test_accept_campaign_transfer_same_creator() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer Guardrails 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
+    
+    // Manually mutate the storage to set pending_creator = creator
+    env.as_contract(&client.address, || {
+        let mut campaign: crate::types::Campaign = env.storage().persistent().get(&crate::storage::DataKey::Campaign(campaign_id)).unwrap();
+        campaign.pending_creator = crate::types::MaybePendingCreator::Some(creator.clone());
+        env.storage().persistent().set(&crate::storage::DataKey::Campaign(campaign_id), &campaign);
+    });
+
+    let res = client.try_accept_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidNewOwner);
+}
