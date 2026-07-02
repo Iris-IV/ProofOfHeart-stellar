@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, String};
 
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because
@@ -10,6 +10,13 @@ pub enum MaybePendingCreator {
     /// No ownership transfer is in progress.
     None,
     /// An ownership transfer to this address is pending acceptance.
+    Some(Address),
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeToken {
+    None,
     Some(Address),
 }
 
@@ -152,7 +159,7 @@ pub struct CreateCampaignParams {
     /// Per-user contribution cap in tokens. `0` means no cap.
     pub max_contribution_per_user: i128,
     /// Token address for this campaign. If None, uses global default.
-    pub token: Option<Address>,
+    pub token: MaybeToken,
     /// Whether this campaign uses milestone-based withdrawals.
     pub uses_milestones: bool,
 }
