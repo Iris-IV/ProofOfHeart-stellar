@@ -287,6 +287,8 @@ fn test_claim_revenue_blocked_before_funds_withdrawn() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        token: None,
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &5000);

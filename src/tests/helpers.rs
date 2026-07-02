@@ -29,6 +29,8 @@ pub(crate) fn make_params(
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
+        token: None,
+        uses_milestones: false,
     }
 }
 

@@ -19,6 +19,8 @@ fn test_withdrawal_vesting_full_flow() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        token: None,
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -66,6 +68,8 @@ fn test_get_campaign_reserve_view_function() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        token: None,
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -118,6 +122,8 @@ fn test_withdraw_reserve_when_paused_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        token: None,
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -186,6 +192,8 @@ fn test_withdraw_event_payload_tuple() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        token: None,
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
