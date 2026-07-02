@@ -6,10 +6,10 @@ use crate::storage::{
     bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
-    get_min_campaign_funding_goal, get_token, set_campaign, set_campaign_count, set_campaign_start_time,
-    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_min_campaign_funding_goal, get_token, set_campaign, set_campaign_count,
+    set_campaign_start_time, set_category_campaign_bucket, set_category_campaign_count,
+    set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -82,7 +82,7 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
-    let campaign_token = if let Some(t) = token {
+    let campaign_token = if let crate::types::MaybeAddress::Some(t) = token {
         env.try_invoke_contract::<u32, Error>(
             &t,
             &soroban_sdk::Symbol::new(env, "decimals"),

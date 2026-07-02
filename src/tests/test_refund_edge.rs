@@ -128,7 +128,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);

@@ -488,7 +488,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
@@ -510,7 +510,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
@@ -540,7 +540,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
     assert!(new_id > 1);

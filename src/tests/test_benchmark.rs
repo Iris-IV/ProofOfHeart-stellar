@@ -19,7 +19,7 @@ fn make_revenue_campaign(
         has_revenue_sharing: true,
         revenue_share_percentage: 1000,
         max_contribution_per_user: 0,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     }
 }
@@ -110,8 +110,8 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
             has_revenue_sharing: false,
             revenue_share_percentage: 0,
             max_contribution_per_user: 0,
-        token: None,
-        uses_milestones: false,
+            token: crate::types::MaybeAddress::None,
+            uses_milestones: false,
         };
         client.create_campaign(&params);
     }

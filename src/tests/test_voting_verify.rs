@@ -95,7 +95,7 @@ fn test_vote_on_campaign_past_deadline_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
 
@@ -130,7 +130,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
