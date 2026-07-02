@@ -518,7 +518,7 @@ pub(crate) fn add_campaign_milestones(
 
     bump_instance_ttl(env);
     set_campaign_milestones(env, campaign_id, &milestones);
-    set_campaign_milestone_count(env, campaign_id, milestones.len() as u32);
+    set_campaign_milestone_count(env, campaign_id, milestones.len());
     env.events()
         .publish(("campaign_milestones_added", campaign_id), milestones.len());
     Ok(())

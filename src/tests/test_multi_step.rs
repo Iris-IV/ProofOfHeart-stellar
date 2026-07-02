@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::tests::setup::{setup_env, setup_token, setup_contract};
+use crate::tests::helpers::{setup_env, setup_token, setup_contract};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]
@@ -19,7 +19,7 @@ fn test_multi_step_sequence() {
         description: String::from_str(&env, "Desc"),
         funding_goal: 100_000,
         duration_days: 10,
-        category: crate::types::Category::Medical,
+        category: crate::types::Category::Educator,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
