@@ -5,7 +5,7 @@ use crate::lifecycle::{
     campaign_start_time_or_error, get_creator_campaign, require_active_campaign,
     require_not_paused, require_unverified_campaign,
 };
-use crate::storage::{bump_instance_ttl, get_category_duration_cap, set_campaign};
+use crate::storage::{bump_instance_ttl, decrement_verified_campaign_count, get_category_duration_cap, set_campaign};
 
 /// Updates the title and description of a campaign.
 ///
@@ -71,6 +71,13 @@ pub(crate) fn update_campaign_description(
     bump_instance_ttl(env);
     let event_desc = description.clone();
     campaign.description = description;
+
+    // Issue #556: Revoke verification if description is updated significantly
+    if campaign.is_verified {
+        campaign.is_verified = false;
+        decrement_verified_campaign_count(env);
+    }
+
     set_campaign(env, campaign_id, &campaign);
 
     env.events()

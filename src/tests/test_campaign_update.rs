@@ -166,6 +166,10 @@ fn test_update_campaign_description_success() {
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.description, new_desc);
     assert_eq!(campaign.funding_goal, 1_000);
+
+    // Issue #556: Verification should be revoked
+    assert!(!campaign.is_verified);
+    assert_eq!(client.get_platform_stats().verified_campaigns, 0);
 }
 
 #[test]

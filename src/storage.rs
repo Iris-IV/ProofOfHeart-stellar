@@ -898,6 +898,13 @@ pub fn increment_verified_campaign_count(env: &Env) {
     set_verified_campaign_count(env, get_verified_campaign_count(env) + 1);
 }
 
+pub fn decrement_verified_campaign_count(env: &Env) {
+    let c = get_verified_campaign_count(env);
+    if c > 0 {
+        set_verified_campaign_count(env, c - 1);
+    }
+}
+
 pub fn get_cancelled_campaign_count(env: &Env) -> u32 {
     env.storage()
         .instance()
