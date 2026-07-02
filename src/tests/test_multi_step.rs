@@ -23,7 +23,7 @@ fn test_multi_step_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-        token: None,
+        token: crate::types::MaybeAddress::None,
         uses_milestones: false,
     };
 

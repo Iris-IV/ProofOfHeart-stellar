@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, String};
 
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because
@@ -25,6 +25,28 @@ impl MaybePendingCreator {
 impl From<Address> for MaybePendingCreator {
     fn from(addr: Address) -> Self {
         MaybePendingCreator::Some(addr)
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MaybeAddress {
+    None,
+    Some(Address),
+}
+
+impl MaybeAddress {
+    pub fn is_some(&self) -> bool {
+        matches!(self, MaybeAddress::Some(_))
+    }
+    pub fn is_none(&self) -> bool {
+        matches!(self, MaybeAddress::None)
+    }
+}
+
+impl From<Address> for MaybeAddress {
+    fn from(addr: Address) -> Self {
+        MaybeAddress::Some(addr)
     }
 }
 
@@ -152,7 +174,7 @@ pub struct CreateCampaignParams {
     /// Per-user contribution cap in tokens. `0` means no cap.
     pub max_contribution_per_user: i128,
     /// Token address for this campaign. If None, uses global default.
-    pub token: Option<Address>,
+    pub token: MaybeAddress,
     /// Whether this campaign uses milestone-based withdrawals.
     pub uses_milestones: bool,
 }
