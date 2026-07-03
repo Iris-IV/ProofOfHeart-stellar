@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use crate::tests::helpers::{setup_env, setup_token, setup_contract};
+use crate::tests::helpers::{setup_contract, setup_token};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 #[test]

@@ -940,7 +940,11 @@ pub fn get_campaign_milestones(env: &Env, campaign_id: u32) -> Vec<crate::types:
         .unwrap_or_else(|| Vec::new(env))
 }
 
-pub fn set_campaign_milestones(env: &Env, campaign_id: u32, milestones: &Vec<crate::types::Milestone>) {
+pub fn set_campaign_milestones(
+    env: &Env,
+    campaign_id: u32,
+    milestones: &Vec<crate::types::Milestone>,
+) {
     let key = DataKey::CampaignMilestones(campaign_id);
     env.storage().persistent().set(&key, milestones);
     env.storage()

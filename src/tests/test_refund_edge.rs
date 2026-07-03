@@ -132,7 +132,6 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

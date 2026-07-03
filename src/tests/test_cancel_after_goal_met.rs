@@ -25,7 +25,6 @@ fn test_cancel_campaign_blocked_after_goal_met() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
 
@@ -61,7 +60,6 @@ fn test_cancel_campaign_allowed_when_goal_not_met() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
 
@@ -96,7 +94,6 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
 

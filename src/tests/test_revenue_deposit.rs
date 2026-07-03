@@ -138,7 +138,6 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

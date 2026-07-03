@@ -17,6 +17,7 @@ mod test_init;
 mod test_issues;
 mod test_lifecycle_events;
 mod test_listing;
+mod test_multi_step;
 mod test_purge_voting;
 mod test_refund;
 mod test_refund_edge;
@@ -29,5 +30,3 @@ mod test_voting;
 mod test_voting_proptest;
 mod test_voting_verify;
 mod test_withdraw;
-mod test_multi_step;  
- 

@@ -23,7 +23,6 @@ fn test_withdrawal_vesting_full_flow() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -75,7 +74,6 @@ fn test_get_campaign_reserve_view_function() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -132,7 +130,6 @@ fn test_withdraw_reserve_when_paused_fails() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -205,7 +202,6 @@ fn test_withdraw_event_payload_tuple() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);

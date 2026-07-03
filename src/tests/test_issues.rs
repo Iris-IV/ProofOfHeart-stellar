@@ -119,7 +119,6 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     }
 }
 
@@ -269,7 +268,6 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     };
     let campaign_id = client.create_campaign(&params);
 
@@ -385,7 +383,6 @@ fn test_pending_creator_none_round_trip() {
         token: soroban_sdk::Address::generate(&env),
 
         uses_milestones: false,
-
     };
 
     env.as_contract(&contract_id, || {
@@ -430,7 +427,6 @@ fn test_pending_creator_some_round_trip() {
         token: soroban_sdk::Address::generate(&env),
 
         uses_milestones: false,
-
     };
 
     env.as_contract(&contract_id, || {
@@ -600,7 +596,6 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);

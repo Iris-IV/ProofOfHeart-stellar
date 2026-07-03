@@ -291,7 +291,6 @@ fn test_claim_revenue_blocked_before_funds_withdrawn() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &5000);

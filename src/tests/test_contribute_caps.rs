@@ -189,7 +189,6 @@ fn test_huge_contribution_triggers_auto_pause() {
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     });
     client.verify_campaign(&campaign_id);
 

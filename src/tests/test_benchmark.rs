@@ -23,7 +23,6 @@ fn make_revenue_campaign(
         token: crate::types::MaybeAddress::None,
 
         uses_milestones: false,
-
     }
 }
 
@@ -117,7 +116,6 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
             token: crate::types::MaybeAddress::None,
 
             uses_milestones: false,
-
         };
         client.create_campaign(&params);
     }
