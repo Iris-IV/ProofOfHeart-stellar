@@ -87,4 +87,6 @@ pub enum Error {
     TransferAlreadyPending = 40,
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
+    /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
+    GoalMetCancellationNotAllowed = 42,
 }
