@@ -534,11 +534,13 @@ pub(crate) fn verify_milestone(
     assert_admin(env, &admin)?;
     get_campaign_or_error(env, campaign_id)?;
 
-    let milestones = get_campaign_milestones(env, campaign_id);
+   let mut milestones = get_campaign_milestones(env, campaign_id);
     let mut found = false;
-    for mut m in milestones.iter() {
+     for i in 0..milestones.len() {
+        let mut m = milestones.get(i).unwrap();
         if m.id == milestone_id {
             m.verified = true;
+            milestones.set(i, m);
             found = true;
             break;
         }
