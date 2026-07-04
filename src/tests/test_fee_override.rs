@@ -90,7 +90,7 @@ fn test_campaign_fee_override_above_max_rejected() {
         0,
         0i128,
     ));
-    let res = client2.try_set_campaign_fee_override(&admin2, &id, &1001);
+    let res = client2.try_set_campaign_fee_override(&admin2, &id, &10001);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
