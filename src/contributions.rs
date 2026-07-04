@@ -113,7 +113,7 @@ pub(crate) fn contribute(
 
     let new_contribution = current + amount;
     let top_amount = get_top_contribution_amount(env, campaign_id);
-    if new_contribution >= top_amount {
+    if new_contribution > top_amount {
         set_top_contributor(env, campaign_id, &contributor, new_contribution);
     }
     set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
