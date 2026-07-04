@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::{Category, DataKey, GovernanceKey};
-use soroban_sdk::{IntoVal, String, Val};
+use crate::{Category, GovernanceKey};
+use soroban_sdk::String;
 
 #[test]
 fn test_storage_ttl_persistence_365_days() {

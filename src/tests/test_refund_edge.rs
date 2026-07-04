@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::storage;
-use crate::{CampaignKey, Category, DataKey, Error};
-use soroban_sdk::{IntoVal, String, Val};
+use crate::{CampaignKey, Category, Error};
+use soroban_sdk::String;
 
 #[test]
 fn test_claim_refund_state_mutation_order() {
