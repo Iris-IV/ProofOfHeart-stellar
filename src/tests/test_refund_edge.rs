@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::storage;
 use crate::{CampaignKey, Category, DataKey, Error};
-use soroban_sdk::String;
+use soroban_sdk::{IntoVal, String, Val};
 
 #[test]
 fn test_claim_refund_state_mutation_order() {
@@ -215,7 +215,11 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     assert_eq!(token.balance(&contributor2), 4500);
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 500);
 }
-fn has_persistent_key(env: &Env, client: &ProofOfHeartClient<'_>, key: DataKey) -> bool {
+
+fn has_persistent_key<K>(env: &Env, client: &ProofOfHeartClient<'_>, key: K) -> bool
+where
+    K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
+{
     env.as_contract(&client.address, || env.storage().persistent().has(&key))
 }
 

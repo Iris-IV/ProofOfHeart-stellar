@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{storage, CampaignKey, Category, DataKey, Error};
+use crate::{storage, CampaignKey, Category, Error};
 use soroban_sdk::String;
 
 #[test]

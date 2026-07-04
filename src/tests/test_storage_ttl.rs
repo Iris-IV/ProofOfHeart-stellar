@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, DataKey, GovernanceKey};
-use soroban_sdk::String;
+use soroban_sdk::{IntoVal, String, Val};
 
 #[test]
 fn test_storage_ttl_persistence_365_days() {
@@ -50,7 +50,10 @@ fn test_storage_ttl_persistence_365_days() {
     assert_eq!(contribution, 500);
 }
 
-fn has_persistent_key(env: &Env, client: &ProofOfHeartClient<'_>, key: DataKey) -> bool {
+fn has_persistent_key<K>(env: &Env, client: &ProofOfHeartClient<'_>, key: K) -> bool
+where
+    K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>,
+{
     env.as_contract(&client.address, || env.storage().persistent().has(&key))
 }
 
