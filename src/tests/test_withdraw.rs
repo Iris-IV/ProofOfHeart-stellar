@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{storage, Category, DataKey, Error};
+use crate::{storage, CampaignKey, Category, DataKey, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -131,19 +131,19 @@ fn test_claim_refund_removes_contribution_storage_key() {
     client.cancel_campaign(&campaign_id);
 
     env.as_contract(&client.address, || {
-        assert!(env
-            .storage()
-            .persistent()
-            .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
+        assert!(env.storage().persistent().has(&CampaignKey::Contribution(
+            campaign_id,
+            contributor1.clone()
+        )));
     });
 
     client.claim_refund(&campaign_id, &contributor1);
 
     env.as_contract(&client.address, || {
-        assert!(!env
-            .storage()
-            .persistent()
-            .has(&DataKey::Contribution(campaign_id, contributor1.clone())));
+        assert!(!env.storage().persistent().has(&CampaignKey::Contribution(
+            campaign_id,
+            contributor1.clone()
+        )));
     });
 }
 

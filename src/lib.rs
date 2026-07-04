@@ -32,8 +32,8 @@ mod voting;
 
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
-pub use storage::DataKey;
 use storage::*;
+pub use storage::{CampaignKey, CategoryKey, DataKey, GovernanceKey};
 pub use types::*;
 
 // Re-export lifecycle helpers so voting.rs can continue using `crate::` paths.

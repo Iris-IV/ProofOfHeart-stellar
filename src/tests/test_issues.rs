@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Campaign, DataKey, Error, MaybePendingCreator};
+use crate::{Campaign, CampaignKey, DataKey, Error, GovernanceKey, MaybePendingCreator};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
@@ -283,9 +283,10 @@ fn test_vote_weight_overflow_fails() {
     token_admin.mint(&contributor, &1000);
 
     env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
+        env.storage().persistent().set(
+            &GovernanceKey::ApproveWeight(campaign_id),
+            &(i128::MAX - 500),
+        );
     });
 
     token_admin.mint(&contributor, &501);
@@ -383,8 +384,12 @@ fn test_pending_creator_none_round_trip() {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert!(read.pending_creator.is_none());
     });
 }
@@ -425,8 +430,12 @@ fn test_pending_creator_some_round_trip() {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert_eq!(read.pending_creator, MaybePendingCreator::Some(pending));
     });
 }

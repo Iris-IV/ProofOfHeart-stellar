@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, DataKey};
+use crate::{Category, DataKey, GovernanceKey};
 use soroban_sdk::String;
 
 #[test]
@@ -103,11 +103,11 @@ fn test_voting_keys_absent_after_cancel() {
     client.cancel_campaign(&id);
 
     assert!(
-        !has_persistent_key(&env, &client, DataKey::ApproveVotes(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::ApproveVotes(id)),
         "ApproveVotes must not exist"
     );
     assert!(
-        !has_persistent_key(&env, &client, DataKey::RejectVotes(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::RejectVotes(id)),
         "RejectVotes must not exist"
     );
 }
@@ -135,26 +135,26 @@ fn test_voting_keys_purged_after_cancel_with_prior_votes() {
     client.vote_on_campaign(&id, &voter, &true);
 
     assert!(
-        has_persistent_key(&env, &client, DataKey::ApproveVotes(id)),
+        has_persistent_key(&env, &client, GovernanceKey::ApproveVotes(id)),
         "ApproveVotes must exist before cancel"
     );
 
     client.cancel_campaign(&id);
 
     assert!(
-        !has_persistent_key(&env, &client, DataKey::ApproveVotes(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::ApproveVotes(id)),
         "ApproveVotes must be purged after cancel"
     );
     assert!(
-        !has_persistent_key(&env, &client, DataKey::RejectVotes(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::RejectVotes(id)),
         "RejectVotes must be purged after cancel"
     );
     assert!(
-        !has_persistent_key(&env, &client, DataKey::ApproveWeight(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::ApproveWeight(id)),
         "ApproveWeight must be purged after cancel"
     );
     assert!(
-        !has_persistent_key(&env, &client, DataKey::RejectWeight(id)),
+        !has_persistent_key(&env, &client, GovernanceKey::RejectWeight(id)),
         "RejectWeight must be purged after cancel"
     );
 }

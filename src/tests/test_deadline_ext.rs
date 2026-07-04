@@ -205,7 +205,7 @@ fn test_extend_deadline_without_start_time_rejected() {
 
     // Manually remove start time to simulate a legacy campaign
     env.as_contract(&client.address, || {
-        let key = crate::storage::DataKey::CampaignStartTime(id);
+        let key = crate::storage::CampaignKey::CampaignStartTime(id);
         env.storage().persistent().remove(&key);
     });
 
@@ -235,7 +235,7 @@ fn test_extend_deadline_without_start_time_keeps_deadline_unchanged() {
     let original_deadline = client.get_campaign(&id).deadline;
 
     env.as_contract(&client.address, || {
-        let key = crate::storage::DataKey::CampaignStartTime(id);
+        let key = crate::storage::CampaignKey::CampaignStartTime(id);
         env.storage().persistent().remove(&key);
     });
 

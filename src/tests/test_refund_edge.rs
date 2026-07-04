@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::storage;
-use crate::{Category, DataKey, Error};
+use crate::{CampaignKey, Category, DataKey, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -247,7 +247,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::Contribution(id, contributor1.clone())
+            CampaignKey::Contribution(id, contributor1.clone())
         ),
         "Contribution key must be removed after refund"
     );
@@ -255,7 +255,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::RevenueClaimed(id, contributor1.clone())
+            CampaignKey::RevenueClaimed(id, contributor1.clone())
         ),
         "RevenueClaimed key must not exist after refund"
     );
@@ -292,7 +292,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::Contribution(id, contributor1.clone())
+            CampaignKey::Contribution(id, contributor1.clone())
         ),
         "Contribution key must be removed after refund on failed campaign"
     );
