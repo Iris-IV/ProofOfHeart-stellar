@@ -115,12 +115,18 @@ jobs:
           echo "Skipping privileged review: ${{ steps.gate.outputs.skip_reason }}"
 
       # ── Download the artifact produced by pr-collector.yml ────────────────
+      # Fix: actions/download-artifact@v4 only searches the *current* run.
+      # The artifact was uploaded by a separate pull_request run (pr-collector),
+      # so we use dawidd6/action-download-artifact which searches across runs.
       - name: Download PR artifact
         if: steps.gate.outputs.skip != 'true'
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           name: pr-${{ github.event.pull_request.number }}
           path: /tmp/pr-artifact
+          search_artifacts: true
+          if_no_artifact_found: fail
 
       # ── Load metadata and handle empty-diff case ──────────────────────────
       - name: Load metadata
@@ -196,10 +202,10 @@ jobs:
           set -euo pipefail
 
           SYSTEM_PROMPT=$(cat <<'SYSTEM_EOF'
-          You are an EXTREMELY LENIENT code reviewer for Lernza, a hackathon project.
-          Interns are shipping fast. CI has been disabled to maximise velocity.
+          You are a code reviewer for the ProofOfHeart open-source project on GitHub.
+          Your role is to evaluate pull requests for genuine contribution quality.
 
-          ## Default behaviour: APPROVE almost everything
+          ## Default behaviour: APPROVE real work
 
           IGNORE all of: code style, formatting, naming conventions, missing tests,
           untyped code, imperfect patterns, unhandled edge cases, performance,

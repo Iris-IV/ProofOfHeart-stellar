@@ -171,22 +171,38 @@ jobs:
 
       # ── Serialise metadata to a file for the artifact ─────────────────────
       - name: Write metadata JSON
+        # Fix: pr_title and pr_body are passed via env vars, not interpolated
+        # directly into the jq command, to prevent script injection from
+        # attacker-controlled PR title/body content.
+        env:
+          PR_NUMBER:         ${{ github.event.pull_request.number }}
+          PR_TITLE:          ${{ steps.meta.outputs.title }}
+          PR_AUTHOR:         ${{ steps.meta.outputs.author }}
+          PR_BODY:           ${{ steps.meta.outputs.pr_body }}
+          PR_FILES:          ${{ steps.meta.outputs.files }}
+          PR_ADDS:           ${{ steps.meta.outputs.adds }}
+          PR_DELS:           ${{ steps.meta.outputs.dels }}
+          HAS_ISSUE:         ${{ steps.issues.outputs.has_issue }}
+          DIFF_BYTES:        ${{ steps.diff.outputs.diff_bytes }}
+          REAL_CHANGE_LINES: ${{ steps.diff.outputs.real_change_lines }}
+          AUTO_FRAUD:        ${{ steps.preflight.outputs.auto_fraud }}
+          FRAUD_TYPE:        ${{ steps.preflight.outputs.fraud_type }}
         run: |
           set -euo pipefail
 
           jq -n \
-            --arg pr_number        "${{ github.event.pull_request.number }}" \
-            --arg pr_title         "${{ steps.meta.outputs.title }}" \
-            --arg pr_author        "${{ steps.meta.outputs.author }}" \
-            --arg pr_body          "${{ steps.meta.outputs.pr_body }}" \
-            --arg files            "${{ steps.meta.outputs.files }}" \
-            --arg adds             "${{ steps.meta.outputs.adds }}" \
-            --arg dels             "${{ steps.meta.outputs.dels }}" \
-            --arg has_issue        "${{ steps.issues.outputs.has_issue }}" \
-            --arg diff_bytes       "${{ steps.diff.outputs.diff_bytes }}" \
-            --arg real_change_lines "${{ steps.diff.outputs.real_change_lines }}" \
-            --arg auto_fraud       "${{ steps.preflight.outputs.auto_fraud }}" \
-            --arg fraud_type       "${{ steps.preflight.outputs.fraud_type }}" \
+            --arg pr_number         "$PR_NUMBER" \
+            --arg pr_title          "$PR_TITLE" \
+            --arg pr_author         "$PR_AUTHOR" \
+            --arg pr_body           "$PR_BODY" \
+            --arg files             "$PR_FILES" \
+            --arg adds              "$PR_ADDS" \
+            --arg dels              "$PR_DELS" \
+            --arg has_issue         "$HAS_ISSUE" \
+            --arg diff_bytes        "$DIFF_BYTES" \
+            --arg real_change_lines "$REAL_CHANGE_LINES" \
+            --arg auto_fraud        "$AUTO_FRAUD" \
+            --arg fraud_type        "$FRAUD_TYPE" \
             '{
                pr_number:         ($pr_number | tonumber),
                pr_title:          $pr_title,
