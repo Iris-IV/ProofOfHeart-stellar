@@ -30,6 +30,9 @@ pub(crate) fn init(
     if platform_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
+    if platform_fee > crate::PLATFORM_FEE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
 
     // Validate that the address is a real SEP-41 token contract.
     env.try_invoke_contract::<u32, Error>(
@@ -162,6 +165,9 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
+    if new_fee > crate::PLATFORM_FEE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
     let old_fee = get_platform_fee(env);
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
@@ -179,6 +185,9 @@ pub(crate) fn set_campaign_fee_override(
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::ValidationFailed);
+    }
+    if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::ValidationFailed);
     }
     bump_instance_ttl(env);
