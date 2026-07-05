@@ -109,12 +109,6 @@ pub enum DataKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
-    /// Emergency pause signers set by admin.
-    EmergencyPauseSigners,
-    /// Milestones for a campaign, keyed by campaign ID.
-    CampaignMilestones(u32),
-    /// Count of milestones for a campaign.
-    CampaignMilestoneCount(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -913,50 +907,4 @@ pub fn set_cancelled_campaign_count(env: &Env, count: u32) {
 
 pub fn increment_cancelled_campaign_count(env: &Env) {
     set_cancelled_campaign_count(env, get_cancelled_campaign_count(env) + 1);
-}
-
-// ── Emergency pause signers ───────────────────────────────────────────
-
-pub fn get_emergency_pause_signers(env: &Env) -> Vec<Address> {
-    env.storage()
-        .instance()
-        .get(&DataKey::EmergencyPauseSigners)
-        .unwrap_or_else(|| Vec::new(env))
-}
-
-pub fn set_emergency_pause_signers(env: &Env, signers: &Vec<Address>) {
-    env.storage()
-        .instance()
-        .set(&DataKey::EmergencyPauseSigners, signers);
-}
-
-// ── Campaign milestones ───────────────────────────────────────────────
-
-pub fn get_campaign_milestones(env: &Env, campaign_id: u32) -> Vec<crate::types::Milestone> {
-    let key = DataKey::CampaignMilestones(campaign_id);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or_else(|| Vec::new(env))
-}
-
-pub fn set_campaign_milestones(env: &Env, campaign_id: u32, milestones: &Vec<crate::types::Milestone>) {
-    let key = DataKey::CampaignMilestones(campaign_id);
-    env.storage().persistent().set(&key, milestones);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-}
-
-pub fn get_campaign_milestone_count(env: &Env, campaign_id: u32) -> u32 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::CampaignMilestoneCount(campaign_id))
-        .unwrap_or(0)
-}
-
-pub fn set_campaign_milestone_count(env: &Env, campaign_id: u32, count: u32) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::CampaignMilestoneCount(campaign_id), &count);
 }
