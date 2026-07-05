@@ -19,7 +19,10 @@ fn test_update_platform_fee() {
     assert_eq!(data_vec.get(0).unwrap(), 300);
     assert_eq!(data_vec.get(1).unwrap(), 500);
 
-    // Issue #559: fees above the absolute max of 10000 bps are rejected.
+    // Issue #343: fees above the business cap (1000 bps) are rejected.
+    let result = client.try_update_platform_fee(&5000);
+    assert_eq!(result.unwrap_err().unwrap(), Error::InvalidPlatformFee);
+    // Issue #559: fees above the absolute max (10000 bps) are rejected.
     let result = client.try_update_platform_fee(&10001);
     assert_eq!(result.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
