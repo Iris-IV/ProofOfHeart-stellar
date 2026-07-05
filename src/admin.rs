@@ -4,14 +4,14 @@ use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
-    get_campaign_milestones, get_emergency_pause_signers, get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
+    get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
     get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
     get_total_raised_global, get_version, is_initialized, remove_has_voted, remove_pending_admin,
     remove_pending_token, remove_voting_state, set_admin, set_approval_threshold_bps,
-    set_campaign_count, set_campaign_milestones, set_creation_disabled, set_emergency_pause_signers, set_initialized, set_max_campaign_funding_goal,
+    set_campaign_count, set_creation_disabled, set_initialized, set_max_campaign_funding_goal,
     set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
     set_pending_token, set_pending_token_release, set_platform_fee, set_token,
-    set_total_raised_global, set_version, set_campaign_milestone_count, set_withdraw_release_delay_days,
+    set_total_raised_global, set_version, set_withdraw_release_delay_days,
     set_withdraw_reserve_percentage, DataKey,
 };
 use crate::voting;
@@ -85,38 +85,6 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     env.storage().instance().set(&DataKey::Paused, &false);
     env.storage().instance().set(&DataKey::AutoPaused, &false);
     env.events().publish(("contract_unpaused", admin), ());
-    Ok(())
-}
-
-pub(crate) fn set_emergency_pause_signers(
-    env: &Env,
-    admin: Address,
-    signers: Vec<Address>,
-) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
-    if signers.is_empty() {
-        return Err(Error::ValidationFailed);
-    }
-    bump_instance_ttl(env);
-    storage::set_emergency_pause_signers(env, &signers);
-    env.events()
-        .publish(("emergency_pause_signers_updated",), signers.len());
-    Ok(())
-}
-
-pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
-    caller.require_auth();
-    let signers = get_emergency_pause_signers(env);
-    if signers.is_empty() {
-        return Err(Error::NotAuthorized);
-    }
-    let is_authorized = signers.iter().any(|s| s == &caller);
-    if !is_authorized {
-        return Err(Error::NotAuthorized);
-    }
-    bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::Paused, &true);
-    env.events().publish(("emergency_paused", caller), ());
     Ok(())
 }
 
@@ -498,57 +466,5 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     env.events()
         .publish(("campaign_resumed", campaign_id, caller), ());
 
-    Ok(())
-}
-
-pub(crate) fn add_campaign_milestones(
-    env: &Env,
-    admin: Address,
-    campaign_id: u32,
-    milestones: Vec<crate::types::Milestone>,
-) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
-    let campaign = get_campaign_or_error(env, campaign_id)?;
-    if !campaign.uses_milestones {
-        return Err(Error::ValidationFailed);
-    }
-    if milestones.is_empty() {
-        return Err(Error::ValidationFailed);
-    }
-
-    bump_instance_ttl(env);
-    set_campaign_milestones(env, campaign_id, &milestones);
-    set_campaign_milestone_count(env, campaign_id, milestones.len() as u32);
-    env.events()
-        .publish(("campaign_milestones_added", campaign_id), milestones.len());
-    Ok(())
-}
-
-pub(crate) fn verify_milestone(
-    env: &Env,
-    admin: Address,
-    campaign_id: u32,
-    milestone_id: u32,
-) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
-    get_campaign_or_error(env, campaign_id)?;
-
-    let mut milestones = get_campaign_milestones(env, campaign_id);
-    let mut found = false;
-    for m in milestones.iter_mut() {
-        if m.id == milestone_id {
-            m.verified = true;
-            found = true;
-            break;
-        }
-    }
-    if !found {
-        return Err(Error::ValidationFailed);
-    }
-
-    bump_instance_ttl(env);
-    set_campaign_milestones(env, campaign_id, &milestones);
-    env.events()
-        .publish(("milestone_verified", campaign_id, milestone_id), ());
     Ok(())
 }

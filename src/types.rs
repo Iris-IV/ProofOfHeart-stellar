@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, String};
 
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because
@@ -26,20 +26,6 @@ impl From<Address> for MaybePendingCreator {
     fn from(addr: Address) -> Self {
         MaybePendingCreator::Some(addr)
     }
-}
-
-/// Represents a funding milestone for milestone-based withdrawals.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Milestone {
-    /// Unique identifier for the milestone.
-    pub id: u32,
-    /// Target amount to be reached for this milestone.
-    pub target_amount: i128,
-    /// Description of the milestone.
-    pub description: String,
-    /// Whether this milestone has been verified by admin/community.
-    pub verified: bool,
 }
 
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.
@@ -100,10 +86,6 @@ pub struct Campaign {
     pub deadline_extended: bool,
     /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
     pub effective_amount_raised: i128,
-    /// Token address for this campaign. Can differ from global token.
-    pub token: Address,
-    /// Whether this campaign uses milestone-based withdrawals.
-    pub uses_milestones: bool,
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.
@@ -151,10 +133,6 @@ pub struct CreateCampaignParams {
     pub revenue_share_percentage: u32,
     /// Per-user contribution cap in tokens. `0` means no cap.
     pub max_contribution_per_user: i128,
-    /// Token address for this campaign. If None, uses global default.
-    pub token: Option<Address>,
-    /// Whether this campaign uses milestone-based withdrawals.
-    pub uses_milestones: bool,
 }
 
 /// Stores details about withheld funds for a campaign.
