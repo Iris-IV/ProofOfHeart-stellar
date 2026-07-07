@@ -79,13 +79,6 @@ pub(crate) fn token_client(env: &Env) -> token::Client<'_> {
     token::Client::new(env, &get_token(env))
 }
 
-pub(crate) fn token_client_for_address<'a>(
-    env: &'a Env,
-    token_addr: &Address,
-) -> token::Client<'a> {
-    token::Client::new(env, token_addr)
-}
-
 pub(crate) fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Result<u64, Error> {
     get_campaign_start_time(env, campaign_id).ok_or(Error::InvalidDuration)
 }
