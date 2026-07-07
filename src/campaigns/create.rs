@@ -10,6 +10,10 @@ use crate::storage::{
     set_campaign_start_time, set_category_campaign_bucket, set_category_campaign_count,
     set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_min_campaign_funding_goal, set_campaign, set_campaign_count, set_campaign_start_time,
+    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
+    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -30,8 +34,6 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
-        token,
-        uses_milestones,
     } = params;
 
     if funding_goal <= 0 {
@@ -60,6 +62,8 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         return Err(Error::RevenueShareOnlyForStartup);
     }
 
+    // Normalise: force percentage to 0 when revenue sharing is disabled so
+    // the stored (has_revenue_sharing, percentage) pair is always coherent.
     let revenue_share_percentage = if !has_revenue_sharing {
         0u32
     } else {
@@ -116,8 +120,6 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
-        token: campaign_token,
-        uses_milestones,
     };
 
     set_campaign(env, count, &campaign);

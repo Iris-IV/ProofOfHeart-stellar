@@ -109,12 +109,6 @@ pub enum DataKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
-    /// Emergency pause signers set by admin.
-    EmergencyPauseSigners,
-    /// Milestones for a campaign, keyed by campaign ID.
-    CampaignMilestones(u32),
-    /// Count of milestones for a campaign.
-    CampaignMilestoneCount(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────

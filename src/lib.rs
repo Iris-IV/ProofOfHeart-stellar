@@ -249,18 +249,6 @@ impl ProofOfHeart {
         admin::unpause(&env)
     }
 
-    pub fn emergency_pause(env: Env, caller: Address) -> Result<(), Error> {
-        admin::emergency_pause(&env, caller)
-    }
-
-    pub fn set_emergency_pause_signers(
-        env: Env,
-        admin: Address,
-        signers: soroban_sdk::Vec<Address>,
-    ) -> Result<(), Error> {
-        admin::set_emergency_pause_signers(&env, admin, signers)
-    }
-
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()

@@ -28,20 +28,6 @@ impl From<Address> for MaybePendingCreator {
     }
 }
 
-/// Represents a funding milestone for milestone-based withdrawals.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Milestone {
-    /// Unique identifier for the milestone.
-    pub id: u32,
-    /// Target amount to be reached for this milestone.
-    pub target_amount: i128,
-    /// Description of the milestone.
-    pub description: String,
-    /// Whether this milestone has been verified by admin/community.
-    pub verified: bool,
-}
-
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -100,10 +86,6 @@ pub struct Campaign {
     pub deadline_extended: bool,
     /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
     pub effective_amount_raised: i128,
-    /// Token address for this campaign. Can differ from global token.
-    pub token: Address,
-    /// Whether this campaign uses milestone-based withdrawals.
-    pub uses_milestones: bool,
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.
