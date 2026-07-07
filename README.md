@@ -34,7 +34,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - **Create Campaign** — Launch a new fundraising campaign via `CreateCampaignParams` (title, description, funding goal, duration in days, category, revenue-sharing settings, and per-user contribution cap).
 - **Update Campaign** — Edit title and/or description before any contributions are received.
 - **Extend Deadline** — Extend a campaign's deadline once (within the 365-day maximum).
-- **Cancel Campaign** — Campaign creators can cancel an active campaign, enabling contributor refunds.
+- **Cancel Campaign** — Campaign creators can cancel an active campaign, enabling contributor refunds. Cancellation is blocked once the funding goal has been reached and funds have not yet been withdrawn, preventing rug-pull behaviour (#164).
 - **Ownership Transfer** — Two-step creator transfer: `initiate_campaign_transfer` → `accept_campaign_transfer` (or `cancel_campaign_transfer`).
 
 ### Campaign Verification
