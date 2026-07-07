@@ -6,6 +6,7 @@ use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
     increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
 };
+use crate::voting;
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_creator_campaign(env, campaign_id)?;
@@ -35,7 +36,14 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     campaign.is_cancelled = true;
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
-    remove_voting_state(env, campaign_id);
+    // Preserve the aggregate vote state when quorum and the approval threshold
+    // have already been met.  This ensures the community's governance decision
+    // remains visible and cannot be silently erased by a subsequent admin call
+    // to purge_voting_state.  If quorum has not been reached the partial vote
+    // data is safe to discard immediately.
+    if !voting::has_met_quorum_and_threshold(env, campaign_id) {
+        remove_voting_state(env, campaign_id);
+    }
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
 

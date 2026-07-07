@@ -432,6 +432,12 @@ pub(crate) fn purge_voting_state(
     }
 
     if finalize_aggregate {
+        // Block erasure of a vote outcome that has already met quorum and
+        // the approval threshold.  Allowing the admin to clear this state
+        // would silently suppress a verifiable community governance decision.
+        if voting::has_met_quorum_and_threshold(env, campaign_id) {
+            return Err(Error::ValidationFailed);
+        }
         remove_voting_state(env, campaign_id);
         env.events()
             .publish(("voting_state_purged", campaign_id), ());

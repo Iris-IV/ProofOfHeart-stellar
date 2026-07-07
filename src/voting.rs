@@ -194,3 +194,42 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Returns `true` if the campaign has accumulated enough votes to pass both
+/// the quorum requirement and the approval-threshold check — i.e. a call to
+/// `verify_with_votes` would succeed purely on the vote counts.
+///
+/// Used by `purge_voting_state` to prevent the admin from silently erasing a
+/// community vote that has already reached a verifiable outcome.
+pub fn has_met_quorum_and_threshold(env: &Env, campaign_id: u32) -> bool {
+    let approve_votes = get_approve_votes(env, campaign_id);
+    let reject_votes = get_reject_votes(env, campaign_id);
+    let total_votes = match approve_votes.checked_add(reject_votes) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    let min_quorum = get_min_votes_quorum(env, DEFAULT_MIN_VOTES_QUORUM);
+    if total_votes < min_quorum {
+        return false;
+    }
+
+    let approve_weight = get_approve_weight(env, campaign_id);
+    let reject_weight = get_reject_weight(env, campaign_id);
+    let total_weight = match approve_weight.checked_add(reject_weight) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
+    let approval_bps = if total_weight > 0 {
+        approve_weight
+            .checked_mul(10000)
+            .and_then(|n| n.checked_div(total_weight))
+            .unwrap_or(0) as u32
+    } else {
+        0
+    };
+
+    approval_bps >= threshold
+}
