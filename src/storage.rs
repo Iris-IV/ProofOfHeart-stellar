@@ -330,7 +330,9 @@ pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
     let key = DataKey::TopContributor(campaign_id);
     let val: Option<Address> = env.storage().persistent().get(&key);
     if val.is_some() {
-        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     val
 }
@@ -338,7 +340,9 @@ pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
 pub fn set_top_contributor(env: &Env, campaign_id: u32, contributor: &Address) {
     let key = DataKey::TopContributor(campaign_id);
     env.storage().persistent().set(&key, contributor);
-    env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
@@ -349,7 +353,9 @@ pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
 pub fn set_last_contribution_time(env: &Env, campaign_id: u32, time: u64) {
     let key = DataKey::LastContributionTime(campaign_id);
     env.storage().persistent().set(&key, &time);
-    env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────

@@ -177,7 +177,7 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> Option<Campaign
     let contributor_count = get_contributor_count(env, campaign_id);
     let top_contributor = get_top_contributor(env, campaign_id);
     let last_contribution_time = get_last_contribution_time(env, campaign_id);
-    
+
     let avg_contribution = if contributor_count > 0 {
         campaign.amount_raised / (contributor_count as i128)
     } else {
