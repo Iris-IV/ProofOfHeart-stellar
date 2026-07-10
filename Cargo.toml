@@ -28,5 +28,5 @@ panic = "abort"
 codegen-units = 1
 lto = true
 
-[patch.crates-io]
-ethnum = { version = "1.5.3" }
+
+ethnum="1.5.3"
