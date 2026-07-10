@@ -527,6 +527,10 @@ impl ProofOfHeart {
     pub fn get_platform_stats(env: Env) -> PlatformStats {
         queries::get_platform_stats(&env)
     }
+
+    pub fn get_campaign_stats(env: Env, campaign_id: u32) -> Option<CampaignStats> {
+        queries::get_campaign_stats(&env, campaign_id)
+    }
 }
 
 #[cfg(test)]

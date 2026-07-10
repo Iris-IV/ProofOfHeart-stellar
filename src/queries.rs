@@ -2,11 +2,12 @@ use soroban_sdk::{Address, Env};
 
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
-    get_category_campaign_bucket, get_category_campaign_count, get_creator_campaign_bucket,
-    get_creator_campaign_count, get_total_raised_global, get_verified_campaign_count,
+    get_category_campaign_bucket, get_category_campaign_count, get_contributor_count,
+    get_creator_campaign_bucket, get_creator_campaign_count, get_last_contribution_time,
+    get_top_contributor, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, PlatformStats};
+use crate::types::{Campaign, CampaignStats, Category, PlatformStats};
 
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
@@ -169,4 +170,24 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
     }
+}
+
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> Option<CampaignStats> {
+    let campaign = get_campaign(env, campaign_id)?;
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let top_contributor = get_top_contributor(env, campaign_id);
+    let last_contribution_time = get_last_contribution_time(env, campaign_id);
+    
+    let avg_contribution = if contributor_count > 0 {
+        campaign.amount_raised / (contributor_count as i128)
+    } else {
+        0
+    };
+
+    Some(CampaignStats {
+        contributor_count,
+        top_contributor,
+        avg_contribution,
+        last_contribution_time,
+    })
 }

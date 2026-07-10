@@ -6,10 +6,11 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
-    set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_lifetime_contribution, set_personal_cap, set_total_raised_global, DataKey,
+    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
+    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
+    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, DataKey,
 };
 use crate::types::Campaign;
 
@@ -111,6 +112,20 @@ pub(crate) fn contribute(
 
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(env, total_raised + amount);
+
+    let new_lifetime = lifetime + amount;
+    if let Some(top_addr) = get_top_contributor(env, campaign_id) {
+        if top_addr != contributor {
+            let top_lifetime = get_lifetime_contribution(env, campaign_id, &top_addr);
+            if new_lifetime > top_lifetime {
+                set_top_contributor(env, campaign_id, &contributor);
+            }
+        }
+    } else {
+        set_top_contributor(env, campaign_id, &contributor);
+    }
+
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
     env.events()
         .publish(("contribution_made", campaign_id, contributor), amount);

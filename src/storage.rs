@@ -109,6 +109,10 @@ pub enum DataKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
+    /// The top contributor for a campaign.
+    TopContributor(u32),
+    /// The last time a contribution was made to a campaign.
+    LastContributionTime(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -320,6 +324,32 @@ pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
     if count > 0 {
         set_contributor_count(env, campaign_id, count - 1);
     }
+}
+
+pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
+    let key = DataKey::TopContributor(campaign_id);
+    let val: Option<Address> = env.storage().persistent().get(&key);
+    if val.is_some() {
+        env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+pub fn set_top_contributor(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = DataKey::TopContributor(campaign_id);
+    env.storage().persistent().set(&key, contributor);
+    env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
+    let key = DataKey::LastContributionTime(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_last_contribution_time(env: &Env, campaign_id: u32, time: u64) {
+    let key = DataKey::LastContributionTime(campaign_id);
+    env.storage().persistent().set(&key, &time);
+    env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
