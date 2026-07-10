@@ -40,3 +40,6 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
+
+[patch.crates-io]
+ethnum = { registry = "https://github.com", version = "1.5.3" }
