@@ -6,6 +6,7 @@ use crate::storage::{
     get_creator_campaign_bucket, get_creator_campaign_count, get_last_contribution_time,
     get_top_contributor, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    MaybePendingCreator
 };
 use crate::types::{Campaign, CampaignStats, Category, PlatformStats};
 
@@ -175,7 +176,10 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
 pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> Option<CampaignStats> {
     let campaign = get_campaign(env, campaign_id)?;
     let contributor_count = get_contributor_count(env, campaign_id);
-    let top_contributor = get_top_contributor(env, campaign_id);
+    let top_contributor = match get_top_contributor(env, campaign_id) {
+        Some(addr) => MaybePendingCreator::Some(addr),
+        None => MaybePendingCreator::None,
+    };
     let last_contribution_time = get_last_contribution_time(env, campaign_id);
 
     let avg_contribution = if contributor_count > 0 {
