@@ -40,6 +40,3 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
-
-
-ethnum="1.5.3"
