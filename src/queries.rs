@@ -4,9 +4,8 @@ use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
     get_category_campaign_bucket, get_category_campaign_count, get_contributor_count,
     get_creator_campaign_bucket, get_creator_campaign_count, get_last_contribution_time,
-    get_top_contributor, get_total_raised_global, get_verified_campaign_count,
+    get_top_contributor, get_total_raised_global, get_verified_campaign_count, MaybePendingCreator,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
-    MaybePendingCreator
 };
 use crate::types::{Campaign, CampaignStats, Category, PlatformStats};
 
