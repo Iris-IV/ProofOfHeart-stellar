@@ -1,0 +1,235 @@
+# Workflow 1 of 2 — PR Metadata Collector (UNPRIVILEGED)
+#
+# Security model (fixes #472)
+# ───────────────────────────
+# This workflow runs on the `pull_request` event, which means it executes in
+# the context of the *fork/contributor's* commit — it has NO access to
+# repository secrets.  Its only job is to gather the PR diff + metadata and
+# upload them as a GitHub Actions artifact.  No secret is ever injected into
+# this job.
+#
+# The companion privileged workflow (pr-review.yml) is triggered separately
+# by a trusted maintainer, downloads this artifact, and only then calls the
+# Groq API and acts on the PR using the OWNER_PAT.  Because that second
+# workflow runs on `pull_request_review`, it executes in the context of the
+# *base* repository and has full access to secrets.
+#
+# References
+# ──────────
+#   https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+#   https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+
+name: PR Metadata Collector
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+# Absolute minimum permissions — read-only on pull-requests so we can fetch
+# the diff; write is NOT needed here.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  collect:
+    name: Collect PR metadata and diff
+    # Skip draft PRs; the review workflow would ignore them anyway.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the *base* repo at HEAD (not the fork's code)
+        uses: actions/checkout@v4
+        with:
+          # Explicitly check out the base branch, not the PR head, so that
+          # untrusted code from the fork never runs in this step.
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      # ── Gather PR metadata ────────────────────────────────────────────────
+      - name: Gather PR metadata
+        id: meta
+        env:
+          # GITHUB_TOKEN is the ephemeral, read-only installation token
+          # automatically provided by GitHub Actions.  It is NOT a secret
+          # you configured; it cannot write to this repo beyond what the
+          # `permissions` block above grants (read-only).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          PR_DATA=$(gh pr view "$PR_NUM" \
+            --repo "$REPO" \
+            --json title,body,author,files,additions,deletions,changedFiles)
+
+          AUTHOR=$(echo "$PR_DATA"   | jq -r '.author.login')
+          TITLE=$(echo  "$PR_DATA"   | jq -r '.title')
+          BODY=$(echo   "$PR_DATA"   | jq -r '.body // ""')
+          FILES=$(echo  "$PR_DATA"   | jq -r '.changedFiles')
+          ADDS=$(echo   "$PR_DATA"   | jq -r '.additions')
+          DELS=$(echo   "$PR_DATA"   | jq -r '.deletions')
+
+          echo "author=$AUTHOR"   >> "$GITHUB_OUTPUT"
+          echo "files=$FILES"     >> "$GITHUB_OUTPUT"
+          echo "adds=$ADDS"       >> "$GITHUB_OUTPUT"
+          echo "dels=$DELS"       >> "$GITHUB_OUTPUT"
+
+          {
+            echo "title<<GHA_DELIM"
+            echo "$TITLE"
+            echo "GHA_DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "pr_body<<GHA_DELIM"
+            echo "$BODY"
+            echo "GHA_DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Fetch and truncate the diff ───────────────────────────────────────
+      - name: Fetch PR diff
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM:   ${{ github.event.pull_request.number }}
+          REPO:     ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          gh pr diff "$PR_NUM" --repo "$REPO" > /tmp/pr-diff.txt 2>/dev/null || true
+
+          DIFF_BYTES=$(wc -c < /tmp/pr-diff.txt | tr -d ' ')
+          REAL_CHANGE_LINES=$(grep -E '^[+-]' /tmp/pr-diff.txt \
+            | grep -vE '^(\+\+\+|---)' | wc -l | tr -d ' ')
+
+          echo "diff_bytes=$DIFF_BYTES"             >> "$GITHUB_OUTPUT"
+          echo "real_change_lines=$REAL_CHANGE_LINES" >> "$GITHUB_OUTPUT"
+
+          # Keep the first 3 000 lines to stay within reasonable payload size.
+          head -3000 /tmp/pr-diff.txt > /tmp/pr-diff-truncated.txt
+
+      # ── Fetch linked issue context ────────────────────────────────────────
+      - name: Fetch linked issue context
+        id: issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          PR_BODY:  ${{ steps.meta.outputs.pr_body }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_NUMS=$(echo "$PR_BODY" | \
+            grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#[0-9]+' | \
+            grep -oE '[0-9]+' | sort -u | tr '\n' ' ' || true)
+
+          : > /tmp/issues-context.txt
+
+          if [ -n "${ISSUE_NUMS:-}" ]; then
+            for NUM in $ISSUE_NUMS; do
+              ISSUE_DATA=$(gh issue view "$NUM" --repo "$REPO" \
+                --json number,title,body 2>/dev/null || echo "")
+              if [ -n "$ISSUE_DATA" ]; then
+                ISSUE_TITLE=$(echo "$ISSUE_DATA" | jq -r '.title // ""')
+                ISSUE_BODY=$(echo  "$ISSUE_DATA" | jq -r '.body // ""' | head -c 2000)
+                {
+                  echo "--- Issue #$NUM: $ISSUE_TITLE ---"
+                  echo "$ISSUE_BODY"
+                  echo ""
+                } >> /tmp/issues-context.txt
+              fi
+            done
+          fi
+
+          if [ ! -s /tmp/issues-context.txt ]; then
+            echo "(No issues linked or issues could not be fetched)" \
+              > /tmp/issues-context.txt
+            echo "has_issue=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_issue=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Pre-flight empty-diff detection ───────────────────────────────────
+      - name: Pre-flight empty-diff detection
+        id: preflight
+        env:
+          DIFF_BYTES:        ${{ steps.diff.outputs.diff_bytes }}
+          REAL_CHANGE_LINES: ${{ steps.diff.outputs.real_change_lines }}
+          ADDS:              ${{ steps.meta.outputs.adds }}
+        run: |
+          if [ "$DIFF_BYTES" -lt 50 ] \
+              || [ "$ADDS" -eq 0 ] \
+              || [ "$REAL_CHANGE_LINES" -lt 1 ]; then
+            echo "auto_fraud=true"  >> "$GITHUB_OUTPUT"
+            echo "fraud_type=empty" >> "$GITHUB_OUTPUT"
+          else
+            echo "auto_fraud=false" >> "$GITHUB_OUTPUT"
+            echo "fraud_type=none"  >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Serialise metadata to a file for the artifact ─────────────────────
+      - name: Write metadata JSON
+        # Fix: pr_title and pr_body are passed via env vars, not interpolated
+        # directly into the jq command, to prevent script injection from
+        # attacker-controlled PR title/body content.
+        env:
+          PR_NUMBER:         ${{ github.event.pull_request.number }}
+          PR_TITLE:          ${{ steps.meta.outputs.title }}
+          PR_AUTHOR:         ${{ steps.meta.outputs.author }}
+          PR_BODY:           ${{ steps.meta.outputs.pr_body }}
+          PR_FILES:          ${{ steps.meta.outputs.files }}
+          PR_ADDS:           ${{ steps.meta.outputs.adds }}
+          PR_DELS:           ${{ steps.meta.outputs.dels }}
+          HAS_ISSUE:         ${{ steps.issues.outputs.has_issue }}
+          DIFF_BYTES:        ${{ steps.diff.outputs.diff_bytes }}
+          REAL_CHANGE_LINES: ${{ steps.diff.outputs.real_change_lines }}
+          AUTO_FRAUD:        ${{ steps.preflight.outputs.auto_fraud }}
+          FRAUD_TYPE:        ${{ steps.preflight.outputs.fraud_type }}
+        run: |
+          set -euo pipefail
+
+          jq -n \
+            --arg pr_number         "$PR_NUMBER" \
+            --arg pr_title          "$PR_TITLE" \
+            --arg pr_author         "$PR_AUTHOR" \
+            --arg pr_body           "$PR_BODY" \
+            --arg files             "$PR_FILES" \
+            --arg adds              "$PR_ADDS" \
+            --arg dels              "$PR_DELS" \
+            --arg has_issue         "$HAS_ISSUE" \
+            --arg diff_bytes        "$DIFF_BYTES" \
+            --arg real_change_lines "$REAL_CHANGE_LINES" \
+            --arg auto_fraud        "$AUTO_FRAUD" \
+            --arg fraud_type        "$FRAUD_TYPE" \
+            '{
+               pr_number:         ($pr_number | tonumber),
+               pr_title:          $pr_title,
+               pr_author:         $pr_author,
+               pr_body:           $pr_body,
+               files:             ($files | tonumber),
+               adds:              ($adds  | tonumber),
+               dels:              ($dels  | tonumber),
+               has_issue:         $has_issue,
+               diff_bytes:        ($diff_bytes        | tonumber),
+               real_change_lines: ($real_change_lines | tonumber),
+               auto_fraud:        $auto_fraud,
+               fraud_type:        $fraud_type
+             }' > /tmp/pr-meta.json
+
+      # ── Upload the artifact ───────────────────────────────────────────────
+      # The artifact is keyed by PR number so the privileged workflow can find
+      # it deterministically via the `pr_number` input it receives.
+      - name: Upload PR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # Name pattern consumed by pr-review.yml
+          name: pr-${{ github.event.pull_request.number }}
+          path: |
+            /tmp/pr-meta.json
+            /tmp/pr-diff-truncated.txt
+            /tmp/issues-context.txt
+          # Artifacts older than the review window are useless; keep storage lean.
+          retention-days: 7
+          if-no-files-found: error
