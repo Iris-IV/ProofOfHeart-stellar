@@ -6,6 +6,7 @@ use crate::storage::{
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
     get_platform_fee, get_token, get_total_raised_global, get_verified_campaign_count,
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    MaybePendingCreator
 };
 use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
 
