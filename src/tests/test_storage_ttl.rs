@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, DataKey};
+use crate::{Category, DataKey, SECONDS_PER_DAY};
 use soroban_sdk::String;
 
 #[test]
@@ -31,7 +31,7 @@ fn test_storage_ttl_persistence_365_days() {
     let current_ledger = env.ledger().sequence();
 
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp() + (365 * 86400),
+        timestamp: env.ledger().timestamp() + (365 * SECONDS_PER_DAY),
         protocol_version: 22,
         sequence_number: current_ledger + days_365_ledgers,
         network_id: [0; 32],
@@ -197,7 +197,7 @@ fn test_verify_campaigns_extends_ttl_on_failure() {
     let current_ledger = env.ledger().sequence();
     let advance_ledgers = 20 * 17280; // 20 days
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp() + (20 * 86400),
+        timestamp: env.ledger().timestamp() + (20 * SECONDS_PER_DAY),
         protocol_version: 22,
         sequence_number: current_ledger + advance_ledgers,
         network_id: [0; 32],

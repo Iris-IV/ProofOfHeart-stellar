@@ -81,7 +81,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         let release_timestamp = env
             .ledger()
             .timestamp()
-            .checked_add(delay_days * 86400)
+            .checked_add(delay_days * crate::SECONDS_PER_DAY)
             .ok_or(Error::Overflow)?;
 
         let reserve = CampaignReserve {

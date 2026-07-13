@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::Error;
+use crate::{Error, SECONDS_PER_DAY};
 use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{Address, TryFromVal};
 
@@ -34,7 +34,7 @@ fn test_withdrawal_vesting_full_flow() {
 
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 31 * 86400;
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&campaign_id);
@@ -47,7 +47,7 @@ fn test_withdrawal_vesting_full_flow() {
 
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 8 * 86400;
+        li.timestamp = current_ts + 8 * SECONDS_PER_DAY;
     });
 
     client.withdraw_reserve(&campaign_id);
@@ -85,7 +85,7 @@ fn test_get_campaign_reserve_view_function() {
 
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 31 * 86400;
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&campaign_id);
@@ -97,7 +97,7 @@ fn test_get_campaign_reserve_view_function() {
     assert!(!reserve.released);
     assert_eq!(
         reserve.release_timestamp,
-        env.ledger().timestamp() + 7 * 86400
+        env.ledger().timestamp() + 7 * SECONDS_PER_DAY
     );
 }
 
@@ -139,13 +139,13 @@ fn test_withdraw_reserve_when_paused_fails() {
 
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 31 * 86400;
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
     });
     client.withdraw_funds(&campaign_id);
 
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 8 * 86400;
+        li.timestamp = current_ts + 8 * SECONDS_PER_DAY;
     });
 
     client.pause();
@@ -212,7 +212,7 @@ fn test_withdraw_event_payload_tuple() {
     // Fast forward to deadline
     let current_ts = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = current_ts + 31 * 86400;
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&campaign_id);

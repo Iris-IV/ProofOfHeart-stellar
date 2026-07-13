@@ -51,7 +51,7 @@ pub(crate) fn require_revenue_sharing(campaign: &Campaign, error: Error) -> Resu
 
 pub(crate) fn calculate_deadline(current_time: u64, duration_days: u64) -> Result<u64, Error> {
     let seconds_in_duration = duration_days
-        .checked_mul(86400)
+        .checked_mul(crate::SECONDS_PER_DAY)
         .ok_or(Error::ValidationFailed)?;
     current_time
         .checked_add(seconds_in_duration)
