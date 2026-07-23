@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -109,6 +109,8 @@ pub enum DataKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
+    /// Whether an off-chain comment was censured by admin, keyed by `(campaign_id, comment_hash)`.
+    CommentCensured(u32, BytesN<32>),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -907,4 +909,19 @@ pub fn set_cancelled_campaign_count(env: &Env, count: u32) {
 
 pub fn increment_cancelled_campaign_count(env: &Env) {
     set_cancelled_campaign_count(env, get_cancelled_campaign_count(env) + 1);
+}
+
+/// Returns whether a comment has been censured for a campaign.
+pub fn get_comment_censured(env: &Env, campaign_id: u32, comment_hash: &BytesN<32>) -> bool {
+    let key = DataKey::CommentCensured(campaign_id, comment_hash.clone());
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+/// Records that a comment was censured and extends the entry's TTL.
+pub fn set_comment_censured(env: &Env, campaign_id: u32, comment_hash: &BytesN<32>) {
+    let key = DataKey::CommentCensured(campaign_id, comment_hash.clone());
+    env.storage().persistent().set(&key, &true);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }

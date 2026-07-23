@@ -35,7 +35,7 @@ mod types;
 mod voting;
 
 pub use errors::Error;
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
 pub use storage::DataKey;
 use storage::*;
 pub use types::*;
@@ -232,6 +232,19 @@ impl ProofOfHeart {
 
     pub fn resume_campaign(env: Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
         admin::resume_campaign(&env, campaign_id, caller)
+    }
+
+    pub fn censure_comment(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        comment_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        admin::censure_comment(&env, admin, campaign_id, comment_hash)
+    }
+
+    pub fn is_comment_censured(env: Env, campaign_id: u32, comment_hash: BytesN<32>) -> bool {
+        get_comment_censured(&env, campaign_id, &comment_hash)
     }
 
     pub fn purge_voting_state(

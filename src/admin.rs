@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, BytesN, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
@@ -446,6 +446,25 @@ pub(crate) fn purge_voting_state(
             .publish(("voting_state_purged", campaign_id), ());
     }
 
+    Ok(())
+}
+
+pub(crate) fn censure_comment(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+    comment_hash: BytesN<32>,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    // No require_not_paused: comment moderation is admin governance (#388).
+    get_campaign_or_error(env, campaign_id)?;
+    if storage::get_comment_censured(env, campaign_id, &comment_hash) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    storage::set_comment_censured(env, campaign_id, &comment_hash);
+    env.events()
+        .publish(("comment_censured", campaign_id, admin), comment_hash);
     Ok(())
 }
 

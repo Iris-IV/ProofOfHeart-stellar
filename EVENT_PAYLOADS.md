@@ -454,6 +454,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `comment_censured`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("comment_censured", campaign_id: u32, admin: Address)`   |
+| Data    | `comment_hash: BytesN<32>`                                 |
+| Source  | `admin.rs:466` - `censure_comment()`                       |
+
+---
+
 ### `campaign_vote_cast`
 
 | Field   | Value                                                      |
