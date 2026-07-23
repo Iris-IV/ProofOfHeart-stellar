@@ -537,6 +537,12 @@ impl ProofOfHeart {
         get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
 
+    /// Checks whether `creator` owns `campaign_id` in O(1) via the creator reverse
+    /// index, without scanning the creator's campaign bucket (#478).
+    pub fn is_campaign_creator(env: Env, campaign_id: u32, creator: Address) -> bool {
+        storage::is_campaign_creator(&env, campaign_id, &creator)
+    }
+
     // ── Listing & pagination ──────────────────────────────────────────────────
 
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
