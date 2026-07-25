@@ -1,5 +1,7 @@
 use super::helpers::*;
-use crate::{Campaign, DataKey, Error, MaybePendingCreator};
+use crate::{
+    Campaign, DataKey, Error, MaybePendingCreator, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
@@ -68,7 +70,7 @@ fn test_accept_token_update_after_delay_succeeds() {
     client.propose_token_update(&admin, &new_token);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     client.accept_token_update(&admin);
@@ -115,6 +117,10 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     }
 }
 
@@ -159,7 +165,7 @@ fn test_platform_stats_after_withdraw() {
     client.contribute(&id, &contributor, &1);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 31 * 86400;
+        l.timestamp += 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&id);
@@ -260,6 +266,10 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 500,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
 
@@ -371,6 +381,10 @@ fn test_pending_creator_none_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
+
+        token: soroban_sdk::Address::generate(&env),
+
+        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {
@@ -411,6 +425,10 @@ fn test_pending_creator_some_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
+
+        token: soroban_sdk::Address::generate(&env),
+
+        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {
@@ -576,6 +594,10 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
         has_revenue_sharing: true,
         revenue_share_percentage: 5000, // 50%
         max_contribution_per_user: 0i128,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);

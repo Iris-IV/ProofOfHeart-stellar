@@ -95,6 +95,10 @@ fn test_vote_on_campaign_past_deadline_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     });
 
     let deadline = client.get_campaign(&campaign_id).deadline;
@@ -128,6 +132,10 @@ fn test_vote_on_campaign_after_withdraw_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

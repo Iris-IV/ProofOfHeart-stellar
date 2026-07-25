@@ -134,6 +134,10 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+
+        token: crate::types::MaybeAddress::None,
+
+        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

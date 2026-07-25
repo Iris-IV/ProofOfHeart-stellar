@@ -27,6 +27,9 @@ pub(crate) fn init(
     }
     admin.require_auth();
 
+    if platform_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
     if platform_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -159,6 +162,9 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
+    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
     if new_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -178,6 +184,9 @@ pub(crate) fn set_campaign_fee_override(
     assert_admin(env, &admin)?;
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::ValidationFailed);
+    }
     if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::ValidationFailed);
     }
@@ -294,7 +303,7 @@ pub(crate) fn propose_token_update(
     let release_after = env
         .ledger()
         .timestamp()
-        .checked_add(7 * 86400)
+        .checked_add(crate::TOKEN_UPDATE_DELAY_SECS)
         .ok_or(Error::ValidationFailed)?;
 
     bump_instance_ttl(env);
