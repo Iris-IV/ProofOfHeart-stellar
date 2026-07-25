@@ -186,9 +186,7 @@ fn test_huge_contribution_triggers_auto_pause() {
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
 
-        token: crate::types::MaybeAddress::None,
 
-        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
 

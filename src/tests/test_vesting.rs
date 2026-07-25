@@ -20,9 +20,7 @@ fn test_withdrawal_vesting_full_flow() {
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
 
-        token: crate::types::MaybeAddress::None,
 
-        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -71,9 +69,7 @@ fn test_get_campaign_reserve_view_function() {
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
 
-        token: crate::types::MaybeAddress::None,
 
-        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -127,9 +123,7 @@ fn test_withdraw_reserve_when_paused_fails() {
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
 
-        token: crate::types::MaybeAddress::None,
 
-        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -199,9 +193,7 @@ fn test_withdraw_event_payload_tuple() {
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
 
-        token: crate::types::MaybeAddress::None,
 
-        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
