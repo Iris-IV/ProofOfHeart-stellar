@@ -21,8 +21,6 @@ fn test_cancel_campaign_blocked_after_goal_met() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-
-
     });
     client.verify_campaign(&campaign_id);
 
@@ -54,8 +52,6 @@ fn test_cancel_campaign_allowed_when_goal_not_met() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-
-
     });
     client.verify_campaign(&campaign_id);
 
@@ -86,8 +82,6 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-
-
     });
     client.verify_campaign(&campaign_id);
 

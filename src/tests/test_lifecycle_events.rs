@@ -30,8 +30,6 @@ fn test_full_lifecycle_event_sequence() {
         has_revenue_sharing: true,
         revenue_share_percentage: 1000,
         max_contribution_per_user: 0,
-
-
     });
 
     assert!(
@@ -100,8 +98,6 @@ fn test_cancel_lifecycle_event_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-
-
     });
 
     client.verify_campaign(&id);
@@ -137,8 +133,6 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-
-
     });
 
     client.verify_campaign(&id);
@@ -175,8 +169,6 @@ fn test_campaign_created_event_includes_category() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-
-
     });
 
     let events = env.events().all();
