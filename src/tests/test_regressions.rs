@@ -234,7 +234,7 @@ fn test_paused_admin_parameter_setting_functions_succeed() {
 
     client.pause();
 
-    let result_fee = client.try_set_campaign_fee_override(&admin, &campaign_id, &100u32);
+    let result_fee = client.try_set_campaign_fee_override(&campaign_id, &admin, &100u32);
     assert!(
         result_fee.is_ok(),
         "set_campaign_fee_override must succeed while paused"

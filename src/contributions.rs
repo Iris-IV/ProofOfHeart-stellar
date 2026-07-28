@@ -66,7 +66,9 @@ pub(crate) fn contribute(
 
     // Fix #408: use checked arithmetic to avoid panic on overflow.
     // A huge contribution (> 200% of goal) triggers an auto-pause.
-    let amount_bps = amount.checked_mul(10000).ok_or(Error::Overflow)?;
+    let amount_bps = amount
+        .checked_mul(crate::BPS_DENOMINATOR as i128)
+        .ok_or(Error::Overflow)?;
     let threshold = campaign
         .funding_goal
         .checked_mul(crate::AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD)

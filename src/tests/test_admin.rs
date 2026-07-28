@@ -625,7 +625,7 @@ fn test_campaign_fee_override_zero_percent() {
         0i128,
     ));
     client.verify_campaign(&campaign_id);
-    client.set_campaign_fee_override(&admin, &campaign_id, &0);
+    client.set_campaign_fee_override(&campaign_id, &admin, &0);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
 
@@ -650,7 +650,7 @@ fn test_campaign_fee_override_custom_percent() {
         0i128,
     ));
     client.verify_campaign(&campaign_id);
-    client.set_campaign_fee_override(&admin, &campaign_id, &100);
+    client.set_campaign_fee_override(&campaign_id, &admin, &100);
     client.contribute(&campaign_id, &contributor1, &1000);
     client.withdraw_funds(&campaign_id);
 
@@ -696,9 +696,9 @@ fn test_campaign_fee_override_above_max_rejected() {
         0,
         0i128,
     ));
-    let res = client2.try_set_campaign_fee_override(&admin2, &id, &1001);
+    let res = client2.try_set_campaign_fee_override(&id, &admin2, &1001);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-    let res = client2.try_set_campaign_fee_override(&admin2, &id, &10001);
+    let res = client2.try_set_campaign_fee_override(&id, &admin2, &10001);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
@@ -719,7 +719,7 @@ fn test_campaign_fee_override_non_admin_rejected() {
     ));
 
     let impostor = Address::generate(&env);
-    let res = client.try_set_campaign_fee_override(&impostor, &id, &0);
+    let res = client.try_set_campaign_fee_override(&id, &impostor, &0);
     assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
 }
 

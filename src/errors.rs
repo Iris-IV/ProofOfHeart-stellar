@@ -90,3 +90,80 @@ pub enum Error {
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
     GoalMetCancellationNotAllowed = 42,
 }
+
+impl Error {
+    /// Returns the canonical string name of this error variant, so event
+    /// payloads and debug logs can show a human-readable name instead of the
+    /// bare discriminant number.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Error::NotAuthorized => "NotAuthorized",
+            Error::CampaignNotFound => "CampaignNotFound",
+            Error::CampaignNotActive => "CampaignNotActive",
+            Error::FundingGoalMustBePositive => "FundingGoalMustBePositive",
+            Error::InvalidDuration => "InvalidDuration",
+            Error::InvalidRevenueShare => "InvalidRevenueShare",
+            Error::RevenueShareOnlyForStartup => "RevenueShareOnlyForStartup",
+            Error::DeadlinePassed => "DeadlinePassed",
+            Error::ContributionMustBePositive => "ContributionMustBePositive",
+            Error::DeadlineNotPassed => "DeadlineNotPassed",
+            Error::FundsAlreadyWithdrawn => "FundsAlreadyWithdrawn",
+            Error::FundingGoalNotReached => "FundingGoalNotReached",
+            Error::NoFundsToWithdraw => "NoFundsToWithdraw",
+            Error::CampaignAlreadyVerified => "CampaignAlreadyVerified",
+            Error::ValidationFailed => "ValidationFailed",
+            Error::AlreadyVoted => "AlreadyVoted",
+            Error::NotTokenHolder => "NotTokenHolder",
+            Error::VotingQuorumNotMet => "VotingQuorumNotMet",
+            Error::VotingThresholdNotMet => "VotingThresholdNotMet",
+            Error::AlreadyInitialized => "AlreadyInitialized",
+            Error::NotPendingOwner => "NotPendingOwner",
+            Error::NoTransferPending => "NoTransferPending",
+            Error::InvalidNewOwner => "InvalidNewOwner",
+            Error::ContractPaused => "ContractPaused",
+            Error::ContributionCapExceeded => "ContributionCapExceeded",
+            Error::CampaignNotVerified => "CampaignNotVerified",
+            Error::AmountRaisedIsZero => "AmountRaisedIsZero",
+            Error::RevenueSharingNotEnabled => "RevenueSharingNotEnabled",
+            Error::CancellationNotAllowed => "CancellationNotAllowed",
+            Error::Overflow => "Overflow",
+            Error::InvalidTokenContract => "InvalidTokenContract",
+            Error::CreationDisabled => "CreationDisabled",
+            Error::FundingGoalTooLow => "FundingGoalTooLow",
+            Error::AdminVerificationConflict => "AdminVerificationConflict",
+            Error::CommunityVerificationConflict => "CommunityVerificationConflict",
+            Error::DeadlineAlreadyExtended => "DeadlineAlreadyExtended",
+            Error::ExtensionTooLong => "ExtensionTooLong",
+            Error::FundingGoalTooHigh => "FundingGoalTooHigh",
+            Error::InvalidPlatformFee => "InvalidPlatformFee",
+            Error::TransferAlreadyPending => "TransferAlreadyPending",
+            Error::InvalidVestingDelay => "InvalidVestingDelay",
+            Error::GoalMetCancellationNotAllowed => "GoalMetCancellationNotAllowed",
+        }
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use std::string::ToString;
+
+    use super::Error;
+
+    #[test]
+    fn display_matches_variant_name() {
+        assert_eq!(Error::NotAuthorized.to_string(), "NotAuthorized");
+        assert_eq!(Error::CampaignNotFound.name(), "CampaignNotFound");
+        assert_eq!(Error::Overflow.to_string(), "Overflow");
+        assert_eq!(
+            Error::GoalMetCancellationNotAllowed.to_string(),
+            "GoalMetCancellationNotAllowed"
+        );
+    }
+}

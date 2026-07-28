@@ -35,7 +35,7 @@ pub fn set_params(
 ) -> Result<(), Error> {
     if min_votes_quorum == 0
         || min_votes_quorum > MAX_VOTES_QUORUM
-        || !(MIN_APPROVAL_THRESHOLD_BPS..=10000).contains(&approval_threshold_bps)
+        || !(MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&approval_threshold_bps)
     {
         return Err(Error::ValidationFailed);
     }
@@ -176,7 +176,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         // Use checked arithmetic to avoid silent overflow/truncation when
         // approve_weight is a large i128 (e.g. whale holders on 18-decimal tokens).
         approve_weight
-            .checked_mul(10000)
+            .checked_mul(crate::BPS_DENOMINATOR as i128)
             .and_then(|n| n.checked_div(total_weight))
             .unwrap_or(0) as u32
     } else {

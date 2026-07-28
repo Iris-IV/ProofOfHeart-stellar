@@ -46,17 +46,17 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let fee_amount = campaign
         .amount_raised
         .checked_mul(platform_fee as i128)
-        .and_then(|n| n.checked_add(9999))
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
-        / 10000;
+        / crate::BPS_DENOMINATOR as i128;
     let total_after_fee = campaign.amount_raised - fee_amount;
 
     let reserve_bps = get_withdraw_reserve_percentage(env);
     let reserve_amount = total_after_fee
         .checked_mul(reserve_bps as i128)
-        .and_then(|n| n.checked_add(9999))
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
-        / 10000;
+        / crate::BPS_DENOMINATOR as i128;
     let creator_amount = total_after_fee - reserve_amount;
 
     // Execute token transfers BEFORE marking campaign as withdrawn to prevent stuck state
@@ -162,7 +162,7 @@ pub(crate) fn set_vesting_params(
 ) -> Result<(), Error> {
     crate::lifecycle::assert_admin(env, &admin)?;
     require_not_paused(env)?;
-    if reserve_bps > 10000 || delay_days > 365 {
+    if reserve_bps > crate::BPS_DENOMINATOR || delay_days > 365 {
         return Err(Error::ValidationFailed);
     }
     if delay_days == 0 && reserve_bps > 0 {

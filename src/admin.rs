@@ -177,8 +177,8 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
 
 pub(crate) fn set_campaign_fee_override(
     env: &Env,
-    admin: Address,
     campaign_id: u32,
+    admin: Address,
     fee_bps: u32,
 ) -> Result<(), Error> {
     assert_admin(env, &admin)?;

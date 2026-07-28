@@ -15,16 +15,15 @@ pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 pub(crate) const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
-pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = 10000; // 100% — hard limit, basis-point formula requires fee <= 10000
+pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = BPS_DENOMINATOR; // 100% — hard limit, basis-point formula requires fee <= BPS_DENOMINATOR
 pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
 pub(crate) const LIST_MAX_LIMIT: u32 = 50;
-pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
-pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 
 mod admin;
 mod campaigns;
+mod constants;
 mod contributions;
 mod errors;
 mod lifecycle;
@@ -34,6 +33,9 @@ mod storage;
 mod types;
 mod voting;
 
+pub(crate) use constants::{
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+};
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 use storage::*;
@@ -281,11 +283,11 @@ impl ProofOfHeart {
 
     pub fn set_campaign_fee_override(
         env: Env,
-        admin: Address,
         campaign_id: u32,
+        admin: Address,
         fee_bps: u32,
     ) -> Result<(), Error> {
-        admin::set_campaign_fee_override(&env, admin, campaign_id, fee_bps)
+        admin::set_campaign_fee_override(&env, campaign_id, admin, fee_bps)
     }
 
     pub fn set_category_duration_cap(

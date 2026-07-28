@@ -81,7 +81,7 @@ pub(crate) fn claim_revenue(
         .checked_mul(total_pool)
         .and_then(|n| n.checked_mul(campaign.revenue_share_percentage as i128))
         .and_then(|n| n.checked_div(campaign.effective_amount_raised))
-        .and_then(|n| n.checked_div(10000))
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
     let already_claimed = get_revenue_claimed(env, campaign_id, &contributor);
     let claimable = total_due - already_claimed;
@@ -113,7 +113,7 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
-    if campaign.revenue_share_percentage > 10000 {
+    if campaign.revenue_share_percentage > crate::BPS_DENOMINATOR {
         return Err(Error::ValidationFailed);
     }
 
@@ -121,10 +121,11 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     // Compute creator entitlement directly instead of as a residual from the
     // contributor pool. This avoids biasing creator payouts upward when
     // contributor-side division truncates (#386).
-    let creator_share_bps = 10000i128 - campaign.revenue_share_percentage as i128;
+    let creator_share_bps =
+        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
     let creator_share_total = total_pool
         .checked_mul(creator_share_bps)
-        .and_then(|n| n.checked_div(10000))
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
