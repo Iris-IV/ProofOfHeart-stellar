@@ -72,6 +72,9 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     if has_revenue_sharing && revenue_share_percentage == 0 {
         return Err(Error::InvalidRevenueShare);
     }
+    // `0` is accepted and means "no per-user cap" (unlimited) — an explicit,
+    // documented sentinel, not "0 tokens allowed". Only negative values are
+    // rejected here (#530).
     if max_contribution_per_user < 0 {
         return Err(Error::ValidationFailed);
     }

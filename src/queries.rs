@@ -2,11 +2,11 @@ use soroban_sdk::{Address, Env};
 
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
-    get_category_campaign_bucket, get_category_campaign_count, get_creator_campaign_bucket,
-    get_creator_campaign_count, get_total_raised_global, get_verified_campaign_count,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_category_campaign_bucket, get_category_campaign_count, get_contributor_count,
+    get_creator_campaign_bucket, get_creator_campaign_count, get_total_raised_global,
+    get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, PlatformStats};
+use crate::types::{Campaign, Category, CreatorStats, PlatformStats};
 
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
@@ -152,6 +152,43 @@ pub(crate) fn get_creator_campaigns(
     }
 
     campaigns
+}
+
+/// Aggregates total raised, active campaign count, and total contributors
+/// across every campaign owned by `creator` (#519). Walks the creator's
+/// campaign buckets directly (same storage layout `get_creator_campaigns`
+/// paginates over) rather than the paginated query, since a creator's own
+/// campaign count is bounded by normal usage and the caller wants a
+/// complete aggregate, not a page.
+pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
+    let total = get_creator_campaign_count(env, &creator);
+
+    let mut active_campaigns = 0u32;
+    let mut total_raised: i128 = 0;
+    let mut total_contributors: u32 = 0;
+
+    let num_buckets = total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
+    for bucket_idx in 0..num_buckets {
+        let bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
+        for i in 0..bucket.len() {
+            if let Some(campaign_id) = bucket.get(i) {
+                if let Some(campaign) = get_campaign(env, campaign_id) {
+                    if campaign.is_active && !campaign.is_cancelled {
+                        active_campaigns += 1;
+                    }
+                    total_raised += campaign.amount_raised;
+                    total_contributors += get_contributor_count(env, campaign_id);
+                }
+            }
+        }
+    }
+
+    CreatorStats {
+        total_campaigns: total,
+        active_campaigns,
+        total_raised,
+        total_contributors,
+    }
 }
 
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {

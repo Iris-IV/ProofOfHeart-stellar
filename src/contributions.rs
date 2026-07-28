@@ -13,6 +13,10 @@ use crate::storage::{
 };
 use crate::types::Campaign;
 
+/// `max_contribution_per_user == 0` is an explicit "no cap" sentinel, not
+/// "0 tokens allowed" — see the doc comment on `Campaign::max_contribution_per_user`
+/// (#530). `create_campaign` rejects negative values, so `0` and positive
+/// values are the only inputs the cap check needs to handle here.
 fn check_contribution_caps(
     campaign: &Campaign,
     current_lifetime_contribution: i128,

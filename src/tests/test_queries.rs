@@ -157,6 +157,72 @@ fn test_get_platform_stats_returns_aggregates() {
 }
 
 #[test]
+fn test_get_creator_stats_returns_aggregates() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Stats 1"),
+        String::from_str(&env, "s1"),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Stats 2"),
+        String::from_str(&env, "s2"),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let _ = client.try_verify_campaign(&c1);
+    let _ = client.try_verify_campaign(&c2);
+    client.contribute(&c1, &contributor1, &400);
+    client.contribute(&c2, &contributor1, &100);
+    client.contribute(&c2, &contributor2, &200);
+    client.cancel_campaign(&c2);
+
+    let stats = client.get_creator_stats(&creator);
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 1);
+    assert_eq!(stats.total_raised, 700);
+    assert_eq!(stats.total_contributors, 3);
+}
+
+#[test]
+fn test_get_creator_stats_empty_for_unknown_creator() {
+    let (_env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let stranger = Address::generate(&_env);
+
+    let stats = client.get_creator_stats(&stranger);
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.total_raised, 0);
+    assert_eq!(stats.total_contributors, 0);
+}
+
+#[test]
+fn test_contract_version_readable_without_init() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    // No `init` call here — `contract_version` must not require it.
+    assert_eq!(client.contract_version(), 1);
+}
+
+#[test]
 fn test_total_raised_global_tracking() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();

@@ -438,6 +438,14 @@ impl ProofOfHeart {
         get_version(&env)
     }
 
+    /// Returns the compiled-in contract version. Unlike `get_version`, this
+    /// reads a constant baked into the WASM at build time rather than
+    /// instance storage, so it can be called on a freshly deployed contract
+    /// before `init` has ever been invoked (#523).
+    pub fn contract_version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
     pub fn get_admin(env: Env) -> Address {
         get_admin(&env)
     }
@@ -532,6 +540,10 @@ impl ProofOfHeart {
 
     pub fn get_platform_stats(env: Env) -> PlatformStats {
         queries::get_platform_stats(&env)
+    }
+
+    pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
+        queries::get_creator_stats(&env, creator)
     }
 }
 

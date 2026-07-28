@@ -83,7 +83,13 @@ pub struct Campaign {
     pub has_revenue_sharing: bool,
     /// Percentage of deposited revenue distributed to contributors, in basis points.
     pub revenue_share_percentage: u32,
-    /// Maximum tokens a single contributor may contribute in total. 0 means no cap.
+    /// Maximum tokens a single contributor may contribute in total, in
+    /// lifetime-contribution terms. `0` is an explicit, intentional sentinel
+    /// meaning "no per-user cap" (unlimited) — it is not treated as "0 tokens
+    /// allowed" (#530). Negative values are rejected at creation
+    /// (`create_campaign`); frontends should send `0` (not omit the field)
+    /// when the creator wants no limit, and must not send `0` to mean "block
+    /// all contributions" — there is no such state for this field.
     pub max_contribution_per_user: i128,
     /// Per-campaign platform fee override in basis points. None = use global fee.
     pub fee_override: Option<u32>,
@@ -114,6 +120,23 @@ pub struct PlatformStats {
     pub scanned_up_to: u32,
 }
 
+/// Aggregate metrics for a single creator across all of their campaigns,
+/// used for creator-profile dashboards and indexer consumers (#519).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreatorStats {
+    /// Total campaigns ever created by this creator.
+    pub total_campaigns: u32,
+    /// Campaigns currently active and not cancelled.
+    pub active_campaigns: u32,
+    /// Sum of `amount_raised` across all of the creator's campaigns.
+    pub total_raised: i128,
+    /// Sum of per-campaign contributor counts across all of the creator's
+    /// campaigns. Note: a contributor who backs multiple campaigns by the
+    /// same creator is counted once per campaign, not once overall.
+    pub total_contributors: u32,
+}
+
 /// Parameters for `create_campaign`, grouped into a single struct to avoid
 /// positional-argument mistakes when calling via CLI or SDK.
 #[contracttype]
@@ -136,7 +159,10 @@ pub struct CreateCampaignParams {
     /// Contributor revenue share in basis points (1–5000). Ignored (stored as 0) when
     /// `has_revenue_sharing` is `false`.
     pub revenue_share_percentage: u32,
-    /// Per-user contribution cap in tokens. `0` means no cap.
+    /// Per-user contribution cap in tokens. `0` explicitly means "no cap"
+    /// (unlimited), matching `Campaign::max_contribution_per_user` (#530).
+    /// This is intentional, not a placeholder for "disabled" — negative
+    /// values are the only rejected input.
     pub max_contribution_per_user: i128,
 }
 
