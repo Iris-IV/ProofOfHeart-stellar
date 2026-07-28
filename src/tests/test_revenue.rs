@@ -99,8 +99,13 @@ fn test_revenue_sharing_edge_cases() {
     client.claim_revenue(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 10);
 
+    // #526: contributor2 is the last contributor to claim, so instead of
+    // their individually-truncated share (3, from 2*10*5000/3/10000), they
+    // absorb the remaining contributor-side pool (contributor_pool_total=5,
+    // minus the 1 already distributed to contributor1 = 4), so the full
+    // contributor allocation (5) is paid out exactly with no dust left over.
     client.claim_revenue(&campaign_id, &contributor2);
-    assert_eq!(token.balance(&contributor2), 11);
+    assert_eq!(token.balance(&contributor2), 12);
 
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);

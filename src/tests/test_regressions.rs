@@ -601,3 +601,80 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
     // Previous residual math paid 5001 here; direct creator-side math must pay 5000.
     assert_eq!(creator_after - creator_before, 5_000);
 }
+
+// ── #526 last-claimant revenue dust ────────────────────────────────────────────
+
+/// Issue #526 — per-contributor integer division truncates each individual
+/// share, so the sum of every contributor's claim can fall short of the full
+/// contributor-side pool. The last contributor to claim must absorb that
+/// remainder instead of receiving their own individually-truncated share, so
+/// no revenue is permanently stuck in the contract.
+#[test]
+fn test_last_revenue_claimant_absorbs_rounding_dust() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &10);
+    token_admin.mint(&contributor2, &10);
+    token_admin.mint(&creator, &100);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Issue 526"),
+        description: String::from_str(&env, "Revenue dust regression"),
+        funding_goal: 3,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1);
+    client.contribute(&campaign_id, &contributor2, &2);
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &10);
+
+    // contributor_pool_total = 10 * 5000 / 10000 = 5.
+    // Naive per-contributor math: contributor1 = 1*10*5000/3/10000 = 1,
+    // contributor2 = 2*10*5000/3/10000 = 3 -> sum = 4, leaving 1 stuck.
+    let before1 = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let claimed1 = token.balance(&contributor1) - before1;
+    assert_eq!(claimed1, 1);
+
+    let before2 = token.balance(&contributor2);
+    client.claim_revenue(&campaign_id, &contributor2);
+    let claimed2 = token.balance(&contributor2) - before2;
+
+    // The last claimant (contributor2) must absorb the rounding dust, so the
+    // two contributor claims sum to exactly the contributor-side pool (5),
+    // not the naively-truncated 4.
+    assert_eq!(claimed1 + claimed2, 5);
+    assert_eq!(claimed2, 4);
+}
+
+// ── #528 corrupted campaign storage key ────────────────────────────────────────
+
+/// Issue #528 — if a campaign's persistent storage entry can't be
+/// deserialized into `Campaign`, `get_campaign` must return `None` (and
+/// therefore callers like `get_campaign_or_error` must surface
+/// `Error::CampaignNotFound`) instead of panicking / aborting the host.
+#[test]
+fn test_get_campaign_survives_corrupted_storage_entry() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(client.get_campaign(&campaign_id).id == campaign_id);
+
+    // Corrupt the persistent entry backing this campaign by overwriting it
+    // with a value of a totally different (incompatible) shape.
+    env.as_contract(&client.address, || {
+        let key = CampaignKey::Campaign(campaign_id);
+        env.storage().persistent().set(&key, &"not a campaign");
+    });
+
+    let result = client.try_get_campaign(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::CampaignNotFound);
+}

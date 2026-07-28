@@ -6,8 +6,10 @@ use crate::lifecycle::{
     token_client,
 };
 use crate::storage::{
-    bump_instance_ttl, get_contribution, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, get_token, set_creator_revenue_claimed, set_revenue_claimed,
+    bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
+    get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
+    get_revenue_pool, get_token, set_contributor_revenue_claimants,
+    set_contributor_revenue_distributed, set_creator_revenue_claimed, set_revenue_claimed,
     set_revenue_pool,
 };
 
@@ -84,7 +86,39 @@ pub(crate) fn claim_revenue(
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
     let already_claimed = get_revenue_claimed(env, campaign_id, &contributor);
-    let claimable = total_due - already_claimed;
+    let mut claimable = total_due - already_claimed;
+
+    if claimable <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
+    // #526: integer division truncates each contributor's individual share,
+    // so the sum of every contributor's `claimable` can fall short of the
+    // full contributor-side pool, leaving dust stuck in the contract forever.
+    // Once every contributor entitled to this campaign has claimed at least
+    // once, give the last one to claim whatever remains of the
+    // contributor-side pool instead of their individually-truncated share,
+    // so the full allocation is paid out exactly.
+    let is_first_claim = already_claimed == 0;
+    let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
+    let total_contributors = get_contributor_count(env, campaign_id);
+    let is_last_claimant =
+        is_first_claim && total_contributors > 0 && claimants_so_far + 1 >= total_contributors;
+
+    let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
+    if is_last_claimant {
+        let creator_share_bps =
+            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_total = total_pool
+            .checked_mul(creator_share_bps)
+            .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+            .ok_or(Error::Overflow)?;
+        let contributor_pool_total = total_pool - creator_share_total;
+        let pool_remaining = contributor_pool_total - distributed_so_far;
+        if pool_remaining > claimable {
+            claimable = pool_remaining;
+        }
+    }
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -98,6 +132,14 @@ pub(crate) fn claim_revenue(
 
     // Update state only after successful external interaction
     set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
+
+    // Track the running sum paid out to contributors, and the count of
+    // distinct contributors who have claimed at least once, so future claims
+    // can detect the last claimant (#526).
+    set_contributor_revenue_distributed(env, campaign_id, distributed_so_far + claimable);
+    if is_first_claim {
+        set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
+    }
 
     env.events().publish(
         ("revenue_claimed", campaign_id, contributor.clone()),

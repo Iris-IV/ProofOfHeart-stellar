@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, Address, Env, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -157,14 +157,31 @@ pub enum RevenueKey {
     RevenueClaimed(u32, Address),
     /// Revenue already claimed by the campaign creator, keyed by campaign ID.
     CreatorRevenueClaimed(u32),
+    /// Cumulative revenue already paid out to contributors from a campaign's
+    /// pool (running sum across every `claim_revenue` call), keyed by
+    /// campaign ID. Used to let the last unclaimed contributor absorb any
+    /// dust left over from per-contributor integer-division truncation
+    /// (#526).
+    ContributorRevenueDistributed(u32),
+    /// Number of distinct contributors who have claimed revenue at least
+    /// once for a campaign, keyed by campaign ID (#526).
+    ContributorRevenueClaimants(u32),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
 
 /// Returns the campaign for the given ID.
+///
+/// #528: reads the raw stored `Val` and converts it via `TryFromVal` instead
+/// of the SDK's `get::<K, Campaign>()`, which panics (traps the host) if the
+/// stored bytes fail to deserialize into `Campaign`. If the persistent key
+/// exists but its value is corrupted, this returns `None` instead of
+/// panicking, so callers can gracefully surface `Error::CampaignNotFound`
+/// rather than aborting the entire transaction.
 pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
     let key = CampaignKey::Campaign(campaign_id);
-    env.storage().persistent().get(&key)
+    let raw: Val = env.storage().persistent().get(&key)?;
+    Campaign::try_from_val(env, &raw).ok()
 }
 
 /// Persists a campaign and extends its TTL.
@@ -389,6 +406,40 @@ pub fn get_creator_revenue_claimed(env: &Env, campaign_id: u32) -> i128 {
 /// Stores the creator's claimed revenue amount for a campaign and extends its TTL.
 pub fn set_creator_revenue_claimed(env: &Env, campaign_id: u32, amount: i128) {
     persistent_set!(env, RevenueKey::CreatorRevenueClaimed(campaign_id), &amount);
+}
+
+/// Returns the cumulative amount already paid out to contributors from a
+/// campaign's revenue pool (#526).
+pub fn get_contributor_revenue_distributed(env: &Env, campaign_id: u32) -> i128 {
+    let key = RevenueKey::ContributorRevenueDistributed(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the cumulative amount paid out to contributors from a campaign's
+/// revenue pool and extends its TTL.
+pub fn set_contributor_revenue_distributed(env: &Env, campaign_id: u32, amount: i128) {
+    persistent_set!(
+        env,
+        RevenueKey::ContributorRevenueDistributed(campaign_id),
+        &amount
+    );
+}
+
+/// Returns the number of distinct contributors who have claimed revenue at
+/// least once for a campaign (#526).
+pub fn get_contributor_revenue_claimants(env: &Env, campaign_id: u32) -> u32 {
+    let key = RevenueKey::ContributorRevenueClaimants(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the number of distinct contributors who have claimed revenue at
+/// least once for a campaign and extends its TTL.
+pub fn set_contributor_revenue_claimants(env: &Env, campaign_id: u32, count: u32) {
+    persistent_set!(
+        env,
+        RevenueKey::ContributorRevenueClaimants(campaign_id),
+        &count
+    );
 }
 
 // ── Voting ────────────────────────────────────────────────────────────────────

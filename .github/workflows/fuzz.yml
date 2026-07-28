@@ -1,0 +1,28 @@
+name: Nightly Fuzz
+
+# Issue #506: `contribute()` moves user funds through several validation
+# paths, so it gets a dedicated fuzzing harness (fuzz/fuzz_targets/fuzz_contribute.rs).
+# Runs nightly on a time budget rather than on every push/PR, since fuzzing
+# is open-ended and not meant to gate merges.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  fuzz-contribute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz contribute() for 60 seconds
+        run: cargo fuzz run fuzz_contribute -- -max_total_time=60
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-contribute-crashes
+          path: fuzz/artifacts/fuzz_contribute/
+          if-no-files-found: ignore
