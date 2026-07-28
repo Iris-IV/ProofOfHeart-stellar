@@ -1,6 +1,10 @@
 use super::helpers::*;
-use crate::{Category, Error, TOKEN_UPDATE_DELAY_SECS};
+use crate::{
+    Category, Error, CAMPAIGN_FUNDING_GOAL_MAX, CAMPAIGN_FUNDING_GOAL_MIN, TOKEN_UPDATE_DELAY_SECS,
+};
 use soroban_sdk::{Address, String};
+
+// ── admin transfer, pause, token update ─────────────────────────────────────────
 
 #[test]
 fn test_update_platform_fee() {
@@ -363,4 +367,461 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     let res2 = client.try_accept_token_update(&admin);
     assert!(res2.is_ok());
     assert_eq!(client.get_token(), new_token_address);
+}
+
+// ── initialisation & config ─────────────────────────────────────────────────────
+
+#[test]
+fn test_init_only_once() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+    let res = client.try_init(&admin, &token.address, &300);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
+}
+
+#[test]
+fn test_platform_fee_exact_storage() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+    let contract_id = env.register_contract(None, crate::ProofOfHeart);
+    let client = crate::ProofOfHeartClient::new(&env, &contract_id);
+
+    client.init(&admin, &token_address, &1000);
+    assert_eq!(client.get_platform_fee(), 1000);
+}
+
+#[test]
+fn test_reinit_prevention() {
+    let (env, admin, _, _, _, token, _, client) = setup_env();
+
+    let attacker = Address::generate(&env);
+    let fake_token = Address::generate(&env);
+
+    let res = client.try_init(&attacker, &fake_token, &0);
+    assert!(res.is_err());
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+}
+
+#[test]
+fn test_initialization_getters() {
+    let (_, admin, _, _, _, token, _, client) = setup_env();
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+    assert_eq!(client.get_campaign_count(), 0);
+}
+
+#[test]
+fn test_init_returns_already_initialized_error() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+    let err = client
+        .try_init(&admin, &token.address, &300)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, Error::AlreadyInitialized);
+}
+
+#[test]
+fn test_init_preserves_all_config_state() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    let _ = client.try_init(&admin, &token.address, &999);
+
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+    assert_eq!(client.get_campaign_count(), 0);
+    assert_eq!(client.get_version(), 1);
+    assert_eq!(
+        client.get_min_votes_quorum(),
+        crate::voting::DEFAULT_MIN_VOTES_QUORUM
+    );
+    assert_eq!(
+        client.get_approval_threshold_bps(),
+        crate::voting::DEFAULT_APPROVAL_THRESHOLD_BPS
+    );
+}
+
+#[test]
+fn test_init_rejects_every_subsequent_call() {
+    let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    for _ in 0..3 {
+        let res = client.try_init(&admin, &token.address, &300);
+        assert_eq!(
+            res.unwrap_err().unwrap(),
+            Error::AlreadyInitialized,
+            "expected AlreadyInitialized on every repeated call"
+        );
+    }
+}
+
+#[test]
+fn test_init_cannot_overwrite_after_campaign_created() {
+    let (env, admin, creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    let _ = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Test Campaign"),
+        String::from_str(&env, "Testing init idempotency after state change"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(client.get_campaign_count(), 1);
+
+    let res = client.try_init(&admin, &token.address, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
+
+    assert_eq!(client.get_campaign_count(), 1);
+    assert_eq!(client.get_admin(), admin);
+    assert_eq!(client.get_token(), token.address);
+    assert_eq!(client.get_platform_fee(), 300);
+}
+
+#[test]
+fn test_min_campaign_funding_goal_boundary_and_admin_update() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) =
+        setup_env_with_default_min();
+
+    assert_eq!(
+        client.get_min_campaign_funding_goal(),
+        CAMPAIGN_FUNDING_GOAL_MIN
+    );
+
+    let title = String::from_str(&env, "Minimum Goal");
+    let desc = String::from_str(&env, "Checks funding goal floor");
+
+    let below_min = CAMPAIGN_FUNDING_GOAL_MIN - 1;
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        below_min,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MIN,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id, 1);
+
+    client.set_min_campaign_funding_goal(&admin, &500);
+    assert_eq!(client.get_min_campaign_funding_goal(), 500);
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        499,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
+}
+
+#[test]
+fn test_max_campaign_funding_goal_boundary_and_admin_update() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) =
+        setup_env_with_default_min();
+
+    assert_eq!(
+        client.get_max_campaign_funding_goal(),
+        CAMPAIGN_FUNDING_GOAL_MAX
+    );
+
+    let title = String::from_str(&env, "Max Goal");
+    let desc = String::from_str(&env, "Checks funding goal ceiling");
+
+    // Exactly at the cap must succeed.
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id, 1);
+
+    // One above the cap must fail.
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooHigh);
+
+    // Admin raises the cap.
+    let new_max = CAMPAIGN_FUNDING_GOAL_MAX * 2;
+    client.set_max_campaign_funding_goal(&admin, &new_max);
+    assert_eq!(client.get_max_campaign_funding_goal(), new_max);
+
+    // Previously-rejected goal now succeeds.
+    let campaign_id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        CAMPAIGN_FUNDING_GOAL_MAX + 1,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id2, 2);
+}
+
+// ── per-campaign fee override ───────────────────────────────────────────────────
+
+#[test]
+fn test_campaign_fee_override_zero_percent() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Charity"),
+        String::from_str(&env, "0% fee campaign"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.set_campaign_fee_override(&admin, &campaign_id, &0);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 0);
+    assert_eq!(token.balance(&creator), 1000);
+}
+
+#[test]
+fn test_campaign_fee_override_custom_percent() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Reduced Fee"),
+        String::from_str(&env, "1% fee"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.set_campaign_fee_override(&admin, &campaign_id, &100);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 10);
+    assert_eq!(token.balance(&creator), 990);
+}
+
+#[test]
+fn test_campaign_fee_override_default_unchanged() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Default Fee"),
+        String::from_str(&env, "Global fee applies"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 30);
+    assert_eq!(token.balance(&creator), 970);
+}
+
+#[test]
+fn test_campaign_fee_override_above_max_rejected() {
+    let (env, admin2, creator2, _c1, _c2, _token2, _token_admin2, client2) = setup_env();
+    let id = client2.create_campaign(&make_params(
+        creator2.clone(),
+        String::from_str(&env, "X"),
+        String::from_str(&env, "X"),
+        1,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let res = client2.try_set_campaign_fee_override(&admin2, &id, &1001);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    let res = client2.try_set_campaign_fee_override(&admin2, &id, &10001);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_campaign_fee_override_non_admin_rejected() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "X"),
+        String::from_str(&env, "X"),
+        1,
+        1,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let impostor = Address::generate(&env);
+    let res = client.try_set_campaign_fee_override(&impostor, &id, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+// ── per-category duration caps ──────────────────────────────────────────────────
+
+#[test]
+fn test_category_duration_cap_enforced() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    client.set_category_duration_cap(&admin, &Category::EducationalStartup, &60);
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Startup desc"),
+        1000,
+        61,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Startup OK"),
+        String::from_str(&env, "Startup desc"),
+        1000,
+        60,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn test_category_duration_cap_other_categories_unaffected() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    client.set_category_duration_cap(&admin, &Category::Learner, &10);
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Educator"),
+        String::from_str(&env, "Full duration"),
+        1000,
+        365,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(id, 1);
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Learner"),
+        String::from_str(&env, "Too long"),
+        1000,
+        11,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
+}
+
+#[test]
+fn test_category_duration_cap_default_unchanged() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Default"),
+        String::from_str(&env, "Default cap"),
+        1000,
+        365,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(id, 1);
+}
+
+#[test]
+fn test_category_duration_cap_above_365_rejected() {
+    let (_env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let res = client.try_set_category_duration_cap(&admin, &Category::Learner, &366);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_category_duration_cap_non_admin_rejected() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let impostor = Address::generate(&env);
+    let res = client.try_set_category_duration_cap(&impostor, &Category::Learner, &30);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
 }

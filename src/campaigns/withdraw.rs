@@ -102,7 +102,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     env.events().publish(
         ("withdrawal", campaign_id, campaign.creator.clone()),
-        (fee_amount, creator_amount, reserve_amount),
+        (platform_fee, creator_amount, reserve_amount),
     );
 
     if reserve_amount > 0 {

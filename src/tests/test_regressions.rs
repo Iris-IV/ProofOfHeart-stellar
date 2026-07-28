@@ -1,6 +1,7 @@
 use super::helpers::*;
 use crate::{
-    Campaign, DataKey, Error, MaybePendingCreator, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    AdminKey, Campaign, CampaignKey, Error, MaybePendingCreator, VotingKey, SECONDS_PER_DAY,
+    TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
@@ -25,7 +26,7 @@ fn test_migrate_wrong_version_fails() {
 fn test_migrate_double_run_fails() {
     let (env, admin, _, _, _, _, _, client) = setup_env();
     env.as_contract(&client.address, || {
-        env.storage().instance().set(&DataKey::Version, &0u32);
+        env.storage().instance().set(&AdminKey::Version, &0u32);
     });
     client.migrate(&admin, &0u32);
     let result = client.try_migrate(&admin, &0u32);
@@ -117,10 +118,6 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
-
-        token: crate::types::MaybeAddress::None,
-
-        uses_milestones: false,
     }
 }
 
@@ -219,7 +216,7 @@ fn test_resume_campaign_clears_auto_pause_when_active() {
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
 
     env.as_contract(&client.address, || {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
     });
 
     assert!(client.is_paused());
@@ -266,10 +263,6 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 500,
-
-        token: crate::types::MaybeAddress::None,
-
-        uses_milestones: false,
     };
     let campaign_id = client.create_campaign(&params);
 
@@ -291,7 +284,7 @@ fn test_vote_weight_overflow_fails() {
     env.as_contract(&client.address, || {
         env.storage()
             .persistent()
-            .set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
+            .set(&VotingKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
     });
 
     token_admin.mint(&contributor, &501);
@@ -304,7 +297,7 @@ fn test_vote_weight_overflow_fails() {
 
 fn set_auto_paused(env: &Env, client_address: &Address, paused: bool) {
     env.as_contract(client_address, || {
-        env.storage().instance().set(&DataKey::AutoPaused, &paused);
+        env.storage().instance().set(&AdminKey::AutoPaused, &paused);
     });
 }
 
@@ -381,18 +374,18 @@ fn test_pending_creator_none_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
-
-        token: soroban_sdk::Address::generate(&env),
-
-        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert!(read.pending_creator.is_none());
     });
 }
@@ -425,18 +418,18 @@ fn test_pending_creator_some_round_trip() {
         fee_override: None,
         deadline_extended: false,
         effective_amount_raised: 0,
-
-        token: soroban_sdk::Address::generate(&env),
-
-        uses_milestones: false,
     };
 
     env.as_contract(&contract_id, || {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert_eq!(read.pending_creator, MaybePendingCreator::Some(pending));
     });
 }
@@ -594,10 +587,6 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
         has_revenue_sharing: true,
         revenue_share_percentage: 5000, // 50%
         max_contribution_per_user: 0i128,
-
-        token: crate::types::MaybeAddress::None,
-
-        uses_milestones: false,
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);

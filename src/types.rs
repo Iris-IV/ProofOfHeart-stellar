@@ -3,7 +3,12 @@ use soroban_sdk::{contracttype, Address, String};
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because
 /// Soroban 20.1.0's `#[contracttype]` derive doesn't support `Option<Address>`
-/// as a struct field. Same binary layout (`None == 0`, `Some(addr) == 1(addr)`).
+/// as a struct field: the generated `TryFrom<&Campaign> for ScVal` impl
+/// requires `ScVal: From<Address>`, which the pinned `=20.1.0` SDK does not
+/// provide (confirmed by re-testing `pending_creator: Option<Address>` against
+/// this checkout — it fails to compile with that exact missing-impl error).
+/// Revisit once the `soroban-sdk = "=20.1.0"` pin in Cargo.toml is lifted.
+/// Same binary layout (`None == 0`, `Some(addr) == 1(addr)`).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MaybePendingCreator {

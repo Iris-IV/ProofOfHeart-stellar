@@ -12,7 +12,7 @@ use crate::storage::{
     set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
     set_pending_token, set_pending_token_release, set_platform_fee, set_token,
     set_total_raised_global, set_version, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage, DataKey,
+    set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
 
@@ -76,7 +76,7 @@ pub(crate) fn pause(env: &Env) -> Result<(), Error> {
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::Paused, &true);
+    env.storage().instance().set(&AdminKey::Paused, &true);
     env.events().publish(("contract_paused", admin), ());
     Ok(())
 }
@@ -85,8 +85,8 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::Paused, &false);
-    env.storage().instance().set(&DataKey::AutoPaused, &false);
+    env.storage().instance().set(&AdminKey::Paused, &false);
+    env.storage().instance().set(&AdminKey::AutoPaused, &false);
     env.events().publish(("contract_unpaused", admin), ());
     Ok(())
 }
@@ -463,14 +463,14 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     let auto_paused: bool = env
         .storage()
         .instance()
-        .get(&DataKey::AutoPaused)
+        .get(&AdminKey::AutoPaused)
         .unwrap_or(false);
     if !auto_paused {
         return Err(Error::ValidationFailed);
     }
 
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::AutoPaused, &false);
+    env.storage().instance().set(&AdminKey::AutoPaused, &false);
 
     env.events()
         .publish(("campaign_resumed", campaign_id, caller), ());

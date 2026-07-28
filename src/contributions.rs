@@ -9,7 +9,7 @@ use crate::storage::{
     get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
     increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
     set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_lifetime_contribution, set_personal_cap, set_total_raised_global, DataKey,
+    set_lifetime_contribution, set_personal_cap, set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -72,7 +72,7 @@ pub(crate) fn contribute(
         .checked_mul(crate::AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD)
         .ok_or(Error::Overflow)?;
     if amount_bps > threshold {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
         env.events()
             .publish(("auto_paused",), ("huge_contribution", amount));
         return Err(Error::ContractPaused);
@@ -89,7 +89,7 @@ pub(crate) fn contribute(
     set_campaign_block_contribution_count(env, campaign_id, current_ledger, block_count);
 
     if block_count > crate::AUTO_PAUSE_BURST_THRESHOLD {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
         env.events()
             .publish(("auto_paused",), ("burst", block_count));
         return Err(Error::ContractPaused);

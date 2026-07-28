@@ -1,7 +1,7 @@
 use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
-use crate::storage::{get_admin, get_campaign, get_campaign_start_time, get_token, DataKey};
+use crate::storage::{get_admin, get_campaign, get_campaign_start_time, get_token, AdminKey};
 use crate::types::Campaign;
 
 pub(crate) fn get_campaign_or_error(env: &Env, campaign_id: u32) -> Result<Campaign, Error> {
@@ -62,12 +62,12 @@ pub(crate) fn require_not_paused(env: &Env) -> Result<(), Error> {
     if env
         .storage()
         .instance()
-        .get(&DataKey::Paused)
+        .get(&AdminKey::Paused)
         .unwrap_or(false)
         || env
             .storage()
             .instance()
-            .get(&DataKey::AutoPaused)
+            .get(&AdminKey::AutoPaused)
             .unwrap_or(false)
     {
         return Err(Error::ContractPaused);

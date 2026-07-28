@@ -36,8 +36,8 @@ mod voting;
 
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
-pub use storage::DataKey;
 use storage::*;
+pub use storage::{AdminKey, CampaignKey, ContributionKey, RevenueKey, StorageKey, VotingKey};
 pub use types::*;
 
 // Re-export lifecycle helpers so voting.rs can continue using `crate::` paths.
@@ -256,12 +256,12 @@ impl ProofOfHeart {
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
-            .get(&DataKey::Paused)
+            .get(&AdminKey::Paused)
             .unwrap_or(false)
             || env
                 .storage()
                 .instance()
-                .get(&DataKey::AutoPaused)
+                .get(&AdminKey::AutoPaused)
                 .unwrap_or(false)
     }
 
