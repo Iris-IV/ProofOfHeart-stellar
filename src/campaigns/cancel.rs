@@ -44,6 +44,7 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     decrement_active_campaign_count(env);
@@ -92,6 +93,7 @@ pub(crate) fn admin_cancel_campaign(
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     decrement_active_campaign_count(env);
