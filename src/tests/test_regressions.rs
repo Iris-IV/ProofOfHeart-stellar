@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::{
-    AdminKey, Campaign, CampaignKey, Error, MaybePendingCreator, VotingKey, SECONDS_PER_DAY,
-    TOKEN_UPDATE_DELAY_SECS,
+    AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
+    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
@@ -677,4 +677,65 @@ fn test_get_campaign_survives_corrupted_storage_entry() {
 
     let result = client.try_get_campaign(&campaign_id);
     assert_eq!(result.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+// ── #478 O(1) creator-ownership check ─────────────────────────────────────────
+
+#[test]
+fn test_is_campaign_creator_true_for_owner() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(client.is_campaign_creator(&campaign_id, &creator));
+}
+
+#[test]
+fn test_is_campaign_creator_false_for_non_owner() {
+    let (env, _, creator, contributor, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(!client.is_campaign_creator(&campaign_id, &contributor));
+}
+
+#[test]
+fn test_is_campaign_creator_false_for_nonexistent_campaign() {
+    let (_env, _, creator, _, _, _, _, client) = setup_env();
+    assert!(!client.is_campaign_creator(&999, &creator));
+}
+
+#[test]
+fn test_is_campaign_creator_updates_after_transfer() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    let receiver = Address::generate(&env);
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    client.initiate_campaign_transfer(&campaign_id, &receiver);
+    client.accept_campaign_transfer(&campaign_id);
+
+    assert!(!client.is_campaign_creator(&campaign_id, &creator));
+    assert!(client.is_campaign_creator(&campaign_id, &receiver));
+}
+
+// ── #475 list_active_campaigns scan window ────────────────────────────────────
+
+#[test]
+fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    // Create 40 campaigns and cancel the first 35, leaving 5 active campaigns
+    // clustered at the tail. The window this exercises (MAX_SCAN_WINDOW = 1000)
+    // is far larger than the old 200-id window; this asserts the tail campaigns
+    // remain reachable in a single page rather than proving the exact 1000 bound
+    // (proving that directly would itself blow the per-invocation test budget).
+    let mut last_id = 0u32;
+    for _ in 0..40 {
+        last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    }
+    for id in 1..=35 {
+        client.cancel_campaign(&id);
+    }
+
+    let (active, next_cursor) = client.list_active_campaigns(&0, &50);
+    assert_eq!(active.len(), 5);
+    assert_eq!(active.get(0).unwrap().id, 36);
+    assert_eq!(active.get(4).unwrap().id, last_id);
+    assert_eq!(next_cursor, 0);
 }

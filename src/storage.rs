@@ -107,6 +107,9 @@ pub enum CampaignKey {
     VerifiedCampaignCount,
     /// Number of campaigns that have been cancelled.
     CancelledCampaignCount,
+    /// Reverse mapping from campaign ID to its current creator, keyed by campaign ID.
+    /// Enables O(1) ownership verification without scanning a creator's campaign bucket.
+    CampaignCreatorIndex(u32),
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -1022,4 +1025,27 @@ pub fn get_saved_campaigns(env: &Env, user: &Address) -> Vec<u32> {
 /// Stores a wallet's list of bookmarked campaign ids and extends its TTL.
 pub fn set_saved_campaigns(env: &Env, user: &Address, ids: &Vec<u32>) {
     persistent_set!(env, BookmarkKey::SavedCampaigns(user.clone()), ids);
+}
+
+// ── Campaign creator reverse index (#478) ─────────────────────────────────────
+
+/// Returns the creator recorded for a campaign via the O(1) reverse index, if any.
+pub fn get_campaign_creator_index(env: &Env, campaign_id: u32) -> Option<Address> {
+    let key = CampaignKey::CampaignCreatorIndex(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+/// Stores the creator recorded for a campaign in the O(1) reverse index and extends its TTL.
+pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address) {
+    let key = CampaignKey::CampaignCreatorIndex(campaign_id);
+    env.storage().persistent().set(&key, creator);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns `true` if `creator` owns `campaign_id`, checked in O(1) via the reverse index
+/// instead of scanning the creator's campaign bucket.
+pub fn is_campaign_creator(env: &Env, campaign_id: u32, creator: &Address) -> bool {
+    get_campaign_creator_index(env, campaign_id).is_some_and(|c| &c == creator)
 }

@@ -28,6 +28,20 @@ pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::
     campaigns
 }
 
+/// Maximum number of campaign IDs scanned per `list_active_campaigns` call (#475).
+/// Widened from the original 200 so pagination can reach active campaigns that
+/// sit behind a long run of inactive ones; a maintained active-only index was
+/// considered (see issue #475) but rejected because it adds a per-`create_campaign`
+/// write whose cost compounds with the existing category/creator buckets and
+/// exceeds the per-invocation CPU budget once a creator has created several dozen
+/// campaigns (see `test_creator_buckets_100_campaigns`).
+const MAX_SCAN_WINDOW: u32 = 1000;
+
+/// Lists active campaigns by scanning campaign IDs starting after `start`, up to
+/// `MAX_SCAN_WINDOW` ids per call. If the scan window is exhausted before
+/// `limit` active campaigns are collected, a `scan_window_exhausted` event is
+/// published so callers/indexers know to re-query with the returned cursor
+/// rather than assuming pagination is complete.
 pub(crate) fn list_active_campaigns(
     env: &Env,
     start: u32,
@@ -40,7 +54,6 @@ pub(crate) fn list_active_campaigns(
         return (campaigns, 0);
     }
 
-    const MAX_SCAN_WINDOW: u32 = 200;
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
     let mut collected = 0u32;
     let mut current_id = start + 1;
@@ -48,6 +61,8 @@ pub(crate) fn list_active_campaigns(
 
     while current_id <= total_count {
         if current_id > start + MAX_SCAN_WINDOW {
+            env.events()
+                .publish(("scan_window_exhausted",), (start, current_id, collected));
             next_cursor = current_id;
             break;
         }
