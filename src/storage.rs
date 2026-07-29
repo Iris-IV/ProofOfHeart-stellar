@@ -36,6 +36,7 @@ impl StorageKey for CampaignKey {}
 impl StorageKey for ContributionKey {}
 impl StorageKey for VotingKey {}
 impl StorageKey for RevenueKey {}
+impl StorageKey for BookmarkKey {}
 
 /// Keys for platform administration and global configuration state.
 ///
@@ -169,6 +170,13 @@ pub enum RevenueKey {
     /// Number of distinct contributors who have claimed revenue at least
     /// once for a campaign, keyed by campaign ID (#526).
     ContributorRevenueClaimants(u32),
+}
+
+/// Keys for a wallet's saved/bookmarked campaigns (#507).
+#[contracttype]
+pub enum BookmarkKey {
+    /// A wallet's saved campaign ids, keyed by the wallet address.
+    SavedCampaigns(Address),
 }
 
 // ── Campaign ──────────────────────────────────────────────────────────────────
@@ -992,4 +1000,26 @@ pub fn set_cancelled_campaign_count(env: &Env, count: u32) {
 
 pub fn increment_cancelled_campaign_count(env: &Env) {
     set_cancelled_campaign_count(env, get_cancelled_campaign_count(env) + 1);
+}
+
+// ── Saved / bookmarked campaigns ──────────────────────────────────────────────
+
+/// Returns the list of campaign ids a wallet has bookmarked, in the order
+/// they were saved. Defaults to an empty list.
+pub fn get_saved_campaigns(env: &Env, user: &Address) -> Vec<u32> {
+    let key = BookmarkKey::SavedCampaigns(user.clone());
+    let val: Option<Vec<u32>> = env.storage().persistent().get(&key);
+    if let Some(ids) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        ids
+    } else {
+        Vec::new(env)
+    }
+}
+
+/// Stores a wallet's list of bookmarked campaign ids and extends its TTL.
+pub fn set_saved_campaigns(env: &Env, user: &Address, ids: &Vec<u32>) {
+    persistent_set!(env, BookmarkKey::SavedCampaigns(user.clone()), ids);
 }

@@ -28,6 +28,7 @@ pub(crate) const AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS: i128 = 5000;
 pub(crate) const LIST_MAX_LIMIT: u32 = 50;
 
 mod admin;
+mod bookmarks;
 mod campaigns;
 mod constants;
 mod contributions;
@@ -574,6 +575,26 @@ impl ProofOfHeart {
 
     pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
         queries::get_creator_stats(&env, creator)
+    }
+
+    // ── Bookmarks / saved campaigns ───────────────────────────────────────────
+
+    /// Saves `campaign_id` to `user`'s on-chain bookmark list. Requires
+    /// `user`'s authorization.
+    pub fn save_campaign(env: Env, user: Address, campaign_id: u32) -> Result<(), Error> {
+        bookmarks::save_campaign(&env, user, campaign_id)
+    }
+
+    /// Removes `campaign_id` from `user`'s on-chain bookmark list. Requires
+    /// `user`'s authorization.
+    pub fn remove_saved_campaign(env: Env, user: Address, campaign_id: u32) -> Result<(), Error> {
+        bookmarks::remove_saved_campaign(&env, user, campaign_id)
+    }
+
+    /// Returns the list of campaign ids `user` has bookmarked, in the order
+    /// they were saved.
+    pub fn get_saved_campaigns(env: Env, user: Address) -> soroban_sdk::Vec<u32> {
+        bookmarks::get_saved(&env, user)
     }
 }
 

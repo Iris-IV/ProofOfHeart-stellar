@@ -91,6 +91,10 @@ pub enum Error {
     GoalMetCancellationNotAllowed = 42,
     /// The requested campaign lifecycle state transition is not valid from the current state.
     InvalidStateTransition = 43,
+    /// The campaign is already in the wallet's saved/bookmarked list.
+    CampaignAlreadyBookmarked = 44,
+    /// The campaign is not in the wallet's saved/bookmarked list.
+    CampaignNotBookmarked = 45,
 }
 
 impl Error {
@@ -142,6 +146,8 @@ impl Error {
             Error::InvalidVestingDelay => "InvalidVestingDelay",
             Error::GoalMetCancellationNotAllowed => "GoalMetCancellationNotAllowed",
             Error::InvalidStateTransition => "InvalidStateTransition",
+            Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
+            Error::CampaignNotBookmarked => "CampaignNotBookmarked",
         }
     }
 }
