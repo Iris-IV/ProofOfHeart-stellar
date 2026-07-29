@@ -125,8 +125,6 @@ pub enum ContributionKey {
     ContributorCount(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
-    /// Tracking contributions per block for anomaly detection (global, legacy).
-    BlockContributionCount,
     /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
     BlockCampaignContributionCount(u32),
 }
@@ -801,23 +799,6 @@ pub fn remove_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) {
 }
 
 // ── Anomaly detection ─────────────────────────────────────────────────────────
-
-/// Returns (ledger_sequence, contribution_count) for the block tracking.
-#[allow(dead_code)]
-pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
-    env.storage()
-        .instance()
-        .get(&ContributionKey::BlockContributionCount)
-        .unwrap_or((0, 0))
-}
-
-/// Stores (ledger_sequence, contribution_count) for the block tracking.
-#[allow(dead_code)]
-pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
-    env.storage()
-        .instance()
-        .set(&ContributionKey::BlockContributionCount, &(sequence, count));
-}
 
 /// Returns (ledger_sequence, contribution_count) for a specific campaign.
 pub fn get_campaign_block_contribution_count(env: &Env, campaign_id: u32) -> (u32, u32) {

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the dead `BlockContributionCount` storage key variant and its unused `get_block_contribution_count` / `set_block_contribution_count` helpers. Only the per-campaign `BlockCampaignContributionCount` is actually used by the anomaly-detection burst guard (#435).
+
 ### Fixed
 
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
