@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, DataKey, Error, MaybePendingCreator};
+use crate::{AdminKey, Category, CreateCampaignParams, Error, MaybePendingCreator};
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
     Address, IntoVal, String, Symbol,
@@ -494,7 +494,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
     // Set AutoPaused directly (Soroban rolls back writes on Err, so we can't
     // rely on the anomaly trigger in contribute() to persist the flag).
     env.as_contract(&client.address, || {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
     });
 
     // Operations are blocked while AutoPaused is set

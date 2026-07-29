@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::storage;
-use crate::{Category, DataKey, Error, SECONDS_PER_DAY};
+use crate::{Category, ContributionKey, Error, RevenueKey, SECONDS_PER_DAY};
 use soroban_sdk::String;
 
 #[test]
@@ -213,7 +213,11 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     assert_eq!(token.balance(&contributor2), 4500);
     assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 500);
 }
-fn has_persistent_key(env: &Env, client: &ProofOfHeartClient<'_>, key: DataKey) -> bool {
+fn has_persistent_key<K: soroban_sdk::IntoVal<soroban_sdk::Env, soroban_sdk::Val>>(
+    env: &soroban_sdk::Env,
+    client: &ProofOfHeartClient<'_>,
+    key: K,
+) -> bool {
     env.as_contract(&client.address, || env.storage().persistent().has(&key))
 }
 
@@ -245,7 +249,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::Contribution(id, contributor1.clone())
+            ContributionKey::Contribution(id, contributor1.clone())
         ),
         "Contribution key must be removed after refund"
     );
@@ -253,7 +257,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::RevenueClaimed(id, contributor1.clone())
+            RevenueKey::RevenueClaimed(id, contributor1.clone())
         ),
         "RevenueClaimed key must not exist after refund"
     );
@@ -290,7 +294,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
         !has_persistent_key(
             &env,
             &client,
-            DataKey::Contribution(id, contributor1.clone())
+            ContributionKey::Contribution(id, contributor1.clone())
         ),
         "Contribution key must be removed after refund on failed campaign"
     );
