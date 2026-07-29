@@ -131,6 +131,19 @@ impl ProofOfHeart {
         campaigns::cancel::cancel_campaign(&env, campaign_id)
     }
 
+    /// Admin-only targeted fraud response: cancels a single campaign without
+    /// pausing the entire platform (#508). Unlike `cancel_campaign`, this
+    /// bypasses the goal-met anti-rug-pull guard so admins can stop verified
+    /// fraudulent campaigns even after they've hit their funding goal.
+    pub fn admin_cancel_campaign(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        reason: String,
+    ) -> Result<(), Error> {
+        campaigns::cancel::admin_cancel_campaign(&env, admin, campaign_id, reason)
+    }
+
     pub fn update_campaign(
         env: Env,
         campaign_id: u32,

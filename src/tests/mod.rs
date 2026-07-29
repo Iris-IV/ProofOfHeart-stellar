@@ -1,6 +1,7 @@
 pub(crate) mod helpers;
 
 mod test_admin;
+mod test_admin_cancel;
 mod test_benchmark;
 mod test_bookmarks;
 mod test_campaigns;
