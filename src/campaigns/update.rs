@@ -39,6 +39,8 @@ pub(crate) fn update_campaign(
     }
 
     bump_instance_ttl(env);
+    let old_title = campaign.title.clone();
+    let old_description = campaign.description.clone();
     let event_description = description.clone();
     campaign.title = title.clone();
     campaign.description = description;
@@ -46,8 +48,8 @@ pub(crate) fn update_campaign(
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
-        ("campaign_updated", campaign_id),
-        (title, event_description),
+        ("campaign_metadata_updated", campaign_id),
+        (old_title, old_description, title, event_description),
     );
 
     Ok(())
@@ -69,12 +71,23 @@ pub(crate) fn update_campaign_description(
     }
 
     bump_instance_ttl(env);
+    let old_description = campaign.description.clone();
     let event_desc = description.clone();
     campaign.description = description;
     set_campaign(env, campaign_id, &campaign);
 
-    env.events()
-        .publish(("campaign_description_updated", campaign_id), event_desc);
+    // Title is unaffected by this function — publish it unchanged in both
+    // old/new slots so `campaign_metadata_updated` has one consistent shape
+    // for indexers regardless of which entry point emitted it (#510).
+    env.events().publish(
+        ("campaign_metadata_updated", campaign_id),
+        (
+            campaign.title.clone(),
+            old_description,
+            campaign.title.clone(),
+            event_desc,
+        ),
+    );
 
     Ok(())
 }
