@@ -1174,3 +1174,147 @@ fn test_claim_refund_preserves_lifetime_contribution() {
         "LifetimeContribution should persist after refund for cap enforcement"
     );
 }
+
+// ── batch_contribute (#518) ─────────────────────────────────────────────────
+
+#[test]
+fn test_batch_contribute_multiple_campaigns_single_transfer() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_a = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign A"),
+        String::from_str(&env, "First"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    let campaign_b = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign B"),
+        String::from_str(&env, "Second"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_a);
+    client.verify_campaign(&campaign_b);
+
+    client.batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_a, 300i128), (campaign_b, 700i128)],
+    );
+
+    assert_eq!(client.get_contribution(&campaign_a, &contributor1), 300);
+    assert_eq!(client.get_contribution(&campaign_b, &contributor1), 700);
+    assert_eq!(token.balance(&contributor1), 5_000 - 1_000);
+    assert_eq!(token.balance(&client.address), 1_000);
+
+    let events = env.events().all();
+    let summary = events.last().unwrap();
+    let payload: (u32, i128) = soroban_sdk::FromVal::from_val(&env, &summary.2);
+    assert_eq!(payload, (2, 1_000));
+}
+
+#[test]
+fn test_batch_contribute_rejects_empty_batch() {
+    let (env, _admin, _creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let res = client.try_batch_contribute(&contributor1, &soroban_sdk::vec![&env]);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_batch_contribute_rejects_oversized_batch() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Oversized"),
+        String::from_str(&env, "Too many items"),
+        1_000_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let mut items = soroban_sdk::Vec::new(&env);
+    for _ in 0..21 {
+        items.push_back((campaign_id, 1i128));
+    }
+
+    let res = client.try_batch_contribute(&contributor1, &items);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_batch_contribute_reverts_fully_on_invalid_item() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let good_campaign = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Good"),
+        String::from_str(&env, "Would succeed alone"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&good_campaign);
+
+    // Never created/verified — contributing to it must fail the whole batch.
+    let bad_campaign_id = good_campaign + 999;
+
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (good_campaign, 500i128), (bad_campaign_id, 100i128)],
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+
+    // No partial accounting from the first (otherwise-valid) item.
+    assert_eq!(client.get_contribution(&good_campaign, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5_000);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+#[test]
+fn test_batch_contribute_duplicate_campaign_id_cumulative_against_cap() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Capped"),
+        String::from_str(&env, "Cumulative duplicate check"),
+        2_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1_000i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Each item is individually within the 1_000 cap, but the combined
+    // amount (600 + 500 = 1_100) exceeds it — must fail atomically.
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 600i128), (campaign_id, 500i128)],
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}

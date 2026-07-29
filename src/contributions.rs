@@ -172,6 +172,87 @@ pub(crate) fn contribute(
     Ok(())
 }
 
+/// Contributes to multiple campaigns in one call, moving the combined amount
+/// in a single token transfer (#518). Auth and pause are checked once up
+/// front; each `(campaign_id, amount)` item is then validated with the same
+/// rules `contribute` uses, and its accounting is applied immediately so a
+/// campaign repeated later in the same batch sees the earlier item's updated
+/// totals. The aggregate transfer happens last — if any item fails, the
+/// whole call reverts atomically and no accounting persists.
+pub(crate) fn batch_contribute(
+    env: &Env,
+    contributor: Address,
+    contributions: soroban_sdk::Vec<(u32, i128)>,
+) -> Result<(), Error> {
+    contributor.require_auth();
+    require_not_paused(env)?;
+
+    if contributions.is_empty() || contributions.len() > crate::MAX_BATCH_CONTRIBUTE_SIZE {
+        return Err(Error::ValidationFailed);
+    }
+
+    bump_instance_ttl(env);
+
+    let mut total: i128 = 0;
+    for (campaign_id, amount) in contributions.iter() {
+        if amount <= 0 {
+            return Err(Error::ContributionMustBePositive);
+        }
+
+        let mut campaign = get_campaign_or_error(env, campaign_id)?;
+        if !campaign.is_verified {
+            return Err(Error::CampaignNotVerified);
+        }
+        require_active_campaign(&campaign)?;
+        if contributor == campaign.creator {
+            return Err(Error::NotAuthorized);
+        }
+        if env.ledger().timestamp() > campaign.deadline {
+            return Err(Error::DeadlinePassed);
+        }
+
+        let current = get_contribution(env, campaign_id, &contributor);
+        let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+
+        check_contribution_caps(&campaign, lifetime, amount)?;
+
+        if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
+            if current + amount > cap {
+                return Err(Error::ContributionCapExceeded);
+            }
+        }
+
+        check_burst_guard(env, campaign_id, &campaign, amount)?;
+
+        update_contribution_accounting(
+            env,
+            campaign_id,
+            &contributor,
+            &mut campaign,
+            current,
+            lifetime,
+            amount,
+        );
+
+        total = total.checked_add(amount).ok_or(Error::Overflow)?;
+
+        env.events().publish(
+            ("contribution_made", campaign_id, contributor.clone()),
+            amount,
+        );
+    }
+
+    let client = token_client(env);
+    client.transfer(&contributor, &env.current_contract_address(), &total);
+
+    env.events().publish(
+        ("batch_contribution_made", contributor),
+        (contributions.len(), total),
+    );
+
+    Ok(())
+}
+
 pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
     contributor.require_auth();
     require_not_paused(env)?;
