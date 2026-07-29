@@ -51,6 +51,83 @@ fn test_pull_based_revenue_distribution() {
     assert_eq!(token.balance(&contributor2), 600);
 }
 
+// #465: `claim_revenue` and `claim_creator_revenue` must commit the claimed
+// amount to storage *before* the token transfer (optimistic locking), the
+// same ordering `claim_refund` already uses. Otherwise two invocations that
+// both read the same `already_claimed` value before either writes it back
+// could both compute a non-zero `claimable` and double-pay the same share.
+#[test]
+fn test_claim_revenue_state_committed_before_second_claim() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&creator, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Revenue Double Claim"),
+        String::from_str(&env, "Testing revenue claim state order"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &1000);
+    client.claim_revenue(&campaign_id, &contributor1);
+
+    // Storage must already reflect the claim by the time the call returns —
+    // this is what makes a second (sequential or reentrant) claim against
+    // the same pool state a no-op instead of a repeat payout.
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 500);
+    assert_eq!(token.balance(&contributor1), 500);
+
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+    assert_eq!(token.balance(&contributor1), 500);
+}
+
+#[test]
+fn test_claim_creator_revenue_state_committed_before_second_claim() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&creator, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Revenue Double Claim"),
+        String::from_str(&env, "Testing creator revenue claim state order"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &1000);
+    let balance_before_claim = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+
+    let creator_claimed = env.as_contract(&client.address, || {
+        storage::get_creator_revenue_claimed(&env, campaign_id)
+    });
+    assert_eq!(creator_claimed, 500);
+    assert_eq!(token.balance(&creator), balance_before_claim + 500);
+
+    let res = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
 #[test]
 fn test_revenue_sharing_edge_cases() {
     let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =

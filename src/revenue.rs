@@ -126,11 +126,13 @@ pub(crate) fn claim_revenue(
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
-    let client = token_client(env);
-    client.transfer(&env.current_contract_address(), &contributor, &claimable);
-
-    // Update state only after successful external interaction
+    // Optimistic locking (#465): commit the claimed amount BEFORE the token
+    // transfer, not after. A panicking transfer aborts the whole invocation
+    // and rolls back every storage write made so far, so there's no
+    // "balance wipe on failed transfer" risk from writing state first — but
+    // writing it after the transfer leaves a window where a reentrant or
+    // concurrent invocation can read the same `already_claimed` value twice
+    // and double-pay the same share.
     set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
 
     // Track the running sum paid out to contributors, and the count of
@@ -140,6 +142,9 @@ pub(crate) fn claim_revenue(
     if is_first_claim {
         set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
     }
+
+    let client = token_client(env);
+    client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
     env.events().publish(
         ("revenue_claimed", campaign_id, contributor.clone()),
@@ -179,15 +184,17 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
+    // Optimistic locking (#465): commit the claimed amount BEFORE the token
+    // transfer — see the matching comment in `claim_revenue` for why this is
+    // safe against failed transfers and closes the double-claim window.
+    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+
     let client = token_client(env);
     client.transfer(
         &env.current_contract_address(),
         &campaign.creator,
         &claimable,
     );
-
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
 
     env.events().publish(
         ("creator_revenue_claimed", campaign_id, campaign.creator),
