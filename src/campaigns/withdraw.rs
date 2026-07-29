@@ -58,13 +58,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     // Use per-campaign vesting params snapshotted at creation, falling back
     // to the global defaults for campaigns created before the snapshot was
     // introduced (#466).
-    let (delay_days, reserve_bps) = get_campaign_vesting(env, campaign_id)
-        .unwrap_or_else(|| {
-            (
-                get_withdraw_release_delay_days(env),
-                get_withdraw_reserve_percentage(env),
-            )
-        });
+    let (delay_days, reserve_bps) = get_campaign_vesting(env, campaign_id).unwrap_or_else(|| {
+        (
+            get_withdraw_release_delay_days(env),
+            get_withdraw_reserve_percentage(env),
+        )
+    });
     let reserve_amount = total_after_fee
         .checked_mul(reserve_bps as i128)
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))

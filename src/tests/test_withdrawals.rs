@@ -1,7 +1,5 @@
 use super::helpers::*;
-use crate::{
-    storage, CampaignKey, Category, ContributionKey, Error, SECONDS_PER_DAY,
-};
+use crate::{storage, Category, ContributionKey, Error, SECONDS_PER_DAY};
 use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{Address, String, TryFromVal};
 
@@ -367,7 +365,6 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
 }
 
-#[test]
 /// Regression test for issue #466: vesting params set AFTER campaign creation
 /// must NOT retroactively affect campaigns already created.
 #[test]

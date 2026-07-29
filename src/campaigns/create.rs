@@ -7,11 +7,10 @@ use crate::storage::{
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
     get_min_campaign_funding_goal, get_withdraw_release_delay_days,
-    get_withdraw_reserve_percentage, set_campaign, set_campaign_count,
-    set_campaign_creator_index, set_campaign_start_time, set_campaign_vesting,
-    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_withdraw_reserve_percentage, set_campaign, set_campaign_count, set_campaign_creator_index,
+    set_campaign_start_time, set_campaign_vesting, set_category_campaign_bucket,
+    set_category_campaign_count, set_creator_campaign_bucket, set_creator_campaign_count,
+    set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
