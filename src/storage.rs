@@ -198,7 +198,11 @@ pub fn get_campaign_start_time(env: &Env, campaign_id: u32) -> Option<u64> {
 }
 
 pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
-    persistent_set!(env, CampaignKey::CampaignStartTime(campaign_id), &start_time);
+    persistent_set!(
+        env,
+        CampaignKey::CampaignStartTime(campaign_id),
+        &start_time
+    );
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────
@@ -320,7 +324,11 @@ pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i
 
 /// Stores a contributor's contribution amount and extends its TTL.
 pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    persistent_set!(env, ContributionKey::Contribution(campaign_id, contributor.clone()), &amount);
+    persistent_set!(
+        env,
+        ContributionKey::Contribution(campaign_id, contributor.clone()),
+        &amount
+    );
 }
 
 /// Returns a contributor's lifetime (non-decreasing) contribution to a campaign.
@@ -331,7 +339,11 @@ pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
 
 /// Stores a contributor's lifetime contribution amount and extends its TTL.
 pub fn set_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    persistent_set!(env, ContributionKey::LifetimeContribution(campaign_id, contributor.clone()), &amount);
+    persistent_set!(
+        env,
+        ContributionKey::LifetimeContribution(campaign_id, contributor.clone()),
+        &amount
+    );
 }
 
 /// Removes a contributor's contribution record entirely.
@@ -391,7 +403,11 @@ pub fn get_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) -
 
 /// Stores the revenue claimed amount for a contributor and extends its TTL.
 pub fn set_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    persistent_set!(env, RevenueKey::RevenueClaimed(campaign_id, contributor.clone()), &amount);
+    persistent_set!(
+        env,
+        RevenueKey::RevenueClaimed(campaign_id, contributor.clone()),
+        &amount
+    );
 }
 
 /// Removes the revenue claimed record for a contributor in a campaign.
@@ -645,7 +661,11 @@ pub fn set_category_campaign_bucket(
     bucket_idx: u32,
     ids: &Vec<u32>,
 ) {
-    persistent_set!(env, CampaignKey::CategoryCampaignsBucket(category as u32, bucket_idx), ids);
+    persistent_set!(
+        env,
+        CampaignKey::CategoryCampaignsBucket(category as u32, bucket_idx),
+        ids
+    );
 }
 
 // ── Version ───────────────────────────────────────────────────────────────────
@@ -701,7 +721,11 @@ pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
 
 /// Stores the total number of campaigns owned by a creator.
 pub fn set_creator_campaign_count(env: &Env, creator: &Address, count: u32) {
-    persistent_set!(env, CampaignKey::CreatorCampaignCount(creator.clone()), &count);
+    persistent_set!(
+        env,
+        CampaignKey::CreatorCampaignCount(creator.clone()),
+        &count
+    );
 }
 
 /// Returns the campaign IDs in a specific bucket for a creator.
@@ -729,7 +753,11 @@ pub fn set_creator_campaign_bucket(
     bucket_index: u32,
     ids: &soroban_sdk::Vec<u32>,
 ) {
-    persistent_set!(env, CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index), ids);
+    persistent_set!(
+        env,
+        CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index),
+        ids
+    );
 }
 
 // ── Personal cap ─────────────────────────────────────────────────────────────
@@ -748,7 +776,11 @@ pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> O
 
 /// Stores a contributor's personal cap for a campaign and extends its TTL.
 pub fn set_personal_cap(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
-    persistent_set!(env, ContributionKey::PersonalCap(campaign_id, contributor.clone()), &amount);
+    persistent_set!(
+        env,
+        ContributionKey::PersonalCap(campaign_id, contributor.clone()),
+        &amount
+    );
 }
 
 /// Removes a contributor's personal cap for a campaign.

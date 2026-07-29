@@ -32,7 +32,12 @@ fn check_contribution_caps(
 
 /// Fix #408: use checked arithmetic to avoid panic on overflow.
 /// A huge contribution (> 200% of goal) triggers an auto-pause.
-fn check_burst_guard(env: &Env, campaign_id: u32, campaign: &Campaign, amount: i128) -> Result<(), Error> {
+fn check_burst_guard(
+    env: &Env,
+    campaign_id: u32,
+    campaign: &Campaign,
+    amount: i128,
+) -> Result<(), Error> {
     let amount_bps = amount
         .checked_mul(crate::BPS_DENOMINATOR as i128)
         .ok_or(Error::Overflow)?;
