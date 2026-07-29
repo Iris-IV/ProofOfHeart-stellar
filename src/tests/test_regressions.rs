@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::{
-    AdminKey, Campaign, CampaignKey, Error, MaybePendingCreator, VotingKey, SECONDS_PER_DAY,
-    TOKEN_UPDATE_DELAY_SECS,
+    AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
+    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
