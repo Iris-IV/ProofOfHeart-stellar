@@ -32,6 +32,33 @@ Please include the following in your report:
 - **Resolution:** We aim to resolve critical vulnerabilities within **7 days** and non-critical issues within **30 days**.
 - **Credit:** With your permission, we will credit you in the release notes once the vulnerability is fixed.
 
+### Severity Definitions
+
+We triage reports using the following severity levels:
+
+| Severity | Definition | Example |
+|----------|------------|---------|
+| **P0 — Critical** | Direct loss or theft of funds, permanent freezing of funds, or a way to bypass admin/auth controls. Can be exploited without special privileges. | Draining escrowed contributions, minting unauthorised withdrawals, admin impersonation. |
+| **P1 — High** | Significant contract malfunction that does not directly move funds but breaks a core invariant (e.g. accounting, voting, campaign lifecycle) or can be chained into a P0. | Incorrect fee/revenue-share accounting, vote-count manipulation, denial of service on a core entrypoint. |
+| **P2 — Medium/Low** | Limited-impact bugs, edge cases, or hardening opportunities that do not put funds or contract integrity at immediate risk. | Missing input validation with no exploitable consequence, gas/resource inefficiencies, informational issues. |
+
+### Responsible Disclosure Timeline
+
+We ask reporters to follow **coordinated disclosure**:
+
+1. Report the issue privately via the email above — do not open a public issue, PR, or forum post describing the vulnerability.
+2. We will work with you to validate, reproduce, and fix the issue.
+3. We request **90 days** from the initial report before any public disclosure, to give us time to ship and deploy a fix. This window can be shortened by mutual agreement (e.g. once a fix is live and users have had time to upgrade) or extended if the fix requires unusual coordination (e.g. a contract migration).
+4. If 90 days pass without a resolution or agreed extension, the reporter may disclose publicly, but we ask that you still coordinate the exact timing and content with us where possible.
+
+### Bug Bounty
+
+There is currently **no formal bug bounty program** for ProofOfHeart-stellar. Valid reports are eligible for credit in release notes (with your permission) but not monetary reward at this time. This section will be updated if a bounty program is established.
+
+### Audits
+
+No formal third-party security audit has been conducted on this contract to date, and no audit reports are available for publication. Given the contract handles escrowed funds, we recommend treating it as **unaudited** and exercising appropriate caution (e.g. capped deployments, monitoring) until an audit is completed. This section will be updated with links to any future audit reports.
+
 ### Scope
 
 This policy covers the on-chain Soroban smart contract (`src/`) and any official tooling in this repository. Frontend integrations or third-party services built on top of the contract are out of scope unless the vulnerability originates from the contract itself.
