@@ -80,8 +80,19 @@ Community verification uses a token-gated voting model:
 Security assumptions and limitations:
 
 - This mechanism is **not inherently sybil-resistant**: a single token holder can split tokens across many addresses to inflate the _vote count_ and reach quorum more easily (even though total voting weight stays similar).
-- The model assumes the token's distribution and issuance are outside the contract’s control; if token minting is centralized or cheaply obtainable, governance can be captured.
+- The model assumes the token's distribution and issuance are outside the contract's control; if token minting is centralized or cheaply obtainable, governance can be captured.
 - Admin verification (`verify_campaign`) is a privileged path; users should treat the stored admin as a trust assumption for campaign verification.
+
+## Admin Trust Model (#468)
+
+The contract uses a **single admin key** stored in `AdminKey::Admin`. This address controls a broad set of sensitive operations including fee changes, campaign verification (bypassing community voting), contract pause/unpause, token migration, vesting parameters, and campaign creation gates — all with no timelock (except the 7-day token update delay) and no built-in multisig.
+
+**Key implications:**
+
+- Any entity holding the admin private key can force-verify a fraudulent campaign, set fees to zero, pause the contract, or initiate a token migration. See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for a full breakdown of each operation's impact.
+- The admin key SHOULD be held in a multisignature wallet or hardware security module rather than by a single individual.
+- All admin actions emit on-chain events that monitoring systems can alert on.
+- This is a **known architectural limitation** (see issue #468); future improvements may include Soroban multisig, role separation, or timelocks for sensitive operations.
 
 ## Disclosure Policy
 

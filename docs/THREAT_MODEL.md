@@ -61,6 +61,52 @@ This is a **known limitation** of the current implementation. `set_vesting_param
 - **Invariant to preserve**: Refund (`claim_refund`) and revenue claim (`claim_revenue`) logic must never gate on `PersonalCap` — only on the actual recorded `Contribution` and `RevenueClaimed` amounts.
 - **Testing**: Regression tests should cover "contributor lowers their own personal cap after contributing, then successfully claims a full refund" to guard this invariant across future refactors.
 
+## Admin Power Concentration (#468)
+
+### Single-Key Admin Control Over Sensitive Operations
+
+**Description**: The stored admin address (`Admin`) controls a broad set of sensitive contract operations with no timelock, multisig, or governance delay:
+
+- **Fee override**: `update_platform_fee` and `set_campaign_fee_override` can set per-campaign or global fees anywhere between 0 and `PLATFORM_FEE_ABSOLUTE_MAX_BPS` (10 000 bps = 100%), including 0%, which would leave no platform revenue for the protocol.
+- **Forced verification**: `verify_campaign` and `verify_campaigns` bypass community voting, granting immediate verification (and thus withdrawal eligibility) to any campaign the admin chooses.
+- **Pause/Unpause**: `pause` and `unpause` freeze or unfreeze the entire contract, halting all contributions, withdrawals, and state-changing operations.
+- **Campaign creation gate**: `set_creation_disabled` can block (or re-enable) all new campaign creation while leaving existing campaigns operational.
+- **Vesting parameters**: `set_vesting_params` sets the global vesting reserve percentage and release delay.
+- **Funding goal limits**: `set_min_campaign_funding_goal` and `set_max_campaign_funding_goal` cap the range of acceptable funding goals for new campaigns.
+- **Voting parameters**: `set_voting_params`, `set_min_voting_balance`, `set_category_voting_threshold`, and `set_category_duration_cap` adjust the community voting and campaign-creation policies.
+- **Token migration**: `propose_token_update` begins a 7-day timelocked migration to a new token address; `accept_token_update` finalises it (once all campaigns are terminal). See Token Migration below for the timelock details.
+- **Admin transfer**: `initiate_admin_transfer` begins a two-step admin ownership transfer; `accept_admin_transfer` completes it.
+- **Voting state purge**: `purge_voting_state` removes per-voter and aggregate vote records for a terminal campaign.
+
+**Attack Vector**:
+A compromised admin key allows an attacker to:
+
+1. **Force-verify a fraudulent campaign**: Grant verification to a campaign the attacker controls, bypassing community review. Once verified, the attacker can withdraw escrowed contributions (minus platform fees). Combined with a zero-fee override (`set_campaign_fee_override` to 0), the attacker receives the full raised amount.
+2. **Set fees to zero**: Remove all protocol revenue by calling `update_platform_fee(0)`, potentially as a distraction or to starve the platform operator.
+3. **Extract tokens via migration**: Propose and accept a token migration to a contract the attacker controls, rendering all existing token balances held by the contract worthless and enabling future contributions in a malicious token.
+4. **Lock the contract**: Call `pause` to freeze all state-changing operations indefinitely, preventing creators from withdrawing funds and contributors from claiming refunds.
+5. **Combine with vesting**: Set a high reserve percentage and long delay to lock creator payouts from future withdrawals, then force-verify their own campaign to extract whatever immediate fraction remains.
+
+**Mitigation Status**:
+This is a **known architectural limitation** of the current single-admin model. Every operation listed above is protected by `assert_admin`/`Admin.require_auth()`, meaning a compromise of the single stored `Admin` private key is sufficient to execute any of them. The contract has no built-in multisig, role-based access control (e.g. separate "operator" and "governance" roles), or timelock on sensitive operations (with the exception of `propose_token_update` → `accept_token_update`, which enforces a 7-day delay).
+
+**Risk Management**:
+- **Key hygiene**: The admin private key SHOULD be held in a multisig wallet (e.g., a Soroban-compatible multisig contract) or a hardware security module rather than a single address controlled by one individual. The contract is designed to interoperate with a wrapper multisig; `initiate_admin_transfer` and `accept_admin_transfer` enable handover to such a setup.
+- **Monitoring**: Every admin action emits an indexed event (`fee_updated`, `campaign_fee_override_set`, `campaign_created`, `contract_paused`, `token_update_proposed`, etc.) that indexers and monitoring systems can alert on. An unexpected fee change or forced verification should trigger immediate investigation.
+- **Transparency commitments**: Operators SHOULD disclose the admin address(es) publicly and use predictable, on-chain governance windows (e.g., announcing planned fee changes via off-chain channels before executing them).
+- **Future Improvements**: Long-term hardening paths include:
+  - **Soroban multisig**: Deploying the admin key behind a threshold-signature scheme or a Soroban multisig wallet contract so that no single key compromise is sufficient for sensitive operations.
+  - **Timelock**: Introducing a mandatory delay (e.g., 48–72 hours) between proposing and executing sensitive operations such as fee changes, forced verification, and token migration, giving users and monitoring systems time to react.
+  - **Role separation**: Splitting admin into distinct roles (e.g., an "operator" role limited to pausing/resuming and a "governance" role for parameter changes), each with its own key.
+
+### Token Migration Timelock (#407, #551, #562)
+
+**Description**: `propose_token_update` stores the new token address and a `release_after` timestamp set 7 days in the future (`TOKEN_UPDATE_DELAY_SECS = 7 * 86400`). `accept_token_update` refuses to execute until `env.ledger().timestamp() >= release_after`. This gives contributors and creators a 7-day window to withdraw, claim refunds, or react before the contract's token address changes.
+
+**Additional Safeguard**: Even after the timelock expires, `accept_token_update` also requires `get_active_campaign_count(env) == 0 && get_total_raised_global(env) == 0`, i.e. no campaign may have outstanding escrowed funds. This prevents a token swap from stranding balances in the old token.
+
+**Cancellation**: `cancel_token_update` lets the admin abort a proposed update at any point before acceptance, in case the proposal was made in error or circumstances change.
+
 ## Campaign Creation
 
 ### Category Duration Cap Below Existing Deadlines (#493)
