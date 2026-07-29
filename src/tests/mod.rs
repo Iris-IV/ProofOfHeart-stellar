@@ -5,6 +5,7 @@ mod test_admin_cancel;
 mod test_benchmark;
 mod test_bookmarks;
 mod test_campaigns;
+mod test_cap_interactions;
 mod test_contributions;
 mod test_lifecycle;
 mod test_queries;
