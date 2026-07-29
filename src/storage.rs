@@ -76,6 +76,8 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Total unclaimed refund amount across all cancelled campaigns.
+    PendingRefundTotal,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -709,6 +711,21 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage()
         .instance()
         .set(&ContributionKey::TotalRaised, &amount);
+}
+
+/// Returns the total unclaimed refund amount across cancelled campaigns.
+pub fn get_pending_refund_total(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::PendingRefundTotal)
+        .unwrap_or(0)
+}
+
+/// Stores the total unclaimed refund amount across cancelled campaigns.
+pub fn set_pending_refund_total(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::PendingRefundTotal, &amount);
 }
 
 // ── Creator campaigns (bucketed) ──────────────────────────────────────────────

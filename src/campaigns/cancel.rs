@@ -6,8 +6,9 @@ use crate::lifecycle::{
     require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
-    increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
+    bump_instance_ttl, decrement_active_campaign_count, get_pending_refund_total, get_revenue_pool,
+    get_total_raised_global, get_token, increment_cancelled_campaign_count, remove_voting_state,
+    set_campaign, set_pending_refund_total, set_revenue_pool, set_total_raised_global,
 };
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -48,6 +49,22 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     remove_voting_state(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
+
+    let pending_refund = get_pending_refund_total(env);
+    set_pending_refund_total(
+        env,
+        pending_refund
+            .checked_add(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("campaign_cancelled", campaign_id, campaign.creator.clone()),
@@ -100,6 +117,22 @@ pub(crate) fn admin_cancel_campaign(
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
         (campaign.creator.clone(), reason),
+    );
+
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
+
+    let pending_refund = get_pending_refund_total(env);
+    set_pending_refund_total(
+        env,
+        pending_refund
+            .checked_add(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
     );
 
     Ok(())

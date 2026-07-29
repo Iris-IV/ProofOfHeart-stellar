@@ -284,11 +284,17 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, &campaign);
 
-    let total_raised = get_total_raised_global(env);
-    set_total_raised_global(
-        env,
-        total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
-    );
+    // For cancelled campaigns, total_raised_global was decremented upfront
+    // in cancel_campaign / admin_cancel_campaign; decrementing per-claimant
+    // here would double-count. For failed_due_to_goal campaigns, the
+    // per-claimant decrement is still needed.
+    if !campaign.is_cancelled {
+        let total_raised = get_total_raised_global(env);
+        set_total_raised_global(
+            env,
+            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+        );
+    }
 
     let client = token_client(env);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
