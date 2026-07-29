@@ -88,6 +88,8 @@ pub enum CampaignKey {
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
     Campaign(u32),
+    /// Per-campaign vesting parameters snapshotted at creation time (#466).
+    CampaignVesting(u32),
     /// Unix timestamp when the campaign was created, keyed by campaign ID.
     CampaignStartTime(u32),
     /// Held reserve for a campaign, keyed by campaign ID.
@@ -880,6 +882,28 @@ pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReser
 
 pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
     persistent_set!(env, CampaignKey::CampaignReserve(campaign_id), reserve);
+}
+
+// ── Per-campaign vesting snapshot (#466) ─────────────────────────────────────
+
+pub fn get_campaign_vesting(env: &Env, campaign_id: u32) -> Option<(u64, u32)> {
+    let key = CampaignKey::CampaignVesting(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_vesting(env: &Env, campaign_id: u32, delay_days: u64, reserve_bps: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignVesting(campaign_id),
+        &(delay_days, reserve_bps)
+    );
+}
+
+#[expect(dead_code)]
+pub fn remove_campaign_vesting(env: &Env, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::CampaignVesting(campaign_id));
 }
 
 // ── Creation disabled flag ───────────────────────────────────────────────────
