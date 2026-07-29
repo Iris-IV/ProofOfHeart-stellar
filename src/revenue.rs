@@ -38,7 +38,11 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     let current_pool = get_revenue_pool(env, campaign_id);
-    set_revenue_pool(env, campaign_id, current_pool + amount);
+    set_revenue_pool(
+        env,
+        campaign_id,
+        current_pool.checked_add(amount).ok_or(Error::Overflow)?,
+    );
 
     env.events()
         .publish(("revenue_deposited", campaign_id, campaign.creator), amount);
@@ -131,12 +135,25 @@ pub(crate) fn claim_revenue(
     client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
     // Update state only after successful external interaction
-    set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
+    set_revenue_claimed(
+        env,
+        campaign_id,
+        &contributor,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Track the running sum paid out to contributors, and the count of
     // distinct contributors who have claimed at least once, so future claims
     // can detect the last claimant (#526).
-    set_contributor_revenue_distributed(env, campaign_id, distributed_so_far + claimable);
+    set_contributor_revenue_distributed(
+        env,
+        campaign_id,
+        distributed_so_far
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
     if is_first_claim {
         set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
     }
@@ -187,7 +204,13 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         &claimable,
     );
 
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+    set_creator_revenue_claimed(
+        env,
+        campaign_id,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("creator_revenue_claimed", campaign_id, campaign.creator),
