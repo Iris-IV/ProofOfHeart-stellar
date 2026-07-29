@@ -222,7 +222,13 @@ impl ProofOfHeart {
         voting::admin_verify(&env, campaign_id)
     }
 
-    pub fn verify_campaigns(env: Env, campaign_ids: soroban_sdk::Vec<u32>) -> Result<u32, Error> {
+    /// Verifies a batch of campaigns. Returns a `BatchVerifyResult` with
+    /// separate lists of verified and failed campaign IDs so callers can
+    /// distinguish partial success from total failure (#442).
+    pub fn verify_campaigns(
+        env: Env,
+        campaign_ids: soroban_sdk::Vec<u32>,
+    ) -> Result<BatchVerifyResult, Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         lifecycle::require_not_paused(&env)?;
@@ -230,8 +236,8 @@ impl ProofOfHeart {
         const MAX_BATCH_SIZE: u32 = 50;
         let batch_size = campaign_ids.len().min(MAX_BATCH_SIZE);
 
-        let mut verified_count = 0u32;
-        let mut first_error: Option<Error> = None;
+        let mut verified = soroban_sdk::Vec::new(&env);
+        let mut failed = soroban_sdk::Vec::new(&env);
 
         bump_instance_ttl(&env);
 
@@ -240,12 +246,10 @@ impl ProofOfHeart {
                 storage::extend_voting_state_ttl(&env, campaign_id);
                 match voting::admin_verify(&env, campaign_id) {
                     Ok(()) => {
-                        verified_count += 1;
+                        verified.push_back(campaign_id);
                     }
-                    Err(e) => {
-                        if first_error.is_none() {
-                            first_error = Some(e);
-                        }
+                    Err(_) => {
+                        failed.push_back(campaign_id);
                     }
                 }
             }
@@ -253,14 +257,10 @@ impl ProofOfHeart {
 
         env.events().publish(
             ("campaigns_bulk_verified",),
-            (verified_count, campaign_ids.len()),
+            (verified.clone(), failed.clone()),
         );
 
-        if let Some(err) = first_error {
-            Err(err)
-        } else {
-            Ok(verified_count)
-        }
+        Ok(BatchVerifyResult { verified, failed })
     }
 
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {

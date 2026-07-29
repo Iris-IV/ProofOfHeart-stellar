@@ -315,8 +315,9 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
     ));
 
     // Bulk verify the campaign
-    let count = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
-    assert_eq!(count, 1);
+    let result = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
+    assert_eq!(result.verified.len(), 1);
+    assert_eq!(result.failed.len(), 0);
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
@@ -353,7 +354,7 @@ fn test_vote_on_campaign_after_deadline_returns_deadline_passed() {
 }
 
 #[test]
-fn test_verify_campaigns_partial_failure_returns_err() {
+fn test_verify_campaigns_partial_failure_returns_failed_ids() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
@@ -368,10 +369,15 @@ fn test_verify_campaigns_partial_failure_returns_err() {
         0i128,
     ));
 
-    // 999 does not exist — will produce CampaignNotFound
+    // 999 does not exist — will fail verification.
     let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
-    let res = client.try_verify_campaigns(&ids);
-    assert!(res.unwrap_err().is_ok()); // Err variant, inner Ok means contract error
+    let result = client.verify_campaigns(&ids);
+    assert_eq!(result.verified.len(), 1);
+    // campaign_id succeeded
+    assert_eq!(result.verified.get(0).unwrap(), campaign_id);
+    // 999 failed
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed.get(0).unwrap(), 999u32);
 }
 
 // ── verification via votes ──────────────────────────────────────────────────────

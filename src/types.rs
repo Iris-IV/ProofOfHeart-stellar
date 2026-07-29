@@ -166,6 +166,17 @@ pub struct CreateCampaignParams {
     pub max_contribution_per_user: i128,
 }
 
+/// Result of a batch campaign verification call, enabling callers to
+/// distinguish between verified and failed campaign IDs (#442).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BatchVerifyResult {
+    /// IDs of campaigns that were successfully verified in this batch.
+    pub verified: soroban_sdk::Vec<u32>,
+    /// IDs of campaigns that failed verification in this batch.
+    pub failed: soroban_sdk::Vec<u32>,
+}
+
 /// Stores details about withheld funds for a campaign.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
