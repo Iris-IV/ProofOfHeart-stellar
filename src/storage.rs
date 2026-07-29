@@ -146,6 +146,9 @@ pub enum VotingKey {
     ApprovalThresholdBps,
     /// Minimum token balance required to vote on campaigns.
     MinVotingBalance,
+    /// Per-category approval threshold override in basis points, keyed by
+    /// category discriminant. Falls back to `ApprovalThresholdBps` when unset.
+    CategoryThresholdBps(u32),
 }
 
 /// Keys for revenue-sharing pools and claim tracking.
@@ -576,6 +579,26 @@ pub fn set_min_voting_balance(env: &Env, balance: i128) {
     env.storage()
         .instance()
         .set(&VotingKey::MinVotingBalance, &balance);
+}
+
+/// Returns the per-category approval-threshold override in basis points, if
+/// the admin has set one for this category (#536).
+pub fn get_category_voting_threshold_bps(env: &Env, category: Category) -> Option<u32> {
+    let key = VotingKey::CategoryThresholdBps(category as u32);
+    env.storage().instance().get(&key)
+}
+
+/// Stores a per-category approval-threshold override in basis points.
+pub fn set_category_voting_threshold_bps(env: &Env, category: Category, bps: u32) {
+    let key = VotingKey::CategoryThresholdBps(category as u32);
+    env.storage().instance().set(&key, &bps);
+}
+
+/// Removes a per-category approval-threshold override, reverting to the
+/// global `ApprovalThresholdBps` default for that category.
+pub fn remove_category_voting_threshold_bps(env: &Env, category: Category) {
+    let key = VotingKey::CategoryThresholdBps(category as u32);
+    env.storage().instance().remove(&key);
 }
 
 /// Returns all campaign ids for a category in creation order.

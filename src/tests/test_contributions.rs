@@ -534,16 +534,22 @@ fn test_anomaly_auto_pause_burst() {
     ));
     client.verify_campaign(&campaign_id);
 
+    // #535: burst detection only engages once amount_raised crosses 50% of
+    // the funding goal, so push the campaign over that line first. This
+    // single contribution itself isn't burst-checked (amount_raised is still
+    // 0 going into it), matching the "skip on the happy path" behavior.
+    client.contribute(&campaign_id, &contributor1, &1_100);
+
     for _ in 0..10 {
         client.contribute(&campaign_id, &contributor1, &10);
     }
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
     let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
     // Rollback ensures it's NOT paused.
     assert!(!client.is_paused());
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
     client.unpause();
 
@@ -559,7 +565,39 @@ fn test_anomaly_auto_pause_burst() {
     });
 
     client.contribute(&campaign_id, &contributor1, &10);
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_210);
+}
+
+/// #535: a campaign that stays below the 50%-of-goal activity threshold
+/// never engages burst detection, so it can accept more than
+/// `AUTO_PAUSE_BURST_THRESHOLD` contributions in a single ledger without
+/// tripping auto-pause.
+#[test]
+fn test_low_activity_campaign_skips_burst_check() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Low Activity"),
+        String::from_str(&env, "Testing burst skip"),
+        1_000_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // 15 contributions in the same ledger, well under 50% of the huge goal —
+    // would trip AUTO_PAUSE_BURST_THRESHOLD (10) if the burst check ran.
+    for _ in 0..15 {
+        client.contribute(&campaign_id, &contributor1, &10);
+    }
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 150);
+    assert!(!client.is_paused());
 }
 
 #[test]

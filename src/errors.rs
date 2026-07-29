@@ -89,6 +89,8 @@ pub enum Error {
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
     GoalMetCancellationNotAllowed = 42,
+    /// The requested campaign lifecycle state transition is not valid from the current state.
+    InvalidStateTransition = 43,
 }
 
 impl Error {
@@ -139,6 +141,7 @@ impl Error {
             Error::TransferAlreadyPending => "TransferAlreadyPending",
             Error::InvalidVestingDelay => "InvalidVestingDelay",
             Error::GoalMetCancellationNotAllowed => "GoalMetCancellationNotAllowed",
+            Error::InvalidStateTransition => "InvalidStateTransition",
         }
     }
 }

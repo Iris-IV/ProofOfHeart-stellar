@@ -2,7 +2,8 @@ use soroban_sdk::Env;
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client,
+    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client, transition,
+    CampaignState,
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_reserve,
@@ -36,6 +37,8 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.amount_raised < campaign.funding_goal {
         return Err(Error::FundingGoalNotReached);
     }
+
+    transition(CampaignState::of(&campaign), CampaignState::Withdrawn)?;
 
     bump_instance_ttl(env);
     let platform_fee = campaign

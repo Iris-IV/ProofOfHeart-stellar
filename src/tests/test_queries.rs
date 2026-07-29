@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::Category;
-use soroban_sdk::String;
+use crate::{Campaign, Category, MaybePendingCreator};
+use soroban_sdk::{Address, String};
 
 #[test]
 fn test_list_campaigns_exclusive_cursor_semantics() {
@@ -451,4 +451,83 @@ fn list_active_campaigns_boundary_cases_and_sparse_results() {
     assert_eq!(client.list_active_campaigns(&total, &5).0.len(), 0);
     assert_eq!(client.list_active_campaigns(&(total + 1), &5).0.len(), 0);
     assert_eq!(client.list_active_campaigns(&0, &0).0.len(), 0);
+}
+
+fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campaign {
+    Campaign {
+        id,
+        creator: creator.clone(),
+        first_creator: creator.clone(),
+        pending_creator: MaybePendingCreator::None,
+        title: String::from_str(env, "t"),
+        description: String::from_str(env, "d"),
+        funding_goal: 1_000,
+        deadline: 0,
+        amount_raised: 0,
+        is_active: true,
+        funds_withdrawn: false,
+        is_cancelled: false,
+        is_verified: false,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+        fee_override: None,
+        deadline_extended: false,
+        effective_amount_raised: 0,
+    }
+}
+
+/// #534: `get_creator_campaigns` must jump straight to the bucket containing
+/// `start` instead of walking every earlier bucket. Seeds two buckets
+/// (bucket 0 full, bucket 1 partial) and campaign records directly via
+/// crate-internal storage helpers — cheaper than driving
+/// `CREATOR_CAMPAIGNS_BUCKET_SIZE` campaigns through the full
+/// `create_campaign` flow — and pages a request that starts inside bucket 1.
+#[test]
+fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let bucket_size = crate::storage::CREATOR_CAMPAIGNS_BUCKET_SIZE;
+    let extra = 5u32;
+    let total = bucket_size + extra;
+
+    // Seeding 500+ persistent entries directly exceeds the default test
+    // budget (which models real network limits); this setup step isn't
+    // what's under test, so lift the cap for it.
+    env.budget().reset_unlimited();
+
+    env.as_contract(&client.address, || {
+        let mut bucket0 = soroban_sdk::Vec::new(&env);
+        for id in 1..=bucket_size {
+            bucket0.push_back(id);
+            crate::storage::set_campaign(&env, id, &minimal_campaign(&env, id, &creator));
+        }
+        crate::storage::set_creator_campaign_bucket(&env, &creator, 0, &bucket0);
+
+        let mut bucket1 = soroban_sdk::Vec::new(&env);
+        for id in (bucket_size + 1)..=total {
+            bucket1.push_back(id);
+            crate::storage::set_campaign(&env, id, &minimal_campaign(&env, id, &creator));
+        }
+        crate::storage::set_creator_campaign_bucket(&env, &creator, 1, &bucket1);
+
+        crate::storage::set_creator_campaign_count(&env, &creator, total);
+    });
+
+    env.budget().reset_default();
+
+    // Start pagination two entries before the bucket boundary, spanning into bucket 1.
+    let page = client.get_creator_campaigns(&creator, &(bucket_size - 2), &10);
+    assert_eq!(page.len(), extra + 2);
+    assert_eq!(page.get(0).unwrap().id, bucket_size - 1);
+    assert_eq!(page.get(1).unwrap().id, bucket_size);
+    assert_eq!(page.get(2).unwrap().id, bucket_size + 1);
+    assert_eq!(page.get(6).unwrap().id, bucket_size + 5);
+
+    // Pagination entirely within bucket 1.
+    let tail = client.get_creator_campaigns(&creator, &bucket_size, &10);
+    assert_eq!(tail.len(), extra);
+    assert_eq!(tail.get(0).unwrap().id, bucket_size + 1);
+    assert_eq!(tail.get(extra - 1).unwrap().id, total);
 }

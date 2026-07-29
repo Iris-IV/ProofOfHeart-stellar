@@ -229,6 +229,38 @@ pub(crate) fn remove_category_duration_cap(
     Ok(())
 }
 
+pub(crate) fn set_category_voting_threshold(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+    threshold_bps: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if !(voting::MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&threshold_bps) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    storage::set_category_voting_threshold_bps(env, category, threshold_bps);
+    env.events().publish(
+        ("category_voting_threshold_set", category as u32),
+        threshold_bps,
+    );
+    Ok(())
+}
+
+pub(crate) fn remove_category_voting_threshold(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    bump_instance_ttl(env);
+    storage::remove_category_voting_threshold_bps(env, category);
+    env.events()
+        .publish(("category_voting_threshold_removed", category as u32), ());
+    Ok(())
+}
+
 pub(crate) fn set_min_campaign_funding_goal_fn(
     env: &Env,
     admin: Address,

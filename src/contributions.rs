@@ -47,6 +47,23 @@ fn check_burst_guard(env: &Env, campaign_id: u32, campaign: &Campaign, amount: i
         return Err(Error::ContractPaused);
     }
 
+    // #535: skip the burst-count ledger read/write entirely for campaigns
+    // that haven't raised a meaningful share of their goal yet — a burst
+    // isn't possible to meaningfully detect (or worth guarding against) on a
+    // campaign that's still near-empty, so this is a wasted read on the
+    // common happy path.
+    let raised_bps = campaign
+        .amount_raised
+        .checked_mul(crate::BPS_DENOMINATOR as i128)
+        .ok_or(Error::Overflow)?;
+    let burst_check_threshold = campaign
+        .funding_goal
+        .checked_mul(crate::AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS)
+        .ok_or(Error::Overflow)?;
+    if raised_bps <= burst_check_threshold {
+        return Ok(());
+    }
+
     // Anomaly detection: Burst (> 10 tx/block per campaign)
     let current_ledger = env.ledger().sequence();
     let (last_ledger, mut block_count) = get_campaign_block_contribution_count(env, campaign_id);

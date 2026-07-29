@@ -628,6 +628,107 @@ fn test_verify_campaign_with_votes_success() {
     assert!(client.get_campaign(&campaign_id).is_verified);
 }
 
+// ── #536: per-category voting threshold ─────────────────────────────────────────
+
+#[test]
+fn test_category_voting_threshold_overrides_global_default() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+    let voter3 = Address::generate(&env);
+    token_admin.mint(&voter3, &1000);
+
+    // Global default requires 80% approval.
+    client.set_voting_params(&admin, &3, &8000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Category Threshold"),
+        String::from_str(&env, "Learner override"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // 2 approve / 1 reject, equal weight => ~66.7% approval: fails the 80% global default.
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &false);
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::VotingThresholdNotMet);
+
+    // Lower the Learner-category threshold to 50% — same votes now pass.
+    client.set_category_voting_threshold(&admin, &Category::Learner, &5000);
+    assert_eq!(
+        client.get_category_voting_threshold(&Category::Learner),
+        5000
+    );
+
+    client.verify_campaign_with_votes(&campaign_id);
+    assert!(client.get_campaign(&campaign_id).is_verified);
+}
+
+#[test]
+fn test_category_voting_threshold_other_categories_unaffected() {
+    let (_env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    client.set_voting_params(&admin, &3, &6000);
+    client.set_category_voting_threshold(&admin, &Category::Learner, &9000);
+
+    assert_eq!(
+        client.get_category_voting_threshold(&Category::Learner),
+        9000
+    );
+    assert_eq!(
+        client.get_category_voting_threshold(&Category::Educator),
+        6000
+    );
+}
+
+#[test]
+fn test_category_voting_threshold_removal_reverts_to_global_default() {
+    let (_env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    client.set_voting_params(&admin, &3, &7000);
+    client.set_category_voting_threshold(&admin, &Category::Learner, &5000);
+    assert_eq!(
+        client.get_category_voting_threshold(&Category::Learner),
+        5000
+    );
+
+    client.remove_category_voting_threshold(&admin, &Category::Learner);
+    assert_eq!(
+        client.get_category_voting_threshold(&Category::Learner),
+        7000
+    );
+}
+
+#[test]
+fn test_category_voting_threshold_non_admin_rejected() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let impostor = Address::generate(&env);
+
+    let res = client.try_set_category_voting_threshold(&impostor, &Category::Learner, &5000);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
+fn test_category_voting_threshold_out_of_range_rejected() {
+    let (_env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let too_low = client.try_set_category_voting_threshold(&admin, &Category::Learner, &999);
+    assert_eq!(too_low.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    let too_high = client.try_set_category_voting_threshold(&admin, &Category::Learner, &10001);
+    assert_eq!(too_high.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
 #[test]
 fn test_vote_on_nonexistent_campaign() {
     let (_env, _admin, _creator, contributor1, _, _token, token_admin, client) = setup_env();

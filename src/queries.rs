@@ -116,6 +116,10 @@ pub(crate) fn get_campaigns_by_category(
     campaigns
 }
 
+/// #534: jumps straight to the bucket containing `start` instead of reading
+/// every preceding bucket just to advance a counter, so paginating deep into
+/// a creator with many campaigns no longer costs one ledger read per skipped
+/// bucket (mirrors `get_campaigns_by_category`'s direct-jump approach).
 pub(crate) fn get_creator_campaigns(
     env: &Env,
     creator: Address,
@@ -131,23 +135,31 @@ pub(crate) fn get_creator_campaigns(
     }
 
     let end = (start + capped_limit).min(total);
-    let num_buckets = total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
-    let mut global_idx = 0u32;
+    let mut position = start;
 
-    'outer: for bucket_idx in 0..num_buckets {
+    while position < end {
+        let bucket_idx = position / CREATOR_CAMPAIGNS_BUCKET_SIZE;
         let bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
-        for i in 0..bucket.len() {
-            if global_idx >= end {
-                break 'outer;
-            }
-            if global_idx >= start {
-                if let Some(campaign_id) = bucket.get(i) {
-                    if let Some(campaign) = get_campaign(env, campaign_id) {
-                        campaigns.push_back(campaign);
-                    }
+        let bucket_start = bucket_idx * CREATOR_CAMPAIGNS_BUCKET_SIZE;
+        let mut idx_in_bucket = position - bucket_start;
+
+        let bucket_len = bucket.len();
+        while idx_in_bucket < bucket_len && position < end {
+            if let Some(campaign_id) = bucket.get(idx_in_bucket) {
+                if let Some(campaign) = get_campaign(env, campaign_id) {
+                    campaigns.push_back(campaign);
                 }
             }
-            global_idx += 1;
+            idx_in_bucket += 1;
+            position += 1;
+        }
+
+        if idx_in_bucket >= bucket_len {
+            position = if bucket_len == 0 {
+                bucket_start + CREATOR_CAMPAIGNS_BUCKET_SIZE
+            } else {
+                bucket_start + bucket_len
+            };
         }
     }
 

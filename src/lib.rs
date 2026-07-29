@@ -19,6 +19,12 @@ pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = BPS_DENOMINATOR; // 100% �
 pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
+/// #535: burst detection (the per-block contribution-count read/write) only
+/// runs once a campaign has raised at least this fraction of its funding
+/// goal, in basis points (5000 = 50%). Skips a wasted ledger read on the
+/// happy path for new/low-activity campaigns, which can't plausibly be
+/// mid-burst yet.
+pub(crate) const AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS: i128 = 5000;
 pub(crate) const LIST_MAX_LIMIT: u32 = 50;
 
 mod admin;
@@ -340,6 +346,30 @@ impl ProofOfHeart {
         min_balance: i128,
     ) -> Result<(), Error> {
         admin::set_min_voting_balance_fn(&env, admin, min_balance)
+    }
+
+    pub fn set_category_voting_threshold(
+        env: Env,
+        admin: Address,
+        category: Category,
+        threshold_bps: u32,
+    ) -> Result<(), Error> {
+        admin::set_category_voting_threshold(&env, admin, category, threshold_bps)
+    }
+
+    pub fn remove_category_voting_threshold(
+        env: Env,
+        admin: Address,
+        category: Category,
+    ) -> Result<(), Error> {
+        admin::remove_category_voting_threshold(&env, admin, category)
+    }
+
+    /// Returns the approval threshold (in basis points) that actually applies
+    /// to `category`: its per-category override if one is set, otherwise the
+    /// global default (#536).
+    pub fn get_category_voting_threshold(env: Env, category: Category) -> u32 {
+        voting::effective_approval_threshold_bps(&env, category)
     }
 
     // ── Admin: token migration ────────────────────────────────────────────────

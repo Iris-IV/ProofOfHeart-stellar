@@ -1,7 +1,9 @@
 use soroban_sdk::{token, Env};
 
 use crate::errors::Error;
-use crate::lifecycle::{get_creator_campaign, require_active_campaign, require_not_paused};
+use crate::lifecycle::{
+    get_creator_campaign, require_active_campaign, require_not_paused, transition, CampaignState,
+};
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
     increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
@@ -20,6 +22,8 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     if campaign.amount_raised >= campaign.funding_goal {
         return Err(Error::GoalMetCancellationNotAllowed);
     }
+
+    transition(CampaignState::of(&campaign), CampaignState::Cancelled)?;
 
     bump_instance_ttl(env);
 
