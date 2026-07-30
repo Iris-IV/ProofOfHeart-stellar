@@ -30,6 +30,9 @@ pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::
 }
 
 /// Maximum number of campaign IDs scanned per `list_active_campaigns` call (#475).
+///
+/// **Unit:** This limit counts campaign IDs scanned, not bytes or storage reads.
+///
 /// Widened from the original 200 so pagination can reach active campaigns that
 /// sit behind a long run of inactive ones; a maintained active-only index was
 /// considered (see issue #475) but rejected because it adds a per-`create_campaign`

@@ -1,5 +1,6 @@
 use soroban_sdk::{token, Address, Env, String};
 
+use crate::bookmarks::prune_bookmarks_for_campaign;
 use crate::errors::Error;
 use crate::lifecycle::{
     assert_admin, get_campaign_or_error, get_creator_campaign, require_active_campaign,
@@ -46,6 +47,7 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
+    prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
 
@@ -94,6 +96,7 @@ pub(crate) fn admin_cancel_campaign(
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
+    prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
 
