@@ -2,7 +2,7 @@
 
 This contract uses Soroban `Address::require_auth()` checks to ensure only the correct party can call state-changing methods.
 
-> Note: Some functions take an `Address` argument (e.g. `contributor`, `voter`, `admin`) and require that address to authorize the call. Others derive the authorized address from contract storage (e.g. `get_admin`) or from campaign state (e.g. `campaign.creator`).
+> Note: Some functions take an `Address` argument (e.g. `contributor`, `voter`, `admin`) and require that address to authorize the call. Others derive the authorized address from contract storage (e.g. `get_admin`) or from campaign state (e.g. `campaign.creator`). For detailed information on administrative privileges and security assumptions, see [docs/TRUST_MODEL.md](TRUST_MODEL.md).
 
 | Public method | Who must authorize |
 | --- | --- |

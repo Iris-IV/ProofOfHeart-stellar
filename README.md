@@ -100,6 +100,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ## Documentation
 
+- Administrative trust model and security assumptions: `docs/TRUST_MODEL.md`
 - Authorization requirements for every public method: `docs/AUTHORIZATION.md`
 - Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
 - Contribution cap semantics: `docs/CONTRIBUTION_CAP_POLICY.md`
