@@ -834,7 +834,6 @@ fn test_update_campaign_description_success() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     assert!(client
@@ -863,7 +862,6 @@ fn test_update_campaign_description_emits_metadata_updated_with_unchanged_title(
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     client.update_campaign_description(&campaign_id, &new_desc);
@@ -895,7 +893,6 @@ fn test_update_campaign_description_rejects_cancelled() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
     client.cancel_campaign(&campaign_id);
 
     let res =
@@ -918,7 +915,6 @@ fn test_update_campaign_description_rejects_empty() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -929,6 +925,76 @@ fn test_update_campaign_description_not_found() {
     let (env, _, _, _, _, _, _, client) = setup_env();
     let res = client.try_update_campaign_description(&999, &String::from_str(&env, "Some desc"));
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+#[test]
+fn test_update_campaign_description_blocks_after_admin_verification() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let orig_desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        orig_desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Fix #440: update_campaign_description must be blocked after admin
+    // verification, preventing bait-and-switch after admin approval.
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "Fraudulent Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.description, orig_desc);
+}
+
+#[test]
+fn test_update_campaign_description_blocks_after_community_verification() {
+    let (env, _admin, creator, contributor1, contributor2, _, token_admin, client) = setup_env();
+    let voter3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &100);
+    token_admin.mint(&contributor2, &100);
+    token_admin.mint(&voter3, &100);
+
+    let orig_desc = String::from_str(&env, "Original Description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        orig_desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &true);
+    client.verify_campaign_with_votes(&campaign_id);
+    assert!(client.get_campaign(&campaign_id).is_verified);
+
+    // Fix #440: update_campaign_description must be blocked after community
+    // verification, preventing bait-and-switch after community approval.
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "Fraudulent Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.description, orig_desc);
 }
 
 #[test]
@@ -947,7 +1013,6 @@ fn test_campaign_ownership_transfer_flow() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
@@ -1150,10 +1215,15 @@ fn test_update_description_after_contribution() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     let new_desc = String::from_str(&env, "New Description After Contribution");
-    client.update_campaign_description(&campaign_id, &new_desc);
+    let res = client.try_update_campaign_description(&campaign_id, &new_desc);
+
+    // update_campaign_description is blocked after verification
+    // (CampaignAlreadyVerified takes precedence over the amount_raised > 0
+    // check since it's checked first).
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.description, new_desc);
+    assert_ne!(campaign.description, new_desc);
 }
 
 #[test]
