@@ -1,7 +1,8 @@
 //! Named constants shared across the contract.
 //!
 //! Hoisted here so magic numbers (`9999`, `10000`, `86400`) appear exactly
-//! once in the codebase (#482).
+//! once in the codebase (#482). All callers import these constants rather
+//! than using local literals (#671).
 
 /// Basis-point denominator: 10_000 bps == 100%.
 pub(crate) const BPS_DENOMINATOR: u32 = 10_000;
