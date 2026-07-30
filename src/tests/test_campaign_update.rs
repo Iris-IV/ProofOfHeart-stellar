@@ -41,10 +41,12 @@ fn test_update_campaign_blocks_after_admin_verification() {
 fn test_update_campaign_emits_title_and_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
@@ -59,10 +61,13 @@ fn test_update_campaign_emits_title_and_description() {
 
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
 
-    assert_eq!(payload.0, new_title);
-    assert_eq!(payload.1, new_desc);
+    assert_eq!(payload.0, orig_title, "old title");
+    assert_eq!(payload.1, orig_desc, "old description");
+    assert_eq!(payload.2, new_title, "new title");
+    assert_eq!(payload.3, new_desc, "new description");
 }
 
 #[test]
@@ -94,9 +99,15 @@ fn test_update_campaign_event_tracks_latest_description() {
 
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(payload.0, String::from_str(&env, "Title V3"));
-    assert_eq!(payload.1, String::from_str(&env, "Description V3"));
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    // The second call's "old" values must be the state right before it
+    // (V2), not the original values from creation — old-value capture is
+    // per-call, not cumulative.
+    assert_eq!(payload.0, String::from_str(&env, "Title V2"));
+    assert_eq!(payload.1, String::from_str(&env, "Description V2"));
+    assert_eq!(payload.2, String::from_str(&env, "Title V3"));
+    assert_eq!(payload.3, String::from_str(&env, "Description V3"));
 }
 
 #[test]
