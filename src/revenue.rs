@@ -35,7 +35,18 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     bump_instance_ttl(env);
 
     let current_pool = get_revenue_pool(env, campaign_id);
-    set_revenue_pool(env, campaign_id, current_pool + amount);
+    let new_pool = current_pool.checked_add(amount).ok_or(Error::Overflow)?;
+
+    // Reject the deposit if the resulting pool would cause `claim_revenue` to overflow
+    // when calculating a contributor's share, assuming the worst-case where a single
+    // contributor contributed the entire `effective_amount_raised`.
+    campaign
+        .effective_amount_raised
+        .checked_mul(new_pool)
+        .and_then(|n| n.checked_mul(campaign.revenue_share_percentage as i128))
+        .ok_or(Error::Overflow)?;
+
+    set_revenue_pool(env, campaign_id, new_pool);
 
     let token_addr = get_token(env);
     let client = token::Client::new(env, &token_addr);

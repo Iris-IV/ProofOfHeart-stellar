@@ -200,3 +200,32 @@ fn test_deposit_revenue_cancelled_campaign() {
     let res = client.try_deposit_revenue(&campaign_id, &500);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
+
+#[test]
+fn test_deposit_revenue_too_large() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    // Give creator a huge amount of tokens
+    token_admin.mint(&creator, &i128::MAX);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    // This deposit is extremely large and would cause claim_revenue to overflow,
+    // so it should be rejected up front.
+    let res = client.try_deposit_revenue(&campaign_id, &i128::MAX);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
