@@ -139,17 +139,18 @@ fn test_vote_on_campaign_after_withdraw_fails() {
 }
 
 #[test]
-fn test_vote_on_campaign_token_weighted() {
+fn test_vote_on_campaign_one_address_one_vote() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
+    // contributor1 has 5000 tokens, contributor2 has only 1000 — both get 1 vote (#469).
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Weighted Vote Test"),
-        String::from_str(&env, "Test token-weighted voting"),
+        String::from_str(&env, "1-Address-1-Vote Test"),
+        String::from_str(&env, "Test 1-address-1-vote model"),
         1000,
         30,
         Category::Learner,
@@ -161,6 +162,7 @@ fn test_vote_on_campaign_token_weighted() {
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &false);
 
+    // Each voter contributes exactly 1 to the count regardless of balance.
     assert_eq!(client.get_approve_votes(&campaign_id), 1);
     assert_eq!(client.get_reject_votes(&campaign_id), 1);
 }
