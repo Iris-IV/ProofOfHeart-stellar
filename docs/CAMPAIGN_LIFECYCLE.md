@@ -112,6 +112,17 @@ Additional derived conditions used by the contract:
 - If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
 
+## Bookmarks (Out-of-Lifecycle Wallet Action)
+
+Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
+
+- **During Active state** — Before verification, after verification, etc.
+- **After Withdrawal** — To track completed causes.
+- **After Cancellation** — Though the campaign will never become active again, the bookmark persists (documented gap #667).
+- **After Expiration** — Similarly, bookmarks persist for expired/failed campaigns.
+
+Frontend integrations should filter the bookmark list based on campaign state when displaying "saved causes" to users. The contract does not auto-prune bookmarks for cancelled or expired campaigns; the `prune_bookmarks_for_campaign` helper currently documents this gap without a full solution.
+
 ## Token Migration Policy (issue #407)
 
 The contract supports a two-step token migration via `propose_token_update` (7-day delay) followed by `accept_token_update`. To prevent stranding escrowed campaign balances in the old token:
