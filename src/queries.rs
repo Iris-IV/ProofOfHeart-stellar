@@ -1,12 +1,13 @@
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, String};
 
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
-    get_category_campaign_bucket, get_category_campaign_count, get_contributor_count,
-    get_creator_campaign_bucket, get_creator_campaign_count, get_total_raised_global,
-    get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_category_campaign_bucket, get_category_campaign_count, get_contribution,
+    get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
+    get_platform_fee, get_token, get_total_raised_global, get_verified_campaign_count,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, CreatorStats, PlatformStats};
+use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
 
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
@@ -233,4 +234,81 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
     }
+}
+
+/// Returns a comprehensive platform report with all key metrics in a
+/// single call (#541). Useful for admin dashboards and health checks.
+pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
+    let total_campaigns = get_campaign_count(env);
+    let active_campaigns = get_active_campaign_count(env);
+    let total_raised = get_total_raised_global(env);
+    let platform_fee_bps = get_platform_fee(env);
+    let is_paused = env
+        .storage()
+        .instance()
+        .get(&crate::storage::AdminKey::Paused)
+        .unwrap_or(false)
+        || env
+            .storage()
+            .instance()
+            .get(&crate::storage::AdminKey::AutoPaused)
+            .unwrap_or(false);
+
+    let mut total_contributors: u32 = 0;
+    for id in 1..=total_campaigns {
+        if get_campaign(env, id).is_some() {
+            total_contributors += get_contributor_count(env, id);
+        }
+    }
+
+    PlatformReport {
+        total_campaigns,
+        active_campaigns,
+        total_raised,
+        total_contributors,
+        platform_fee_bps,
+        is_paused,
+        token: get_token(env),
+    }
+}
+
+/// Returns the contributor's portfolio across all campaigns: for each
+/// campaign the contributor has backed, returns the campaign ID, the
+/// contribution amount, the campaign's current status, and whether a
+/// refund is currently available (#539).
+pub(crate) fn get_contributor_portfolio(
+    env: &Env,
+    contributor: Address,
+) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+    let total_campaigns = get_campaign_count(env);
+    let mut portfolio = soroban_sdk::Vec::new(env);
+
+    for id in 1..=total_campaigns {
+        if let Some(campaign) = get_campaign(env, id) {
+            let amount = get_contribution(env, id, &contributor);
+            if amount == 0 {
+                continue;
+            }
+
+            let status = if campaign.is_cancelled {
+                "cancelled"
+            } else if campaign.funds_withdrawn {
+                "withdrawn"
+            } else if !campaign.is_active {
+                "inactive"
+            } else if campaign.is_verified {
+                "verified"
+            } else {
+                "active"
+            };
+
+            let refundable = campaign.is_cancelled
+                || (env.ledger().timestamp() > campaign.deadline
+                    && campaign.amount_raised < campaign.funding_goal);
+
+            portfolio.push_back((id, amount, String::from_str(env, status), refundable));
+        }
+    }
+
+    portfolio
 }

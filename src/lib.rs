@@ -609,8 +609,16 @@ impl ProofOfHeart {
         queries::get_platform_stats(&env)
     }
 
+    pub fn get_platform_report(env: Env) -> PlatformReport {
+        queries::get_platform_report(&env)
+    }
+
     pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
         queries::get_creator_stats(&env, creator)
+    }
+
+    pub fn get_contributor_portfolio(env: Env, contributor: Address) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+        queries::get_contributor_portfolio(&env, contributor)
     }
 
     // ── Bookmarks / saved campaigns ───────────────────────────────────────────
