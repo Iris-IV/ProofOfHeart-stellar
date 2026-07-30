@@ -609,8 +609,19 @@ impl ProofOfHeart {
         queries::get_platform_stats(&env)
     }
 
+    pub fn get_platform_report(env: Env) -> PlatformReport {
+        queries::get_platform_report(&env)
+    }
+
     pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
         queries::get_creator_stats(&env, creator)
+    }
+
+    pub fn get_contributor_portfolio(
+        env: Env,
+        contributor: Address,
+    ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+        queries::get_contributor_portfolio(&env, contributor)
     }
 
     // ── Bookmarks / saved campaigns ───────────────────────────────────────────
@@ -636,3 +647,33 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
+
+use soroban_sdk::{contract, contractimpl, Env, String, Vec};
+
+#[contract]
+pub struct ProofOfHeartContract;
+
+#[contractimpl]
+impl ProofOfHeartContract {
+    /// Lists active campaigns, optionally filtered by a specific tag string.
+    pub fn list_active_campaigns(env: Env, tag_filter: Option<String>) -> Vec<Campaign> {
+        let all_campaigns: Vec<Campaign> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaigns)
+            .unwrap_or(Vec::new(&env));
+
+        match tag_filter {
+            Some(filter_tag) => {
+                let mut filtered = Vec::new(&env);
+                for campaign in all_campaigns.iter() {
+                    if campaign.tags.contains(&filter_tag) {
+                        filtered.push_back(campaign);
+                    }
+                }
+                filtered
+            }
+            None => all_campaigns,
+        }
+    }
+}

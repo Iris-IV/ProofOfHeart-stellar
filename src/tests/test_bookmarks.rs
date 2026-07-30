@@ -139,3 +139,40 @@ fn test_saved_campaigns_are_per_wallet() {
     assert_eq!(client.get_saved_campaigns(&contributor1).len(), 1);
     assert_eq!(client.get_saved_campaigns(&contributor2).len(), 0);
 }
+
+#[test]
+fn test_save_campaign_then_cancel() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Contributor bookmarks the campaign
+    client.save_campaign(&contributor1, &id);
+    let saved = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved.get(0).unwrap(), id);
+
+    // Creator cancels the campaign
+    client.cancel_campaign(&id);
+
+    // Bookmarks still persist after cancellation (documented gap #667)
+    // Frontend/clients should filter cancelled campaigns from the UI
+    let saved_after_cancel = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved_after_cancel.len(), 1);
+    assert_eq!(saved_after_cancel.get(0).unwrap(), id);
+
+    // Campaign is cancelled
+    let campaign = client.get_campaign(&id);
+    assert!(campaign.is_cancelled);
+    assert!(!campaign.is_active);
+}
