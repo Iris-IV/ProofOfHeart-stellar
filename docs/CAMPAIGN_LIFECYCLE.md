@@ -126,3 +126,22 @@ The contract supports a two-step token migration via `propose_token_update` (7-d
 3. If a new campaign is created (or a refund is left unclaimed) during the 7-day window, `accept_token_update` will reject the swap and the admin must cancel the pending update and repeat the process.
 
 > **Known limitation:** undistributed revenue-sharing pools (`deposit_revenue`) are not yet tracked by `total_raised_global`. A withdrawn revenue-sharing campaign with an unclaimed pool could still leave funds in the old token across a migration. Tracking revenue pools in the migration guard is tracked as a follow-up.
+
+## Bookmarks (Out-of-Lifecycle Wallet Action, #507)
+
+Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are **wallet-side** actions that let a wallet track campaigns it cares about on-chain, without relying on a frontend. They are not lifecycle state transitions and have no effect on the campaign's state machine:
+
+- A wallet may **bookmark** a campaign at **any** lifecycle state — Active, Verified, Withdrawn, Cancelled, Expired, or even a non-existent campaign (though the contract rejects a campaign ID that has never been created).
+- Bookmarks persist independently of the campaign lifecycle; cancelling or withdrawing a campaign does **not** clear its bookmark list entries.
+- There is no per-campaign limit on how many wallets can bookmark it — `set_saved_campaigns` is keyed by wallet address, not campaign ID.
+- Reading bookmarks (`get_saved_campaigns`) is an unauthenticated view call and requires no authorization.
+
+### API
+
+| Function | Auth | Description |
+|---|---|---|
+| `save_campaign(campaign_id)` | Wallet signature | Adds `campaign_id` to the caller's saved list. Fails with `CampaignAlreadyBookmarked` if already saved. |
+| `remove_saved_campaign(campaign_id)` | Wallet signature | Removes `campaign_id` from the caller's saved list. Fails with `CampaignNotBookmarked` if not saved. |
+| `get_saved_campaigns(wallet)` | None (view) | Returns the list of campaign IDs the given wallet has saved, in save order. |
+
+Because bookmarks are orthogonal to the lifecycle, UI builders can display bookmark controls alongside any campaign card without needing to check the campaign's state first.
