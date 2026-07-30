@@ -114,6 +114,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_bookmarked`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_bookmarked", user: Address)`                   |
+| Data    | `campaign_id: u32`                                         |
+| Source  | `src/bookmarks.rs:34` — `save_campaign()`                   |
+
+---
+
 ### `campaign_cancelled`
 
 | Field   | Value                                                      |
@@ -141,6 +151,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Topics  | `("campaign_description_updated", campaign_id: u32)`       |
 | Data    | `new_desc: String`                                         |
 | Source  | `lib.rs:752` — `update_campaign_description()`             |
+
+---
+
+### `campaign_unbookmarked`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_unbookmarked", user: Address)`                 |
+| Data    | `campaign_id: u32`                                         |
+| Source  | `src/bookmarks.rs:56` — `remove_saved_campaign()`           |
 
 ---
 
@@ -494,4 +514,4 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
-> **Total: 49 documented `publish()` call sites**
+> **Total: 51 documented `publish()` call sites**
