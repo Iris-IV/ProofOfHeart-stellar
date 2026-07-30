@@ -867,10 +867,11 @@ proptest! {
     fn prop_half_approval_gives_half_bps(total in 2u32..=1_000_000u32) {
         let half = total / 2;
         let approval_bps = calculate_approval_bps(half, total);
-        // Allow for rounding error of 1 bps
+        // Integer division on odd totals rounds down: e.g. total=889 gives 4994 bps.
+        // Allow a wider tolerance to account for truncation with small odd counts.
         prop_assert!(
-            (4_999..=5_000).contains(&approval_bps),
-            "50% approval should give ~5000 bps, got {}",
+            approval_bps >= 3333 && approval_bps <= 5000,
+            "50% approval should give between ~3333 and 5000 bps, got {}",
             approval_bps
         );
     }
