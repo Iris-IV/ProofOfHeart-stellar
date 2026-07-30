@@ -1716,3 +1716,48 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
     let result = client.try_cancel_campaign(&campaign_id);
     assert_eq!(result, Err(Ok(Error::GoalMetCancellationNotAllowed)));
 }
+
+#[test]
+fn test_create_campaign_overflow_when_count_at_u32_max() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    env.as_contract(&client.address, || {
+        storage::set_campaign_count(&env, u32::MAX);
+    });
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Overflow Campaign"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+#[test]
+fn test_create_campaign_succeeds_at_u32_max_minus_one() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    env.as_contract(&client.address, || {
+        storage::set_campaign_count(&env, u32::MAX - 1);
+    });
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Edge Campaign"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(campaign_id, u32::MAX);
+    assert_eq!(client.get_campaign_count(), u32::MAX);
+}
