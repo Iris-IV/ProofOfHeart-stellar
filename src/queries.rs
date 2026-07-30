@@ -65,8 +65,10 @@ pub(crate) fn list_active_campaigns(
 
     while current_id <= total_count {
         if current_id > start + MAX_SCAN_WINDOW {
-            env.events()
-                .publish(("scan_window_exhausted",), (start, current_id, collected));
+            env.events().publish(
+                ("scan_window_exhausted",),
+                (start, current_id, collected, capped_limit),
+            );
             next_cursor = current_id;
             break;
         }
