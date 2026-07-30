@@ -25,9 +25,11 @@ use soroban_sdk::{testutils::Ledger, String};
 
 /// Mirrors `set_personal_cap_fn`'s validation: negative amounts are always
 /// rejected; when the campaign has a cap (`campaign_max > 0`), the personal
-/// cap may not exceed it. `campaign_max == 0` is the "unlimited" sentinel.
-fn personal_cap_settable(campaign_max: i128, requested: i128) -> bool {
-    requested >= 0 && (campaign_max == 0 || requested <= campaign_max)
+/// cap may not exceed it; and the personal cap may never be set below the
+/// contributor's existing `lifetime_contribution` (#457).
+/// `campaign_max == 0` is the "unlimited" sentinel.
+fn personal_cap_settable(campaign_max: i128, lifetime: i128, requested: i128) -> bool {
+    requested >= 0 && (campaign_max == 0 || requested <= campaign_max) && requested >= lifetime
 }
 
 /// Mirrors the combined cap check inside `contribute()`: a contribution is
@@ -54,34 +56,44 @@ fn max_contribution_allowed(
 
 proptest! {
     /// Any requested personal cap strictly above a nonzero campaign max must
-    /// be rejected, for any campaign max / overage pair.
+    /// be rejected, for any campaign max / overage pair — even when the
+    /// requested cap is also above the contributor's lifetime contribution
+    /// (so the failure is due to the max check, not the lifetime check from
+    /// #457).
     #[test]
     fn prop_personal_cap_above_max_rejected_when_max_nonzero(
         campaign_max in 1i128..=1_000_000_000i128,
+        lifetime in 0i128..=1_000_000_000i128,
         overage in 1i128..=1_000_000_000i128,
     ) {
-        let requested = campaign_max.saturating_add(overage);
-        prop_assert!(!personal_cap_settable(campaign_max, requested));
+        let requested = campaign_max.saturating_add(overage).max(lifetime);
+        prop_assert!(!personal_cap_settable(campaign_max, lifetime, requested));
     }
 
-    /// Any requested personal cap at or below a nonzero campaign max must be
-    /// settable.
+    /// Any requested personal cap at or below a nonzero campaign max and at
+    /// or above the contributor's lifetime contribution must be settable.
     #[test]
     fn prop_personal_cap_at_or_below_max_settable(
         campaign_max in 1i128..=1_000_000_000i128,
         deficit in 0i128..=1_000_000_000i128,
+        lifetime in 0i128..=1_000_000_000i128,
     ) {
-        let requested = (campaign_max - deficit).max(0);
-        prop_assert!(personal_cap_settable(campaign_max, requested));
+        prop_assume!(lifetime <= campaign_max);
+        let requested = (campaign_max - deficit).max(lifetime);
+        prop_assert!(personal_cap_settable(campaign_max, lifetime, requested));
     }
 
     /// `campaign_max == 0` is the explicit "no cap" sentinel (#530) — any
-    /// non-negative personal cap must be settable regardless of its size.
+    /// non-negative personal cap at or above the contributor's lifetime
+    /// contribution must be settable regardless of its size.
     #[test]
     fn prop_personal_cap_any_nonnegative_allowed_when_max_unlimited(
-        requested in 0i128..=i128::MAX,
+        lifetime in 0i128..=i128::MAX,
+        offset in 0i128..=i128::MAX,
     ) {
-        prop_assert!(personal_cap_settable(0, requested));
+        // Avoid overflow: min(lifetime + offset, i128::MAX)
+        let requested = lifetime.saturating_add(offset);
+        prop_assert!(personal_cap_settable(0, lifetime, requested));
     }
 
     /// When both caps are active and currently satisfied (`lifetime <=

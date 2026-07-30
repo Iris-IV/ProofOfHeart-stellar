@@ -311,6 +311,14 @@ pub(crate) fn set_personal_cap_fn(
     }
     let campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
+    // Fix #457: prevent setting a personal cap below the contributor's
+    // existing lifetime contribution — doing so would permanently block
+    // further contributions with no escape (there is no public
+    // remove_personal_cap entrypoint).
+    let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+    if amount < lifetime {
+        return Err(Error::ValidationFailed);
+    }
     if campaign.max_contribution_per_user > 0 && amount > campaign.max_contribution_per_user {
         return Err(Error::ValidationFailed);
     }

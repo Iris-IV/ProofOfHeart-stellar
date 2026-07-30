@@ -273,6 +273,48 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
     assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
+// ── #457 set_personal_cap below lifetime_contribution ──
+#[test]
+fn test_set_personal_cap_rejected_below_lifetime_contribution() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "#457"),
+        description: String::from_str(&env, "personal cap below lifetime"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0, // no campaign-wide cap
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Contribute 1000 stroops — lifetime = 1000.
+    client.contribute(&campaign_id, &contributor, &1000);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor),
+        1000
+    );
+
+    // Setting cap below lifetime must fail (would freeze the contributor).
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Setting cap equal to lifetime must succeed.
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &1000);
+    assert!(res.is_ok());
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor), 1000);
+
+    // Setting cap above lifetime must also succeed.
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &1500);
+    assert!(res.is_ok());
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor), 1500);
+}
+
 // ── #354 vote weight checked addition ──
 #[test]
 fn test_vote_weight_overflow_fails() {
