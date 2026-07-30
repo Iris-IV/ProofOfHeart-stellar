@@ -278,10 +278,12 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
 
     decrement_contributor_count(env, campaign_id);
 
-    campaign.effective_amount_raised = campaign
-        .effective_amount_raised
-        .checked_sub(amount)
-        .ok_or(Error::Overflow)?;
+    if !campaign.is_cancelled {
+        campaign.effective_amount_raised = campaign
+            .effective_amount_raised
+            .checked_sub(amount)
+            .ok_or(Error::Overflow)?;
+    }
     set_campaign(env, campaign_id, &campaign);
 
     let total_raised = get_total_raised_global(env);
