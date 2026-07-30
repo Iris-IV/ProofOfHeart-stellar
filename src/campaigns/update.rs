@@ -55,6 +55,10 @@ pub(crate) fn update_campaign(
     Ok(())
 }
 
+/// Updates only the description of a campaign.
+///
+/// Blocked after verification (issue #416: verified content must match
+/// published content) — consistent with `update_campaign`.
 pub(crate) fn update_campaign_description(
     env: &Env,
     campaign_id: u32,
@@ -62,6 +66,9 @@ pub(crate) fn update_campaign_description(
 ) -> Result<(), Error> {
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
+
+    // Fix #416: verification freezes title and description.
+    require_unverified_campaign(&campaign)?;
 
     require_active_campaign(&campaign)?;
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
