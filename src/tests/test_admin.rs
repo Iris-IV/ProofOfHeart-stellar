@@ -369,6 +369,143 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     assert_eq!(client.get_token(), new_token_address);
 }
 
+#[test]
+fn test_token_swap_blocked_with_partial_refund_remaining_liabilities() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    let orig_token_address = client.get_token();
+    let orig_token_client = soroban_sdk::token::Client::new(&env, &orig_token_address);
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&contributor2, &2000);
+
+    // 1. Deploy protocol & Create a campaign
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Partial Refund Campaign"),
+        String::from_str(&env, "Testing token update with outstanding refund liabilities"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // 2. Accept contributions from multiple contributors
+    client.contribute(&campaign_id, &contributor1, &500);
+    client.contribute(&campaign_id, &contributor2, &700);
+
+    assert_eq!(client.get_total_raised_global(), 1200);
+
+    // 3. Cancel the campaign
+    client.cancel_campaign(&campaign_id);
+
+    // 4. Process a partial refund (only contributor1 claims)
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(orig_token_client.balance(&contributor1), 2000);
+
+    // 5. Leave contributor2's refund unclaimed (700 tokens still escrowed)
+    assert_eq!(client.get_total_raised_global(), 700);
+
+    // 6. Propose a token update
+    let new_token_address = env.register_stellar_asset_contract(admin.clone());
+    client.propose_token_update(&admin, &new_token_address);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+
+    // 7. Attempt accept_token_update and assert it is rejected
+    let res = client.try_accept_token_update(&admin);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // 8. Verify stored token address is unchanged (still original token)
+    assert_eq!(client.get_token(), orig_token_address);
+
+    // 9. Verify refund claims continue to succeed using original token
+    let c2_balance_before = orig_token_client.balance(&contributor2);
+    client.claim_refund(&campaign_id, &contributor2);
+    assert_eq!(
+        orig_token_client.balance(&contributor2),
+        c2_balance_before + 700
+    );
+
+    // 10. Verify no escrowed funds remain, and now accept_token_update succeeds
+    assert_eq!(client.get_total_raised_global(), 0);
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+}
+
+#[test]
+fn test_token_swap_blocked_with_expired_unfunded_campaign_refund_liabilities() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    let orig_token_address = client.get_token();
+    let orig_token_client = soroban_sdk::token::Client::new(&env, &orig_token_address);
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&contributor2, &2000);
+
+    // Create a campaign with funding goal 5000 and 10-day duration
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expired Unfunded Campaign"),
+        String::from_str(&env, "Deadline passes without meeting goal"),
+        5000,
+        10,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.contribute(&campaign_id, &contributor2, &1500);
+
+    // Advance time past deadline (10 days = 864,000 seconds)
+    env.ledger().with_mut(|l| {
+        l.timestamp += 10 * 86400 + 1;
+    });
+
+    // Cancel expired unfunded campaign so active_campaign_count -> 0 while refund liabilities remain
+    client.cancel_campaign(&campaign_id);
+
+    // Process partial refund for contributor1 after deadline & cancellation
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(orig_token_client.balance(&contributor1), 2000);
+
+    // contributor2's 1500 tokens remain unclaimed
+    assert_eq!(client.get_total_raised_global(), 1500);
+
+    let new_token_address = env.register_stellar_asset_contract(admin.clone());
+    client.propose_token_update(&admin, &new_token_address);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+
+    // Accept token update must be rejected because contributor2 has unclaimed refund
+    let res = client.try_accept_token_update(&admin);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(client.get_token(), orig_token_address);
+
+    // contributor2 claims refund in original token
+    client.claim_refund(&campaign_id, &contributor2);
+    assert_eq!(orig_token_client.balance(&contributor2), 2000);
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    // Now accept_token_update succeeds
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+}
+
 // ── initialisation & config ─────────────────────────────────────────────────────
 
 #[test]
