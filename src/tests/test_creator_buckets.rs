@@ -210,3 +210,50 @@ fn test_creator_buckets_internal_state() {
     let ids = all_creator_ids(&env, &client, &receiver);
     assert_eq!(ids.len(), 1);
 }
+
+// ── #464 post-transfer bucket integrity check ──────────────────────────────
+
+/// After a campaign transfer, verifies that the transferred campaign appears
+/// in exactly one creator's bucket list (the new creator) and not in both.
+#[test]
+fn test_transfer_bucket_integrity_check() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let receiver = Address::generate(&env);
+
+    // Create campaigns to fill multiple buckets.
+    for idx in 0..60 {
+        create_campaign(&env, &client, &creator, idx);
+    }
+
+    // Transfer a campaign from the first bucket and one from the second.
+    client.initiate_campaign_transfer(&1, &receiver);
+    client.accept_campaign_transfer(&1);
+
+    client.initiate_campaign_transfer(&55, &receiver);
+    client.accept_campaign_transfer(&55);
+
+    // Integrity check: campaign must NOT appear in both creators' lists.
+    let old_ids = all_creator_ids(&env, &client, &creator);
+    let new_ids = all_creator_ids(&env, &client, &receiver);
+
+    for i in 0..old_ids.len() {
+        let id = old_ids.get(i).unwrap();
+        for j in 0..new_ids.len() {
+            assert_ne!(
+                id,
+                new_ids.get(j).unwrap(),
+                "campaign {id} appears in both old and new creator bucket lists after transfer"
+            );
+        }
+    }
+
+    // Each transferred campaign must appear exactly in the new creator's list.
+    assert!(verify_missing(&env, &client, &creator, 1));
+    assert_eq!(new_ids.get(0).unwrap(), 1);
+    assert!(verify_missing(&env, &client, &creator, 55));
+    assert_eq!(new_ids.get(1).unwrap(), 55);
+
+    // Count integrity: old creator lost 2, new creator has 2.
+    assert_eq!(old_ids.len(), 58);
+    assert_eq!(new_ids.len(), 2);
+}

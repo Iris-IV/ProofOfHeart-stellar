@@ -1,5 +1,6 @@
 use soroban_sdk::{contracttype, Address, Env, TryFromVal, Val, Vec};
 
+use crate::errors::Error;
 use crate::types::{Campaign, CampaignReserve, Category};
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -1048,4 +1049,57 @@ pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address
 /// instead of scanning the creator's campaign bucket.
 pub fn is_campaign_creator(env: &Env, campaign_id: u32, creator: &Address) -> bool {
     get_campaign_creator_index(env, campaign_id).is_some_and(|c| &c == creator)
+}
+
+/// Atomically moves a campaign from one creator's bucket to another (#464).
+///
+/// Both the remove-from-old and add-to-new bucket operations complete their
+/// reads before either write is performed, so a failure during the read phase
+/// (e.g. a missing campaign) prevents any partial write. Returns
+/// `Err(ValidationFailed)` if the campaign is not found in the old creator's
+/// buckets.
+pub fn transfer_creator_campaign(
+    env: &Env,
+    campaign_id: u32,
+    old_creator: &Address,
+    new_creator: &Address,
+) -> Result<(), Error> {
+    // ── Phase 1: read both buckets ────────────────────────────────────────
+    let old_count = get_creator_campaign_count(env, old_creator);
+    let old_num_buckets = old_count.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
+
+    let mut old_bucket_modified = false;
+    let mut old_bucket_idx = 0u32;
+    let mut old_bucket = soroban_sdk::Vec::new(env);
+
+    'find: for idx in 0..old_num_buckets {
+        let mut bucket = get_creator_campaign_bucket(env, old_creator, idx);
+        if let Some(pos) = bucket.first_index_of(campaign_id) {
+            bucket.remove(pos);
+            old_bucket = bucket;
+            old_bucket_modified = true;
+            old_bucket_idx = idx;
+            break 'find;
+        }
+    }
+
+    if !old_bucket_modified {
+        return Err(Error::ValidationFailed);
+    }
+
+    let new_count = get_creator_campaign_count(env, new_creator);
+    let new_bucket_idx = new_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
+    let mut new_bucket = get_creator_campaign_bucket(env, new_creator, new_bucket_idx);
+    new_bucket.push_back(campaign_id);
+
+    // ── Phase 2: write both buckets (reads are complete — no partial writes) ─
+    set_creator_campaign_bucket(env, old_creator, old_bucket_idx, &old_bucket);
+    set_creator_campaign_count(env, old_creator, old_count.saturating_sub(1));
+
+    set_creator_campaign_bucket(env, new_creator, new_bucket_idx, &new_bucket);
+    set_creator_campaign_count(env, new_creator, new_count + 1);
+
+    set_campaign_creator_index(env, campaign_id, new_creator);
+
+    Ok(())
 }
