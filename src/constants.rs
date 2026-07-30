@@ -8,6 +8,9 @@ pub(crate) const BPS_DENOMINATOR: u32 = 10_000;
 
 /// Offset added to a numerator before dividing by [`BPS_DENOMINATOR`] to
 /// achieve ceiling division: `ceil(a / b) == (a + b - 1) / b`.
+///
+/// Consumed in `campaigns/withdraw.rs` for fee and reserve ceiling-division
+/// computations (lines 52, 60).
 pub(crate) const BPS_CEIL_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
 
 /// Number of seconds in one day.
