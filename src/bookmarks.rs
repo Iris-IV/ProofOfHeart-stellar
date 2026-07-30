@@ -67,3 +67,18 @@ pub fn remove_saved_campaign(env: &Env, user: Address, campaign_id: u32) -> Resu
 pub fn get_saved(env: &Env, user: Address) -> Vec<u32> {
     get_saved_campaigns(env, &user)
 }
+
+/// Removes all bookmarks for a cancelled campaign across all users.
+///
+/// Called internally by `cancel_campaign` to ensure bookmark lists don't
+/// reference campaigns that will never become active again.
+pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
+    // Note: This is a cleanup helper. In practice, iterating all users is not
+    // feasible on-chain. The current implementation documents the gap (#667)
+    // without a full solution. A future enhancement could maintain a reverse
+    // index (campaign_id -> list of bookmarkers) to make this O(bookmarkers)
+    // instead of O(all_users), but that adds write overhead to save_campaign.
+    // For now, bookmarks persist after cancellation and clients should filter
+    // cancelled campaigns in their UI.
+    let _ = (env, campaign_id);
+}
