@@ -273,6 +273,40 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
     assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
+// ── #441 set_personal_cap below lifetime_contribution rejected ──
+#[test]
+fn test_set_personal_cap_below_lifetime_contribution_rejected() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "T"),
+        description: String::from_str(&env, "D"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    token_admin.mint(&contributor, &10_000);
+    client.contribute(&campaign_id, &contributor, &1000);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor),
+        1000
+    );
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &1000);
+    assert!(res.is_ok());
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &2000);
+    assert!(res.is_ok());
+}
+
 // ── #354 vote weight checked addition ──
 #[test]
 fn test_vote_weight_overflow_fails() {
