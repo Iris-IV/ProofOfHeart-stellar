@@ -164,6 +164,7 @@ pub(crate) fn claim_revenue(
 
 pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let campaign = get_creator_campaign(env, campaign_id)?;
+    campaign.creator.require_auth();
     require_not_paused(env)?;
 
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
