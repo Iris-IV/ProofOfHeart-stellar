@@ -1626,6 +1626,39 @@ fn test_extend_deadline_absolute_max_cap_enforced() {
     assert!(campaign.deadline_extended);
 }
 
+/// Issue #463: extend_campaign_deadline does not validate new deadline against category duration cap
+/// when the cap is set AFTER the campaign was created. A campaign originally created before the cap
+/// was set should not be able to extend beyond the cap limit.
+#[test]
+fn test_extend_deadline_cap_set_after_campaign_creation_rejected() {
+    let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // 1. Creator creates a Learner campaign with 30 days - NO CAP SET YET
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cap After Creation"),
+        String::from_str(&env, "Duration cap set after creation"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // 2. Admin sets Learner category duration cap to 30 days AFTER campaign creation
+    client.set_category_duration_cap(&admin, &Category::Learner, &30);
+
+    // 3. Creator tries to extend deadline by 10 days (total 40) -> SHOULD BE REJECTED
+    let res = client.try_extend_campaign_deadline(&id, &10);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
+
+    // 4. Extending by 0 days (total 30) should succeed - exactly at cap
+    let res = client.try_extend_campaign_deadline(&id, &0);
+    // Should be rejected because additional_days must be > 0
+    assert_eq!(res.unwrap_err().unwrap(), Error::ExtensionTooLong);
+}
+
 // ── cancel blocked after goal met ───────────────────────────────────────────────
 
 /// Issue #164: creator cannot cancel after the funding goal has been reached
