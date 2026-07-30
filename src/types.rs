@@ -120,6 +120,27 @@ pub struct PlatformStats {
     pub scanned_up_to: u32,
 }
 
+/// Comprehensive platform report for admin dashboards, returning all key
+/// metrics in a single call (#541).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlatformReport {
+    /// Total campaigns ever created.
+    pub total_campaigns: u32,
+    /// Campaigns currently active and not cancelled.
+    pub active_campaigns: u32,
+    /// Sum of `amount_raised` across all campaigns.
+    pub total_raised: i128,
+    /// Total number of distinct contributors across all campaigns.
+    pub total_contributors: u32,
+    /// Platform fee in basis points.
+    pub platform_fee_bps: u32,
+    /// Whether the contract is currently paused.
+    pub is_paused: bool,
+    /// The accepted token contract address.
+    pub token: Address,
+}
+
 /// Aggregate metrics for a single creator across all of their campaigns,
 /// used for creator-profile dashboards and indexer consumers (#519).
 #[contracttype]
