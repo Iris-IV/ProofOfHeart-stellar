@@ -870,7 +870,7 @@ proptest! {
         // Integer division on odd totals rounds down: e.g. total=889 gives 4994 bps.
         // Allow a wider tolerance to account for truncation with small odd counts.
         prop_assert!(
-            approval_bps >= 3333 && approval_bps <= 5000,
+            (3333..=5000).contains(&approval_bps),
             "50% approval should give between ~3333 and 5000 bps, got {}",
             approval_bps
         );
