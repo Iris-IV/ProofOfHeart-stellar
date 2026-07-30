@@ -156,10 +156,10 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ### `revenue_deposited`
 
-| Field   | Value                                                      |
-|---------|------------------------------------------------------------|
-| Topics  | `("revenue_deposited", campaign_id: u32)`                  |
-| Data    | `amount: i128`                                             |
+| Field   | Value                                                          |
+|---------|----------------------------------------------------------------|
+| Topics  | `("revenue_deposited", campaign_id: u32, creator: Address)`    |
+| Data    | `amount: i128`                                                 |
 | Source  | `lib.rs:842` — `deposit_revenue()`                         |
 
 ---

@@ -229,3 +229,54 @@ fn test_deposit_revenue_too_large() {
     let res = client.try_deposit_revenue(&campaign_id, &i128::MAX);
     assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }
+
+#[test]
+fn test_revenue_deposited_event_payload() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&creator, &10000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Startup"),
+        String::from_str(&env, "Revenue sharing startup"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &500);
+
+    let events = env.events().all();
+    let deposit_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| {
+                    <String as soroban_sdk::TryFromVal<_, _>>::try_from_val(&env, &v).ok()
+                })
+                .map(|topic| topic == String::from_str(&env, "revenue_deposited"))
+                .unwrap_or(false)
+        })
+        .expect("revenue_deposited event must exist");
+
+    let expected_topics = (
+        String::from_str(&env, "revenue_deposited"),
+        campaign_id,
+        creator.clone(),
+    )
+        .into_val(&env);
+    assert_eq!(*deposit_event.1, expected_topics);
+
+    let amount: i128 = soroban_sdk::FromVal::from_val(&env, &deposit_event.2);
+    assert_eq!(amount, 500);
+}
