@@ -9,6 +9,30 @@ use crate::storage::{
 };
 use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
 
+/// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
+/// in ascending order.
+///
+/// # Pagination
+///
+/// The `start` parameter is an **exclusive cursor** — pass the last campaign ID
+/// from the previous page to begin the next page. Begin with `start = 0`.
+///
+/// After each request, set `start` to the ID of the last campaign received.
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.list_campaigns(&start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start = page.get(page.len() - 1).unwrap().id;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
     let mut campaigns = soroban_sdk::Vec::new(env);
@@ -87,6 +111,30 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
+/// Returns campaigns matching `category`, ordered by creation time within the
+/// category's campaign list.
+///
+/// # Pagination
+///
+/// The `offset` parameter is a **0-based index** into the category's campaign
+/// list. After each request, advance `offset` by the number of results received.
+/// Begin with `offset = 0`.
+///
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all Learner campaigns in pages of 10
+/// let mut offset = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.get_campaigns_by_category(&Category::Learner, &offset, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     offset += page.len() as u32;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn get_campaigns_by_category(
     env: &Env,
     category: Category,
@@ -135,10 +183,31 @@ pub(crate) fn get_campaigns_by_category(
     campaigns
 }
 
-/// #534: jumps straight to the bucket containing `start` instead of reading
-/// every preceding bucket just to advance a counter, so paginating deep into
-/// a creator with many campaigns no longer costs one ledger read per skipped
-/// bucket (mirrors `get_campaigns_by_category`'s direct-jump approach).
+/// Returns all campaigns owned by `creator`, ordered by creation time within the
+/// creator's campaign list.
+///
+/// # Pagination
+///
+/// The `start` parameter is a **0-based offset** into the creator's campaign
+/// list (#534 jumps directly to the bucket containing `start`). After each
+/// request, advance `start` by the number of results received. Begin with
+/// `start = 0`.
+///
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns for a creator in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.get_creator_campaigns(&creator, &start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start += page.len() as u32;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn get_creator_campaigns(
     env: &Env,
     creator: Address,
