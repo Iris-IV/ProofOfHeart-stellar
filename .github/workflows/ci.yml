@@ -56,5 +56,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
-          fail_ci_if_error: true
+          # Don't fail the pipeline if the upload fails (e.g. token not yet configured).
+          # The coverage threshold is enforced by `--fail-under-lines 80` above.
+          fail_ci_if_error: false
           verbose: true
