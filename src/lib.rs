@@ -617,7 +617,10 @@ impl ProofOfHeart {
         queries::get_creator_stats(&env, creator)
     }
 
-    pub fn get_contributor_portfolio(env: Env, contributor: Address) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+    pub fn get_contributor_portfolio(
+        env: Env,
+        contributor: Address,
+    ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
         queries::get_contributor_portfolio(&env, contributor)
     }
 

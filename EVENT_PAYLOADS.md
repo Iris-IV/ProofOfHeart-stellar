@@ -2,6 +2,8 @@
 
 Every `publish(...)` call in the contract, with its topics, data shape, and the code that emits it.
 
+> **Keep in sync:** When adding or modifying any `env.events().publish(...)` call, update this file's topics, data shape, and source location to match.
+
 ---
 
 ### `initialized`
