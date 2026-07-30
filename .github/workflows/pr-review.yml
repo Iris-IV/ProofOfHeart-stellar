@@ -120,7 +120,7 @@ jobs:
       # so we use dawidd6/action-download-artifact which searches across runs.
       - name: Download PR artifact
         if: steps.gate.outputs.skip != 'true'
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name: pr-${{ github.event.pull_request.number }}
@@ -440,6 +440,34 @@ jobs:
               ;;
           esac
 
+      # ── Check CI status before auto-merge ────────────────────────────────
+      - name: Check CI status
+        if: |
+          steps.gate.outputs.skip != 'true'
+          && steps.meta.outputs.auto_fraud != 'true'
+          && steps.review.outputs.decision == 'APPROVE'
+          && steps.act.outputs.merge_ok == 'true'
+        id: ci_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          CONCLUSION=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" --jq '.state' 2>/dev/null || echo "unknown")
+
+          if [ "$CONCLUSION" = "success" ]; then
+            echo "ci_green=true" >> "$GITHUB_OUTPUT"
+            echo "CI status: $CONCLUSION — all checks passing."
+          elif [ "$CONCLUSION" = "pending" ]; then
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            echo "CI status: $CONCLUSION — checks still running. Skipping auto-merge."
+          else
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            echo "CI status: $CONCLUSION — checks failing or unknown. Skipping auto-merge."
+          fi
+
       # ── Auto-merge approved PRs at high confidence ────────────────────────
       - name: Auto-merge approved PRs at high confidence
         if: |
@@ -447,6 +475,7 @@ jobs:
           && steps.meta.outputs.auto_fraud != 'true'
           && steps.review.outputs.decision == 'APPROVE'
           && steps.act.outputs.merge_ok == 'true'
+          && steps.ci_check.outputs.ci_green == 'true'
         env:
           GH_TOKEN: ${{ secrets.OWNER_PAT }}
           PR_NUM:   ${{ steps.meta.outputs.pr_number }}
@@ -454,16 +483,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          COMMIT_BODY=$(gh pr view "$PR_NUM" --json commits \
-            --jq '[.commits[].messageBody] | join("\n")' \
-            | grep -viE 'co-authored-by:.*(claude|qwen|copilot|github-actions|bot|\[bot\]|gpt|openai|anthropic)' \
-            || true)
-
-          MERGE_BODY=$(printf '%s\n\nCo-authored-by: Dopey <hello@sshdopey.com>' "$COMMIT_BODY" \
-            | sed '/^$/N;/^\n$/d')
-
           gh pr merge "$PR_NUM" \
             --squash \
-            --admin \
-            --subject "$PR_TITLE" \
-            --body    "$MERGE_BODY"
+            --subject "$PR_TITLE"
