@@ -158,9 +158,9 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
-| Topics  | `("revenue_deposited", campaign_id: u32)`                  |
+| Topics  | `("revenue_deposited", campaign_id: u32, creator: Address)`|
 | Data    | `amount: i128`                                             |
-| Source  | `lib.rs:842` — `deposit_revenue()`                         |
+| Source  | `src/revenue.rs:44` — `deposit_revenue()`                  |
 
 ---
 
