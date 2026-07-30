@@ -3,11 +3,10 @@ use soroban_sdk::{token, Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
-    get_approval_threshold_bps, get_approve_votes, get_approve_weight,
-    get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum, get_min_voting_balance,
-    get_reject_votes, get_reject_weight, get_token, increment_verified_campaign_count,
-    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    get_approval_threshold_bps, get_approve_votes, get_category_voting_threshold_bps,
+    get_has_voted, get_min_votes_quorum, get_min_voting_balance, get_reject_votes, get_token,
+    increment_verified_campaign_count, set_approval_threshold_bps, set_approve_votes, set_campaign,
+    set_has_voted, set_min_votes_quorum, set_reject_votes,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -94,27 +93,18 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         set_approve_votes(env, campaign_id, new_count);
-        let new_weight = get_approve_weight(env, campaign_id)
-            .checked_add(balance)
-            .ok_or(Error::Overflow)?;
-        set_approve_weight(env, campaign_id, new_weight);
     } else {
         let new_count = get_reject_votes(env, campaign_id)
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         set_reject_votes(env, campaign_id, new_count);
-        let new_weight = get_reject_weight(env, campaign_id)
-            .checked_add(balance)
-            .ok_or(Error::Overflow)?;
-        set_reject_weight(env, campaign_id, new_weight);
     }
 
     set_has_voted(env, campaign_id, &voter);
 
-    let vote_weight = balance;
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
-        (approve, balance, vote_weight),
+        (approve, balance),
     );
 
     Ok(())
@@ -174,20 +164,13 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::VotingQuorumNotMet);
     }
 
-    // Use token-weighted sums for the approval-threshold check.
-    let approve_weight = get_approve_weight(env, campaign_id);
-    let reject_weight = get_reject_weight(env, campaign_id);
-    let total_weight = approve_weight
-        .checked_add(reject_weight)
-        .ok_or(Error::Overflow)?;
-
+    // Use count-based approval check (1 address = 1 vote) to prevent
+    // flash-loan attacks that inflate voting weight (#448).
     let threshold = effective_approval_threshold_bps(env, campaign.category);
-    let approval_bps = if total_weight > 0 {
-        // Use checked arithmetic to avoid silent overflow/truncation when
-        // approve_weight is a large i128 (e.g. whale holders on 18-decimal tokens).
-        approve_weight
-            .checked_mul(crate::BPS_DENOMINATOR as i128)
-            .and_then(|n| n.checked_div(total_weight))
+    let approval_bps = if total_votes > 0 {
+        (approve_votes as u64)
+            .checked_mul(crate::BPS_DENOMINATOR as u64)
+            .and_then(|n| n.checked_div(total_votes as u64))
             .unwrap_or(0) as u32
     } else {
         0

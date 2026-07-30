@@ -459,8 +459,12 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
-| Data    | `(approve: bool, balance: i128, weight: i128)`             |
-| Source  | `voting.rs:100` — `cast_vote()`                            |
+| Data    | `(approve: bool, balance: i128)`                           |
+| Source  | `voting.rs:90` — `cast_vote()`                             |
+
+> **Note:** After the #448 flash-loan fix, voting is count-based (1 address = 1 vote).
+> The `balance` field remains in the event payload for informational/indexing purposes
+> but no longer affects the approval-threshold calculation.
 
 ---
 

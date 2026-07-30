@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::{
     AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
-    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
@@ -271,26 +271,6 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
 
     let res2 = client.try_set_personal_cap(&campaign_id, &contributor, &501);
     assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
-}
-
-// ── #354 vote weight checked addition ──
-#[test]
-fn test_vote_weight_overflow_fails() {
-    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
-
-    token_admin.mint(&contributor, &1000);
-
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .set(&VotingKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
-    });
-
-    token_admin.mint(&contributor, &501);
-
-    let res = client.try_vote_on_campaign(&campaign_id, &contributor, &true);
-    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }
 
 // ── #360 resume_campaign admin-path coverage ──────────────────────────────────

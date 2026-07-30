@@ -512,7 +512,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
 }
 
 #[test]
-fn test_vote_on_campaign_token_weighted() {
+fn test_vote_on_campaign_count_based() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
@@ -655,7 +655,7 @@ fn test_category_voting_threshold_overrides_global_default() {
         0i128,
     ));
 
-    // 2 approve / 1 reject, equal weight => ~66.7% approval: fails the 80% global default.
+    // 2 approve / 1 reject => ~66.7% approval: fails the 80% global default.
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &true);
     client.vote_on_campaign(&campaign_id, &voter3, &false);
@@ -790,10 +790,12 @@ fn test_min_voting_balance_threshold_enforcement() {
 
 // ── Pure arithmetic helpers ──────────────────────────────────────────────────
 
-/// Calculate approval percentage in basis points (0-10000)
-fn calculate_approval_bps(approve_weight: i128, total_weight: i128) -> u32 {
-    if total_weight > 0 {
-        ((approve_weight * 10_000) / total_weight) as u32
+/// Calculate approval percentage in basis points (0-10000) using count-based voting.
+/// After the #448 fix, voting is count-based (1 address = 1 vote) to prevent
+/// flash-loan attacks on token-weighted voting.
+fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
+    if total_votes > 0 {
+        ((approve_votes as u64 * 10_000) / total_votes as u64) as u32
     } else {
         0
     }
@@ -816,11 +818,6 @@ fn arb_vote_count() -> impl Strategy<Value = u32> {
     0u32..=1_000_000u32
 }
 
-/// Token weights: 0 to 10 billion stroops
-fn arb_token_weight() -> impl Strategy<Value = i128> {
-    0i128..=10_000_000_000i128
-}
-
 /// Approval threshold in basis points (0-10000, i.e., 0-100%)
 fn arb_threshold_bps() -> impl Strategy<Value = u32> {
     0u32..=10_000u32
@@ -836,11 +833,11 @@ fn arb_min_quorum() -> impl Strategy<Value = u32> {
 proptest! {
     #[test]
     fn prop_approval_bps_in_valid_range(
-        approve_weight in arb_token_weight(),
-        reject_weight in arb_token_weight(),
+        approve_votes in arb_vote_count(),
+        reject_votes in arb_vote_count(),
     ) {
-        let total_weight = approve_weight + reject_weight;
-        let approval_bps = calculate_approval_bps(approve_weight, total_weight);
+        let total_votes = approve_votes + reject_votes;
+        let approval_bps = calculate_approval_bps(approve_votes, total_votes);
         prop_assert!(
             approval_bps <= 10_000,
             "approval_bps ({}) must be <= 10000",
@@ -849,8 +846,10 @@ proptest! {
     }
 
     #[test]
-    fn prop_full_approval_gives_max_bps(weight in arb_token_weight()) {
-        let approval_bps = calculate_approval_bps(weight, weight);
+    fn prop_full_approval_gives_max_bps(votes in arb_vote_count()) {
+        // Only test with > 0 votes to avoid division by zero
+        let votes = votes.max(1);
+        let approval_bps = calculate_approval_bps(votes, votes);
         prop_assert_eq!(
             approval_bps, 10_000,
             "100% approval should give 10000 bps"
@@ -858,15 +857,16 @@ proptest! {
     }
 
     #[test]
-    fn prop_zero_approval_gives_zero_bps(reject_weight in arb_token_weight()) {
-        let approval_bps = calculate_approval_bps(0, reject_weight);
+    fn prop_zero_approval_gives_zero_bps(reject_votes in arb_vote_count()) {
+        let reject_votes = reject_votes.max(1);
+        let approval_bps = calculate_approval_bps(0, reject_votes);
         prop_assert_eq!(approval_bps, 0, "0% approval should give 0 bps");
     }
 
     #[test]
-    fn prop_half_approval_gives_half_bps(weight in 2i128..=10_000_000_000i128) {
-        let half = weight / 2;
-        let approval_bps = calculate_approval_bps(half, weight);
+    fn prop_half_approval_gives_half_bps(total in 2u32..=1_000_000u32) {
+        let half = total / 2;
+        let approval_bps = calculate_approval_bps(half, total);
         // Allow for rounding error of 1 bps
         prop_assert!(
             (4_999..=5_000).contains(&approval_bps),
@@ -905,28 +905,19 @@ proptest! {
     }
 
     #[test]
-    fn prop_weight_no_overflow(
-        approve_weight in 0i128..=5_000_000_000i128,
-        reject_weight in 0i128..=5_000_000_000i128,
-    ) {
-        let total = approve_weight.checked_add(reject_weight);
-        prop_assert!(total.is_some(), "weight addition should not overflow");
-    }
-
-    #[test]
     fn prop_approval_monotonic(
-        base_approve in 0i128..=1_000_000i128,
-        extra_approve in 0i128..=1_000_000i128,
-        reject_weight in 1i128..=1_000_000i128,
+        base_approve in 0u32..=100_000u32,
+        extra_approve in 0u32..=100_000u32,
+        reject_votes in 1u32..=100_000u32,
     ) {
-        let bps1 = calculate_approval_bps(base_approve, base_approve + reject_weight);
+        let bps1 = calculate_approval_bps(base_approve, base_approve + reject_votes);
         let bps2 = calculate_approval_bps(
             base_approve + extra_approve,
-            base_approve + extra_approve + reject_weight
+            base_approve + extra_approve + reject_votes
         );
         prop_assert!(
             bps2 >= bps1,
-            "adding approval weight should not decrease approval bps: {} -> {}",
+            "adding approval votes should not decrease approval bps: {} -> {}",
             bps1, bps2
         );
     }
@@ -935,14 +926,11 @@ proptest! {
     fn prop_verification_requires_both_conditions(
         approve_votes in arb_vote_count(),
         reject_votes in arb_vote_count(),
-        approve_weight in arb_token_weight(),
-        reject_weight in arb_token_weight(),
         min_quorum in arb_min_quorum(),
         threshold_bps in 5_000u32..=10_000u32, // 50-100%
     ) {
         let total_votes = approve_votes.saturating_add(reject_votes);
-        let total_weight = approve_weight.saturating_add(reject_weight);
-        let approval_bps = calculate_approval_bps(approve_weight, total_weight);
+        let approval_bps = calculate_approval_bps(approve_votes, total_votes);
 
         let quorum_met = is_quorum_met(total_votes, min_quorum);
         let threshold_met = is_threshold_met(approval_bps, threshold_bps);
@@ -952,42 +940,6 @@ proptest! {
         if !quorum_met || !threshold_met {
             prop_assert!(!can_verify);
         }
-    }
-
-    /// Property test for issue #211:
-    /// Verify that voting weights always equal the sum of token-balances of voters
-    /// who chose the same side.
-    ///
-    /// This test generates a set of voters with their balances and voting choices,
-    /// then verifies the invariant:
-    /// approve_weight = sum(balances of voters who approved)
-    /// reject_weight = sum(balances of voters who rejected)
-    #[test]
-    fn prop_voting_weights_equal_sum_of_balances(
-        // Generate random voters with their balances and choices
-        approval_balances in prop::collection::vec(1i128..=1_000_000i128, 0..20),
-        rejection_balances in prop::collection::vec(1i128..=1_000_000i128, 0..20),
-    ) {
-        // Calculate expected weights
-        let expected_approve_weight: i128 = approval_balances.iter().sum();
-        let expected_reject_weight: i128 = rejection_balances.iter().sum();
-
-        // In the actual voting implementation (from voting.rs cast_vote):
-        // - When approve=true: approve_weight += voter_balance
-        // - When approve=false: reject_weight += voter_balance
-        // This test verifies that summing balances of each group produces the correct weight
-        //
-        // The invariant is:
-        // approve_weight = sum of all voter balances who approved
-        // reject_weight = sum of all voter balances who rejected
-        prop_assert!(
-            expected_approve_weight >= 0,
-            "approve_weight must be non-negative"
-        );
-        prop_assert!(
-            expected_reject_weight >= 0,
-            "reject_weight must be non-negative"
-        );
     }
 }
 
@@ -1006,7 +958,7 @@ mod unit_tests {
         // 0% approval
         assert_eq!(calculate_approval_bps(0, 1000), 0);
 
-        // Zero total weight
+        // Zero total votes
         assert_eq!(calculate_approval_bps(0, 0), 0);
     }
 

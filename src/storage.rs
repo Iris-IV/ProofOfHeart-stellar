@@ -499,23 +499,27 @@ pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
 // ── Vote weights (token-weighted) ─────────────────────────────────────────────
 
 /// Returns the total approval token-weight for a campaign.
+#[expect(dead_code)]
 pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = VotingKey::ApproveWeight(campaign_id);
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the total approval token-weight for a campaign and extends its TTL.
+#[expect(dead_code)]
 pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
     persistent_set!(env, VotingKey::ApproveWeight(campaign_id), &weight);
 }
 
 /// Returns the total rejection token-weight for a campaign.
+#[expect(dead_code)]
 pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = VotingKey::RejectWeight(campaign_id);
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
 /// Stores the total rejection token-weight for a campaign and extends its TTL.
+#[expect(dead_code)]
 pub fn set_reject_weight(env: &Env, campaign_id: u32, weight: i128) {
     persistent_set!(env, VotingKey::RejectWeight(campaign_id), &weight);
 }

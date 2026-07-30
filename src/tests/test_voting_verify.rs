@@ -138,7 +138,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
 }
 
 #[test]
-fn test_vote_on_campaign_token_weighted() {
+fn test_vote_on_campaign_count_based() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
