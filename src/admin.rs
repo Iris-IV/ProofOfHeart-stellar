@@ -509,4 +509,3 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
 
     Ok(())
 }
-
