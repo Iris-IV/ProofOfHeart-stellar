@@ -1,0 +1,27 @@
+## 📌 Description
+This PR aligns the authorization conventions across revenue claiming functions by requiring the caller to authorize when claiming creator revenue. While funds were never at risk (since the payout destination was fixed to `campaign.creator`), `claim_creator_revenue` now enforces `campaign.creator.require_auth()` to ensure symmetry with `claim_revenue`, which already enforces contributor authorization.
+
+## 🔗 Related Issues
+Resolves #680
+
+## 🧪 Changes Made
+- [ ] Bug fix
+- [ ] New feature
+- [x] Refactor (Authorization alignment)
+- [ ] Documentation update
+
+## ✅ Checklist
+- [x] Code compiles successfully
+- [x] Tests added/updated and passing
+- [x] Linting passes (no warnings/errors)
+- [ ] Documentation updated (if required)
+- [x] No breaking changes (or clearly documented)
+
+## ⚠️ Breaking Changes
+None. The behavior is technically stricter now requiring the creator's authorization to invoke the payout, but the destination and amounts remain completely unchanged.
+
+## 📸 Screenshots (if applicable)
+N/A
+
+## 🧩 Additional Notes
+All existing tests continue to pass because `env.mock_all_auths()` was already used comprehensively across the unit tests.
