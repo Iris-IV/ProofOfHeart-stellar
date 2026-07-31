@@ -1,7 +1,5 @@
 use super::helpers::*;
-use crate::storage::{
-    set_approve_votes, set_approve_weight, set_reject_votes, set_reject_weight,
-};
+use crate::storage::{set_approve_votes, set_approve_weight, set_reject_votes, set_reject_weight};
 use crate::{Category, CreateCampaignParams, Error};
 use soroban_sdk::String;
 
