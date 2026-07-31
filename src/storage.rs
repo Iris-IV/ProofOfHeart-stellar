@@ -76,6 +76,8 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Authorized emergency signers for the emergency pause feature.
+    EmergencySigners,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -323,6 +325,23 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
     env.storage()
         .instance()
         .set(&AdminKey::MaxCampaignFundingGoal, &max_goal);
+}
+
+// ── Emergency Signers ─────────────────────────────────────────────────────────
+
+/// Returns the list of authorized emergency signers.
+pub fn get_emergency_signers(env: &Env) -> soroban_sdk::Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&AdminKey::EmergencySigners)
+        .unwrap_or_else(|| soroban_sdk::Vec::new(env))
+}
+
+/// Stores the list of authorized emergency signers.
+pub fn set_emergency_signers(env: &Env, signers: &soroban_sdk::Vec<Address>) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::EmergencySigners, signers);
 }
 
 // ── Contributions ─────────────────────────────────────────────────────────────

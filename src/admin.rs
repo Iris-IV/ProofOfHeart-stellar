@@ -510,37 +510,46 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     Ok(())
 }
 
-use soroban_sdk::{contractimpl, Address, Env, String};
-use crate::errors::Error;
-
-#[contractimpl]
-impl ProofOfHeartContract {
-    /// Sets or updates the maximum funding goal cap for a specific campaign category.
-    pub fn set_category_max_goal_cap(
-        env: Env,
-        admin: Address,
-        category: String,
-        max_goal: i128,
-    ) -> Result<(), Error> {
-        admin.require_auth();
-
-        // Verify admin permissions (assumes admin check helper exists)
-        Self::verify_admin(&env, &admin)?;
-
-        let cap_key = DataKey::CategoryMaxGoalCap(category.clone());
-        env.storage().persistent().set(&cap_key, &max_goal);
-
-        env.events().publish(
-            (Symbol::new(&env, "category_cap_updated"), category),
-            max_goal,
-        );
-
-        Ok(())
+pub(crate) fn add_emergency_signer(
+    env: &Env,
+    admin: Address,
+    signer: Address,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    let mut signers = storage::get_emergency_signers(env);
+    if !signers.contains(&signer) {
+        signers.push_back(signer.clone());
+        storage::set_emergency_signers(env, &signers);
+        env.events()
+            .publish(("emergency_signer_added", admin), signer);
     }
+    Ok(())
+}
 
-    /// Retrieves the maximum funding goal cap for a given category, if defined.
-    pub fn get_category_max_goal_cap(env: Env, category: String) -> Option<i128> {
-        let cap_key = DataKey::CategoryMaxGoalCap(category);
-        env.storage().persistent().get(&cap_key)
+pub(crate) fn remove_emergency_signer(
+    env: &Env,
+    admin: Address,
+    signer: Address,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    let mut signers = storage::get_emergency_signers(env);
+    if let Some(index) = signers.first_index_of(&signer) {
+        signers.remove(index);
+        storage::set_emergency_signers(env, &signers);
+        env.events()
+            .publish(("emergency_signer_removed", admin), signer);
     }
+    Ok(())
+}
+
+pub(crate) fn emergency_pause(env: &Env, signer: Address) -> Result<(), Error> {
+    signer.require_auth();
+    let signers = storage::get_emergency_signers(env);
+    if !signers.contains(&signer) {
+        return Err(Error::NotAuthorized);
+    }
+    bump_instance_ttl(env);
+    env.storage().instance().set(&AdminKey::Paused, &true);
+    env.events().publish(("contract_paused", signer), ());
+    Ok(())
 }

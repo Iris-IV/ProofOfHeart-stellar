@@ -292,6 +292,18 @@ impl ProofOfHeart {
         admin::unpause(&env)
     }
 
+    pub fn add_emergency_signer(env: Env, admin: Address, signer: Address) -> Result<(), Error> {
+        admin::add_emergency_signer(&env, admin, signer)
+    }
+
+    pub fn remove_emergency_signer(env: Env, admin: Address, signer: Address) -> Result<(), Error> {
+        admin::remove_emergency_signer(&env, admin, signer)
+    }
+
+    pub fn emergency_pause(env: Env, signer: Address) -> Result<(), Error> {
+        admin::emergency_pause(&env, signer)
+    }
+
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
@@ -647,33 +659,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
-use soroban_sdk::{contract, contractimpl, Env, String, Vec};
-
-#[contract]
-pub struct ProofOfHeartContract;
-
-#[contractimpl]
-impl ProofOfHeartContract {
-    /// Lists active campaigns, optionally filtered by a specific tag string.
-    pub fn list_active_campaigns(env: Env, tag_filter: Option<String>) -> Vec<Campaign> {
-        let all_campaigns: Vec<Campaign> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaigns)
-            .unwrap_or(Vec::new(&env));
-
-        match tag_filter {
-            Some(filter_tag) => {
-                let mut filtered = Vec::new(&env);
-                for campaign in all_campaigns.iter() {
-                    if campaign.tags.contains(&filter_tag) {
-                        filtered.push_back(campaign);
-                    }
-                }
-                filtered
-            }
-            None => all_campaigns,
-        }
-    }
-}

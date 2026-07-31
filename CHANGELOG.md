@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Multi-sig emergency pause capability via `add_emergency_signer`, `remove_emergency_signer`, and `emergency_pause`. This allows any authorized emergency signer to pause the contract instantly, while unpausing still requires full admin authority (#561).
+
 ### Fixed
 
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
