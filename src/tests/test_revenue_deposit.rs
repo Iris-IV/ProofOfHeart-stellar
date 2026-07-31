@@ -206,8 +206,10 @@ fn test_deposit_revenue_too_large() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &5000);
-    // Give creator a huge amount of tokens
-    token_admin.mint(&creator, &i128::MAX);
+    // Give creator a huge amount of tokens, but avoid i128::MAX directly
+    // to prevent the mock token contract's total supply from overflowing and aborting the test suite.
+    let huge_amount = i128::MAX / 1_000_000;
+    token_admin.mint(&creator, &huge_amount);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
@@ -226,7 +228,7 @@ fn test_deposit_revenue_too_large() {
 
     // This deposit is extremely large and would cause claim_revenue to overflow,
     // so it should be rejected up front.
-    let res = client.try_deposit_revenue(&campaign_id, &i128::MAX);
+    let res = client.try_deposit_revenue(&campaign_id, &huge_amount);
     assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }
 
