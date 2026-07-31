@@ -510,8 +510,8 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     Ok(())
 }
 
-use soroban_sdk::{contractimpl, Address, Env, String};
 use crate::errors::Error;
+use soroban_sdk::{contractimpl, Address, Env, String};
 
 #[contractimpl]
 impl ProofOfHeartContract {
