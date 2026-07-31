@@ -420,3 +420,46 @@ fn test_withdraw_event_payload_tuple() {
     let data: (u32, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
     assert_eq!(data, (300, 776, 194));
 }
+
+#[test]
+fn test_withdraw_reserve_rejects_non_withdrawn_campaign() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Non-withdrawn Reserve"),
+        String::from_str(&env, "Defense-in-depth guard"),
+        1000,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    // Simulate a migration/admin path that seeds a reserve on a campaign whose
+    // funds were never withdrawn (funds_withdrawn == false). The release window
+    // is already open, so only the funds_withdrawn guard can stop the drain (#443).
+    env.as_contract(&client.address, || {
+        let campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        assert!(!campaign.funds_withdrawn);
+        storage::set_campaign_reserve(
+            &env,
+            campaign_id,
+            &crate::CampaignReserve {
+                amount: 194,
+                release_timestamp: env.ledger().timestamp(),
+                released: false,
+            },
+        );
+    });
+
+    let res = client.try_withdraw_reserve(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
