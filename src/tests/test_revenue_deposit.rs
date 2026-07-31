@@ -277,7 +277,7 @@ fn test_revenue_deposited_event_payload() {
         creator.clone(),
     )
         .into_val(&env);
-    assert_eq!(*deposit_event.1, expected_topics);
+    assert_eq!(deposit_event.1.clone(), expected_topics);
 
     let amount: i128 = soroban_sdk::FromVal::from_val(&env, &deposit_event.2);
     assert_eq!(amount, 500);
