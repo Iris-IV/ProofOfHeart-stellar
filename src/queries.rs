@@ -121,11 +121,7 @@ pub(crate) fn get_campaigns_by_category(
         }
 
         if idx_in_bucket >= bucket_len {
-            position = if bucket_len == 0 {
-                bucket_start + CATEGORY_CAMPAIGNS_BUCKET_SIZE
-            } else {
-                bucket_start + bucket_len
-            };
+            position = bucket_start + CATEGORY_CAMPAIGNS_BUCKET_SIZE;
         }
     }
 
@@ -171,11 +167,7 @@ pub(crate) fn get_creator_campaigns(
         }
 
         if idx_in_bucket >= bucket_len {
-            position = if bucket_len == 0 {
-                bucket_start + CREATOR_CAMPAIGNS_BUCKET_SIZE
-            } else {
-                bucket_start + bucket_len
-            };
+            position = bucket_start + CREATOR_CAMPAIGNS_BUCKET_SIZE;
         }
     }
 
