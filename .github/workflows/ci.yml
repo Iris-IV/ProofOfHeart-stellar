@@ -38,3 +38,14 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo test --features testutils
       - run: cargo build --target wasm32-unknown-unknown --release
+
+  # Issue #471: audit the dependency tree for known vulnerabilities on every
+  # PR/push. Fails the build if any advisory applies to a locked version.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit

@@ -64,9 +64,10 @@ cargo fmt --check
 cargo clippy --all-targets --features testutils -- -D warnings
 cargo test --features testutils
 stellar contract build
+cargo audit
 ```
 
-All four must pass.
+All five must pass. `cargo audit` (install with `cargo install cargo-audit`) scans the dependency tree for known security advisories and fails if any apply to a locked version.
 
 ## Branches
 
