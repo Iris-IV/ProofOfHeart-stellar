@@ -208,7 +208,7 @@ fn test_deposit_revenue_too_large() {
     token_admin.mint(&contributor1, &5000);
     // Give creator a huge amount of tokens, but avoid i128::MAX directly
     // to prevent the mock token contract's total supply from overflowing and aborting the test suite.
-    let huge_amount = i128::MAX / 1_000_000;
+    let huge_amount = i128::MAX / 1000;
     token_admin.mint(&creator, &huge_amount);
 
     let campaign_id = client.create_campaign(&make_params(
