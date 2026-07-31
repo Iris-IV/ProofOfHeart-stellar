@@ -487,6 +487,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
 #[test]
 fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
 
     let bucket_size = crate::storage::CREATOR_CAMPAIGNS_BUCKET_SIZE;
     let extra = 5u32;
