@@ -21,16 +21,17 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ## Tech Stack
 
-| Layer | Technology |
-| --- | --- |
-| Blockchain | [Stellar](https://stellar.org/) |
-| Smart Contract Platform | [Soroban](https://soroban.stellar.org/) |
-| Language | Rust |
-| SDK | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
+| Layer                   | Technology                                                 |
+| ----------------------- | ---------------------------------------------------------- |
+| Blockchain              | [Stellar](https://stellar.org/)                            |
+| Smart Contract Platform | [Soroban](https://soroban.stellar.org/)                    |
+| Language                | Rust                                                       |
+| SDK                     | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
 
 ## Smart Contract Features
 
 ### Campaign Management
+
 - **Create Campaign** — Launch a new fundraising campaign via `CreateCampaignParams` (title, description, funding goal, duration in days, category, revenue-sharing settings, and per-user contribution cap).
 - **Update Campaign** — Edit title and/or description before any contributions are received.
 - **Extend Deadline** — Extend a campaign's deadline once (within the 365-day maximum).
@@ -38,22 +39,32 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - **Ownership Transfer** — Two-step creator transfer: `initiate_campaign_transfer` → `accept_campaign_transfer` (or `cancel_campaign_transfer`).
 
 ### Campaign Verification
+
 - **Admin Verification** — Platform admin can mark a single campaign as verified via `verify_campaign`, or batch-verify up to 50 at once with `verify_campaigns`.
 - **Community Voting Verification** — Token holders vote via `vote_on_campaign`; `verify_campaign_with_votes` finalises verification once quorum and approval threshold are met.
 - **Configurable Voting Params** — Admin can set `min_votes_quorum`, `approval_threshold_bps`, and `min_voting_balance` via dedicated admin functions.
 - **Voting State Cleanup** — `purge_voting_state` lets admin reclaim storage after voting concludes.
 
 ### Contributions & Withdrawals
+
 - **Contribute** — Anyone can contribute tokens to an active, non-paused campaign before the deadline; a per-user cap can be set at the campaign or personal level.
 - **Withdraw Funds** — Once the funding goal is met, the campaign creator withdraws raised funds minus a configurable platform fee (max 10%). A vesting reserve can be withheld and released after a configurable delay via `withdraw_reserve`.
 - **Claim Refund** — Contributors reclaim tokens if a campaign is cancelled or fails to reach its goal by the deadline. State is updated before the token transfer (checks-effects-interactions).
 
+### Bookmarks
+
+- **Save Campaign** — Wallets can bookmark campaigns on-chain via `save_campaign` to track causes they care about without relying on frontend storage.
+- **Remove Saved Campaign** — Remove a campaign from the saved list with `remove_saved_campaign`.
+- **Get Saved Campaigns** — Retrieve a wallet's bookmarked campaign IDs using `get_saved_campaigns`; this is a public read that any app can query.
+
 ### Revenue Sharing
+
 - **Deposit Revenue** — `EducationalStartup` campaigns that opted in receive revenue deposits from the creator.
 - **Claim Revenue** — Contributors claim their pro-rata share of deposited revenue based on their effective contribution.
 - **Claim Creator Revenue** — Creators claim their portion of deposited revenue (the share not distributed to contributors).
 
 ### Platform Administration
+
 - **Pause / Unpause** — Admin can halt all state-changing operations; the contract also auto-pauses on anomalous contribution activity.
 - **Creation Gate** — Admin can disable new campaign creation independently of the global pause.
 - **Fee Management** — Update the global platform fee or set a per-campaign fee override.
@@ -66,6 +77,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 ### View Functions
 
 **Campaign queries**
+
 - `get_campaign` / `get_campaign_optional` — Retrieve campaign details by ID.
 - `get_campaign_count` — Total campaigns ever created.
 - `get_campaigns_by_category` — Paginated list filtered by category.
@@ -75,6 +87,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - `get_platform_stats` — Aggregate platform metrics (totals, active, verified, cancelled).
 
 **Contribution & revenue queries**
+
 - `get_contribution` — A contributor's current balance for a campaign.
 - `get_lifetime_contribution` — Cumulative contributed amount (used for cap enforcement).
 - `get_total_contributors_count` — Number of contributors to a campaign.
@@ -85,11 +98,13 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - `get_campaign_reserve` — Vesting reserve details for a campaign.
 
 **Voting queries**
+
 - `get_approve_votes` / `get_reject_votes` — Vote tallies for a campaign.
 - `has_voted` — Whether an address has cast a vote.
 - `get_min_votes_quorum` / `get_approval_threshold_bps` / `get_min_voting_balance` — Current voting parameters.
 
 **Admin / config queries**
+
 - `get_admin` / `get_pending_admin` — Current and pending admin addresses.
 - `get_token` — Platform token address.
 - `get_platform_fee` — Current platform fee in basis points.
@@ -201,8 +216,8 @@ ProofOfHeart-stellar/
 
 ## Related Repositories
 
-| Repository | Description |
-| --- | --- |
+| Repository                                                                | Description                  |
+| ------------------------------------------------------------------------- | ---------------------------- |
 | [ProofOfHeart-frontend](https://github.com/Iris-IV/ProofOfHeart-frontend) | Next.js frontend application |
 
 ## Contributing
