@@ -290,6 +290,8 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
     );
 
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#546).
     let client = token_client(env);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
 
