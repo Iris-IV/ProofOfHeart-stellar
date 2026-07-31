@@ -45,9 +45,7 @@ mod storage;
 mod types;
 mod voting;
 
-pub(crate) use constants::{
-    BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
-};
+pub(crate) use constants::{BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS};
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 use storage::*;
@@ -647,4 +645,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
