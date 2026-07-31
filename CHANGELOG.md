@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Community voting is now count-based (1 address = 1 vote): `cast_vote` tallies approval/rejection vote counts instead of token-weighted balances, and `verify_with_votes` derives the approval percentage from those counts. This closes the flash-loan voting attack (#448), where an attacker could temporarily borrow tokens to inflate their voting weight. The `ApproveWeight`/`RejectWeight` storage keys are retained (unused) for ledger-XDR compatibility. The `balance` field in `campaign_vote_cast` events is now informational only.
+
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
 
 - `update_campaign_description` now blocks edits once `amount_raised > 0`, preventing bait-and-switch after contributions (#166).
