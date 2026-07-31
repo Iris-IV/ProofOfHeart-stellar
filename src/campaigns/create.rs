@@ -80,7 +80,9 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     }
 
     bump_instance_ttl(env);
-    let count = get_campaign_count(env).checked_add(1).ok_or(Error::Overflow)?;
+    let count = get_campaign_count(env)
+        .checked_add(1)
+        .ok_or(Error::Overflow)?;
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
