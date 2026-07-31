@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Campaign comment system via off-chain attestation. Added `add_campaign_comment` to emit comment hashes, and `remove_campaign_comment` to flag comments as removed on-chain for moderation (#542).
+
 ### Fixed
 
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
