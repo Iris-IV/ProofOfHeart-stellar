@@ -148,6 +148,10 @@ impl Error {
             Error::InvalidStateTransition => "InvalidStateTransition",
             Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
             Error::CampaignNotBookmarked => "CampaignNotBookmarked",
+    /// The specified comment ID does not exist.
+    InvalidCommentId = 46,
+    /// The specified comment has already been removed.
+    CommentAlreadyRemoved = 47,
         }
     }
 }

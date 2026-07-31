@@ -169,6 +169,26 @@ impl ProofOfHeart {
         campaigns::update::extend_campaign_deadline(&env, campaign_id, additional_days)
     }
 
+    // ── Comments ──────────────────────────────────────────────────────────────
+
+    pub fn add_campaign_comment(
+        env: Env,
+        campaign_id: u32,
+        commenter: Address,
+        comment_hash: String,
+    ) -> Result<u32, Error> {
+        campaigns::comments::add_campaign_comment(&env, campaign_id, commenter, comment_hash)
+    }
+
+    pub fn remove_campaign_comment(
+        env: Env,
+        campaign_id: u32,
+        comment_id: u32,
+        caller: Address,
+    ) -> Result<(), Error> {
+        campaigns::comments::remove_campaign_comment(&env, campaign_id, comment_id, caller)
+    }
+
     // ── Campaign ownership transfer ───────────────────────────────────────────
 
     pub fn initiate_campaign_transfer(

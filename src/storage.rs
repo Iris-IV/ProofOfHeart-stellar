@@ -182,6 +182,16 @@ pub enum BookmarkKey {
     SavedCampaigns(Address),
 }
 
+/// Keys for campaign comments.
+#[contracttype]
+pub enum CommentKey {
+    /// Tracks the total number of comments for a campaign.
+    CampaignCommentCount(u32),
+    /// Flags whether a specific comment ID has been removed. Key is (campaign_id, comment_id).
+    CommentRemoved(u32, u32),
+}
+
+
 // ── Campaign ──────────────────────────────────────────────────────────────────
 
 /// Returns the campaign for the given ID.
@@ -692,6 +702,27 @@ pub fn get_version(env: &Env) -> u32 {
         .instance()
         .get(&AdminKey::Version)
         .unwrap_or(0)
+}
+
+
+// ── Comments ──────────────────────────────────────────────────────────────────
+
+pub fn get_campaign_comment_count(env: &Env, campaign_id: u32) -> u32 {
+    let key = CommentKey::CampaignCommentCount(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_campaign_comment_count(env: &Env, campaign_id: u32, count: u32) {
+    persistent_set!(env, CommentKey::CampaignCommentCount(campaign_id), &count);
+}
+
+pub fn is_comment_removed(env: &Env, campaign_id: u32, comment_id: u32) -> bool {
+    let key = CommentKey::CommentRemoved(campaign_id, comment_id);
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+pub fn set_comment_removed(env: &Env, campaign_id: u32, comment_id: u32) {
+    persistent_set!(env, CommentKey::CommentRemoved(campaign_id, comment_id), &true);
 }
 
 // ── Total raised global ───────────────────────────────────────────────────────

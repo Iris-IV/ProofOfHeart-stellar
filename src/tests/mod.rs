@@ -22,3 +22,4 @@ mod test_revenue_deposit;
 mod test_voting;
 mod test_voting_verify;
 mod test_withdrawals;
+mod test_comments;
