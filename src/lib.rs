@@ -647,4 +647,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
