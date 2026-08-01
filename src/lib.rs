@@ -45,9 +45,7 @@ mod storage;
 mod types;
 mod voting;
 
-pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
-};
+pub(crate) use constants::{BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS};
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 use storage::*;
@@ -334,6 +332,19 @@ impl ProofOfHeart {
         max_days: u64,
     ) -> Result<(), Error> {
         admin::set_category_duration_cap(&env, admin, category, max_days)
+    }
+
+    pub fn set_category_max_goal_cap(
+        env: Env,
+        admin: Address,
+        category: String,
+        max_goal: i128,
+    ) -> Result<(), Error> {
+        admin::set_category_max_goal_cap(&env, admin, category, max_goal)
+    }
+
+    pub fn get_category_max_goal_cap(env: Env, category: String) -> Option<i128> {
+        admin::get_category_max_goal_cap(&env, category)
     }
 
     pub fn remove_category_duration_cap(
@@ -647,33 +658,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
-use soroban_sdk::{contract, contractimpl, Env, String, Vec};
-
-#[contract]
-pub struct ProofOfHeartContract;
-
-#[contractimpl]
-impl ProofOfHeartContract {
-    /// Lists active campaigns, optionally filtered by a specific tag string.
-    pub fn list_active_campaigns(env: Env, tag_filter: Option<String>) -> Vec<Campaign> {
-        let all_campaigns: Vec<Campaign> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaigns)
-            .unwrap_or(Vec::new(&env));
-
-        match tag_filter {
-            Some(filter_tag) => {
-                let mut filtered = Vec::new(&env);
-                for campaign in all_campaigns.iter() {
-                    if campaign.tags.contains(&filter_tag) {
-                        filtered.push_back(campaign);
-                    }
-                }
-                filtered
-            }
-            None => all_campaigns,
-        }
-    }
-}

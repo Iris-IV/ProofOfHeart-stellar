@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Vec};
+use soroban_sdk::{Address, Env, String, Symbol, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
@@ -510,37 +510,31 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     Ok(())
 }
 
-use soroban_sdk::{contractimpl, Address, Env, String};
-use crate::errors::Error;
+/// Sets or updates the maximum funding goal cap for a specific campaign category.
+pub(crate) fn set_category_max_goal_cap(
+    env: &Env,
+    admin: Address,
+    category: String,
+    max_goal: i128,
+) -> Result<(), Error> {
+    admin.require_auth();
 
-#[contractimpl]
-impl ProofOfHeartContract {
-    /// Sets or updates the maximum funding goal cap for a specific campaign category.
-    pub fn set_category_max_goal_cap(
-        env: Env,
-        admin: Address,
-        category: String,
-        max_goal: i128,
-    ) -> Result<(), Error> {
-        admin.require_auth();
+    // Verify admin permissions (assumes admin check helper exists)
+    assert_admin(env, &admin)?;
 
-        // Verify admin permissions (assumes admin check helper exists)
-        Self::verify_admin(&env, &admin)?;
+    let cap_key = AdminKey::CategoryMaxGoalCap(category.clone());
+    env.storage().persistent().set(&cap_key, &max_goal);
 
-        let cap_key = DataKey::CategoryMaxGoalCap(category.clone());
-        env.storage().persistent().set(&cap_key, &max_goal);
+    env.events().publish(
+        (Symbol::new(env, "category_cap_updated"), category),
+        max_goal,
+    );
 
-        env.events().publish(
-            (Symbol::new(&env, "category_cap_updated"), category),
-            max_goal,
-        );
+    Ok(())
+}
 
-        Ok(())
-    }
-
-    /// Retrieves the maximum funding goal cap for a given category, if defined.
-    pub fn get_category_max_goal_cap(env: Env, category: String) -> Option<i128> {
-        let cap_key = DataKey::CategoryMaxGoalCap(category);
-        env.storage().persistent().get(&cap_key)
-    }
+/// Retrieves the maximum funding goal cap for a given category, if defined.
+pub(crate) fn get_category_max_goal_cap(env: &Env, category: String) -> Option<i128> {
+    let cap_key = AdminKey::CategoryMaxGoalCap(category);
+    env.storage().persistent().get(&cap_key)
 }

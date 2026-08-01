@@ -76,6 +76,8 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Maximum funding goal cap for a specific campaign category.
+    CategoryMaxGoalCap(soroban_sdk::String),
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
