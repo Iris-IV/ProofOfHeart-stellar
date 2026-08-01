@@ -193,6 +193,12 @@ pub(crate) fn get_creator_campaigns(
 /// paginates over) rather than the paginated query, since a creator's own
 /// campaign count is bounded by normal usage and the caller wants a
 /// complete aggregate, not a page.
+///
+/// **Note:** `total_contributors` is a sum of the contributor counts of all
+/// creator's campaigns. Because no registry of unique contributor addresses
+/// is maintained per campaign/creator in storage, this value can double-count
+/// contributors who support multiple campaigns by this creator. It represents
+/// the total contribution events rather than the count of unique wallets.
 pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
     let total = get_creator_campaign_count(env, &creator);
 
@@ -209,7 +215,9 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
                     if campaign.is_active && !campaign.is_cancelled {
                         active_campaigns += 1;
                     }
-                    total_raised += campaign.amount_raised;
+                    if !campaign.is_cancelled {
+                        total_raised += campaign.amount_raised;
+                    }
                     total_contributors += get_contributor_count(env, campaign_id);
                 }
             }
