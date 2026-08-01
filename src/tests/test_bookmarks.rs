@@ -176,3 +176,64 @@ fn test_save_campaign_then_cancel() {
     assert!(campaign.is_cancelled);
     assert!(!campaign.is_active);
 }
+
+#[test]
+fn test_remove_saved_campaign_first_vs_last() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id3 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 3"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Save three campaigns: [id1, id2, id3]
+    client.save_campaign(&contributor1, &id1);
+    client.save_campaign(&contributor1, &id2);
+    client.save_campaign(&contributor1, &id3);
+
+    // Test removing the last element (id3) - no shifting required
+    client.remove_saved_campaign(&contributor1, &id3);
+    let saved_after_last_removed = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved_after_last_removed.len(), 2);
+    assert_eq!(saved_after_last_removed.get(0).unwrap(), id1);
+    assert_eq!(saved_after_last_removed.get(1).unwrap(), id2);
+
+    // Add it back to have three again: [id1, id2, id3]
+    client.save_campaign(&contributor1, &id3);
+
+    // Test removing the first element (id1) - largest shifting required (id2, id3 shift left)
+    client.remove_saved_campaign(&contributor1, &id1);
+    let saved_after_first_removed = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved_after_first_removed.len(), 2);
+    assert_eq!(saved_after_first_removed.get(0).unwrap(), id2);
+    assert_eq!(saved_after_first_removed.get(1).unwrap(), id3);
+}
