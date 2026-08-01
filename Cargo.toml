@@ -5,7 +5,12 @@ edition = "2021"
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+# `rlib` is added alongside `cdylib` so the crate can also be depended on as
+# an ordinary Rust library -- needed by the `fuzz/` cargo-fuzz harness (#506),
+# which links against this crate with the `testutils` feature enabled. This
+# has no effect on the `wasm32-unknown-unknown` contract build, which only
+# produces the `cdylib` artifact.
+crate-type = ["cdylib", "rlib"]
 
 [features]
 testutils = ["soroban-sdk/testutils"]

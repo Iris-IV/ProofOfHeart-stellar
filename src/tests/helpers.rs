@@ -87,3 +87,19 @@ pub(crate) fn setup_env<'a>() -> (
     });
     setup
 }
+
+pub(crate) fn setup_token<'a>(env: &Env, admin: &Address) -> TokenClient<'a> {
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+    TokenClient::new(env, &token_address)
+}
+
+pub(crate) fn setup_contract<'a>(
+    env: &Env,
+    admin: &Address,
+    token_address: &Address,
+) -> ProofOfHeartClient<'a> {
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(env, &contract_id);
+    client.init(admin, token_address, &300);
+    client
+}

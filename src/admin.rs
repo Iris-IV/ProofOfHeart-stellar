@@ -12,7 +12,7 @@ use crate::storage::{
     set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
     set_pending_token, set_pending_token_release, set_platform_fee, set_token,
     set_total_raised_global, set_version, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage, DataKey,
+    set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
 
@@ -27,6 +27,9 @@ pub(crate) fn init(
     }
     admin.require_auth();
 
+    if platform_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
     if platform_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -73,7 +76,7 @@ pub(crate) fn pause(env: &Env) -> Result<(), Error> {
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::Paused, &true);
+    env.storage().instance().set(&AdminKey::Paused, &true);
     env.events().publish(("contract_paused", admin), ());
     Ok(())
 }
@@ -82,8 +85,8 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::Paused, &false);
-    env.storage().instance().set(&DataKey::AutoPaused, &false);
+    env.storage().instance().set(&AdminKey::Paused, &false);
+    env.storage().instance().set(&AdminKey::AutoPaused, &false);
     env.events().publish(("contract_unpaused", admin), ());
     Ok(())
 }
@@ -159,6 +162,9 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
+    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::InvalidPlatformFee);
+    }
     if new_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -171,13 +177,16 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
 
 pub(crate) fn set_campaign_fee_override(
     env: &Env,
-    admin: Address,
     campaign_id: u32,
+    admin: Address,
     fee_bps: u32,
 ) -> Result<(), Error> {
     assert_admin(env, &admin)?;
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
+        return Err(Error::ValidationFailed);
+    }
     if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::ValidationFailed);
     }
@@ -217,6 +226,38 @@ pub(crate) fn remove_category_duration_cap(
     storage::remove_category_duration_cap(env, category);
     env.events()
         .publish(("category_duration_cap_removed", category as u32), ());
+    Ok(())
+}
+
+pub(crate) fn set_category_voting_threshold(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+    threshold_bps: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if !(voting::MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&threshold_bps) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    storage::set_category_voting_threshold_bps(env, category, threshold_bps);
+    env.events().publish(
+        ("category_voting_threshold_set", category as u32),
+        threshold_bps,
+    );
+    Ok(())
+}
+
+pub(crate) fn remove_category_voting_threshold(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    bump_instance_ttl(env);
+    storage::remove_category_voting_threshold_bps(env, category);
+    env.events()
+        .publish(("category_voting_threshold_removed", category as u32), ());
     Ok(())
 }
 
@@ -294,7 +335,7 @@ pub(crate) fn propose_token_update(
     let release_after = env
         .ledger()
         .timestamp()
-        .checked_add(7 * 86400)
+        .checked_add(crate::TOKEN_UPDATE_DELAY_SECS)
         .ok_or(Error::ValidationFailed)?;
 
     bump_instance_ttl(env);
@@ -454,17 +495,52 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     let auto_paused: bool = env
         .storage()
         .instance()
-        .get(&DataKey::AutoPaused)
+        .get(&AdminKey::AutoPaused)
         .unwrap_or(false);
     if !auto_paused {
         return Err(Error::ValidationFailed);
     }
 
     bump_instance_ttl(env);
-    env.storage().instance().set(&DataKey::AutoPaused, &false);
+    env.storage().instance().set(&AdminKey::AutoPaused, &false);
 
     env.events()
         .publish(("campaign_resumed", campaign_id, caller), ());
 
     Ok(())
+}
+
+use soroban_sdk::{contractimpl, Address, Env, String};
+use crate::errors::Error;
+
+#[contractimpl]
+impl ProofOfHeartContract {
+    /// Sets or updates the maximum funding goal cap for a specific campaign category.
+    pub fn set_category_max_goal_cap(
+        env: Env,
+        admin: Address,
+        category: String,
+        max_goal: i128,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+
+        // Verify admin permissions (assumes admin check helper exists)
+        Self::verify_admin(&env, &admin)?;
+
+        let cap_key = DataKey::CategoryMaxGoalCap(category.clone());
+        env.storage().persistent().set(&cap_key, &max_goal);
+
+        env.events().publish(
+            (Symbol::new(&env, "category_cap_updated"), category),
+            max_goal,
+        );
+
+        Ok(())
+    }
+
+    /// Retrieves the maximum funding goal cap for a given category, if defined.
+    pub fn get_category_max_goal_cap(env: Env, category: String) -> Option<i128> {
+        let cap_key = DataKey::CategoryMaxGoalCap(category);
+        env.storage().persistent().get(&cap_key)
+    }
 }

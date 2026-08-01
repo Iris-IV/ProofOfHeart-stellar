@@ -1,12 +1,13 @@
 use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
+use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
-    get_approval_threshold_bps, get_approve_votes, get_approve_weight, get_has_voted,
-    get_min_votes_quorum, get_min_voting_balance, get_reject_votes, get_reject_weight, get_token,
-    increment_verified_campaign_count, set_approval_threshold_bps, set_approve_votes,
-    set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum, set_reject_votes,
-    set_reject_weight,
+    get_approval_threshold_bps, get_approve_votes, get_approve_weight,
+    get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum, get_min_voting_balance,
+    get_reject_votes, get_reject_weight, get_token, increment_verified_campaign_count,
+    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
+    set_min_votes_quorum, set_reject_votes, set_reject_weight,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -23,6 +24,14 @@ pub const DEFAULT_APPROVAL_THRESHOLD_BPS: u32 = 6000;
 /// Prevents governance misconfiguration where near-zero threshold bypasses community review.
 pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 
+/// Resolves the approval threshold that actually applies to `category`:
+/// the per-category override if the admin has set one (#536), otherwise the
+/// global configured default.
+pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types::Category) -> u32 {
+    get_category_voting_threshold_bps(env, category)
+        .unwrap_or_else(|| get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS))
+}
+
 /// Updates the community voting parameters.
 ///
 /// # Errors
@@ -35,7 +44,7 @@ pub fn set_params(
 ) -> Result<(), Error> {
     if min_votes_quorum == 0
         || min_votes_quorum > MAX_VOTES_QUORUM
-        || !(MIN_APPROVAL_THRESHOLD_BPS..=10000).contains(&approval_threshold_bps)
+        || !(MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&approval_threshold_bps)
     {
         return Err(Error::ValidationFailed);
     }
@@ -126,6 +135,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::AdminVerificationConflict);
     }
     require_active_campaign(&campaign)?;
+    transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);
@@ -171,12 +181,12 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .checked_add(reject_weight)
         .ok_or(Error::Overflow)?;
 
-    let threshold = get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS);
+    let threshold = effective_approval_threshold_bps(env, campaign.category);
     let approval_bps = if total_weight > 0 {
         // Use checked arithmetic to avoid silent overflow/truncation when
         // approve_weight is a large i128 (e.g. whale holders on 18-decimal tokens).
         approve_weight
-            .checked_mul(10000)
+            .checked_mul(crate::BPS_DENOMINATOR as i128)
             .and_then(|n| n.checked_div(total_weight))
             .unwrap_or(0) as u32
     } else {
@@ -185,6 +195,8 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if approval_bps < threshold {
         return Err(Error::VotingThresholdNotMet);
     }
+
+    transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
     set_campaign(env, campaign_id, &campaign);

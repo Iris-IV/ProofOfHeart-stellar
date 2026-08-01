@@ -2,7 +2,8 @@ use soroban_sdk::Env;
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client,
+    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client, transition,
+    CampaignState,
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_reserve,
@@ -37,6 +38,8 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::FundingGoalNotReached);
     }
 
+    transition(CampaignState::of(&campaign), CampaignState::Withdrawn)?;
+
     bump_instance_ttl(env);
     let platform_fee = campaign
         .fee_override
@@ -46,31 +49,21 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let fee_amount = campaign
         .amount_raised
         .checked_mul(platform_fee as i128)
-        .and_then(|n| n.checked_add(9999))
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
-        / 10000;
+        / crate::BPS_DENOMINATOR as i128;
     let total_after_fee = campaign.amount_raised - fee_amount;
 
     let reserve_bps = get_withdraw_reserve_percentage(env);
     let reserve_amount = total_after_fee
         .checked_mul(reserve_bps as i128)
-        .and_then(|n| n.checked_add(9999))
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
-        / 10000;
+        / crate::BPS_DENOMINATOR as i128;
     let creator_amount = total_after_fee - reserve_amount;
 
-    // Execute token transfers BEFORE marking campaign as withdrawn to prevent stuck state
-    let admin_addr = get_admin(env);
-    let client = token_client(env);
-
-    client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
-    client.transfer(
-        &env.current_contract_address(),
-        &campaign.creator,
-        &creator_amount,
-    );
-
-    // Update state only after successful external interactions
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
     campaign.funds_withdrawn = true;
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
@@ -81,7 +74,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         let release_timestamp = env
             .ledger()
             .timestamp()
-            .checked_add(delay_days * 86400)
+            .checked_add(delay_days * crate::SECONDS_PER_DAY)
             .ok_or(Error::Overflow)?;
 
         let reserve = CampaignReserve {
@@ -100,9 +93,20 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
             .ok_or(Error::Overflow)?,
     );
 
+    // Token transfers happen after all state updates (CEI pattern).
+    let admin_addr = get_admin(env);
+    let client = token_client(env);
+
+    client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
+    client.transfer(
+        &env.current_contract_address(),
+        &campaign.creator,
+        &creator_amount,
+    );
+
     env.events().publish(
         ("withdrawal", campaign_id, campaign.creator.clone()),
-        (fee_amount, creator_amount, reserve_amount),
+        (platform_fee, creator_amount, reserve_amount),
     );
 
     if reserve_amount > 0 {
@@ -126,15 +130,8 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     let campaign = get_campaign_or_error(env, campaign_id)?;
     campaign.creator.require_auth();
 
-    // Transfer funds BEFORE marking reserve as released to prevent stuck state
-    let client = token_client(env);
-    client.transfer(
-        &env.current_contract_address(),
-        &campaign.creator,
-        &reserve.amount,
-    );
-
-    // Update state only after successful external interaction
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
     reserve.released = true;
     set_campaign_reserve(env, campaign_id, &reserve);
 
@@ -144,6 +141,14 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
         total_raised
             .checked_sub(reserve.amount)
             .ok_or(Error::Overflow)?,
+    );
+
+    // Token transfer happens after all state updates (CEI pattern).
+    let client = token_client(env);
+    client.transfer(
+        &env.current_contract_address(),
+        &campaign.creator,
+        &reserve.amount,
     );
 
     env.events().publish(
@@ -162,7 +167,7 @@ pub(crate) fn set_vesting_params(
 ) -> Result<(), Error> {
     crate::lifecycle::assert_admin(env, &admin)?;
     require_not_paused(env)?;
-    if reserve_bps > 10000 || delay_days > 365 {
+    if reserve_bps > crate::BPS_DENOMINATOR || delay_days > 365 {
         return Err(Error::ValidationFailed);
     }
     if delay_days == 0 && reserve_bps > 0 {

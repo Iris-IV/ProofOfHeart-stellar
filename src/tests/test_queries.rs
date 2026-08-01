@@ -1,6 +1,6 @@
 use super::helpers::*;
-use crate::Category;
-use soroban_sdk::String;
+use crate::{Campaign, Category, MaybePendingCreator};
+use soroban_sdk::{Address, String};
 
 #[test]
 fn test_list_campaigns_exclusive_cursor_semantics() {
@@ -154,6 +154,72 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
     assert_eq!(stats.total_amount_raised, 700);
+}
+
+#[test]
+fn test_get_creator_stats_returns_aggregates() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Stats 1"),
+        String::from_str(&env, "s1"),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Creator Stats 2"),
+        String::from_str(&env, "s2"),
+        500,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let _ = client.try_verify_campaign(&c1);
+    let _ = client.try_verify_campaign(&c2);
+    client.contribute(&c1, &contributor1, &400);
+    client.contribute(&c2, &contributor1, &100);
+    client.contribute(&c2, &contributor2, &200);
+    client.cancel_campaign(&c2);
+
+    let stats = client.get_creator_stats(&creator);
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 1);
+    assert_eq!(stats.total_raised, 700);
+    assert_eq!(stats.total_contributors, 3);
+}
+
+#[test]
+fn test_get_creator_stats_empty_for_unknown_creator() {
+    let (_env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let stranger = Address::generate(&_env);
+
+    let stats = client.get_creator_stats(&stranger);
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.total_raised, 0);
+    assert_eq!(stats.total_contributors, 0);
+}
+
+#[test]
+fn test_contract_version_readable_without_init() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    // No `init` call here — `contract_version` must not require it.
+    assert_eq!(client.contract_version(), 1);
 }
 
 #[test]
@@ -385,4 +451,156 @@ fn list_active_campaigns_boundary_cases_and_sparse_results() {
     assert_eq!(client.list_active_campaigns(&total, &5).0.len(), 0);
     assert_eq!(client.list_active_campaigns(&(total + 1), &5).0.len(), 0);
     assert_eq!(client.list_active_campaigns(&0, &0).0.len(), 0);
+}
+
+fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campaign {
+    Campaign {
+        id,
+        creator: creator.clone(),
+        first_creator: creator.clone(),
+        pending_creator: MaybePendingCreator::None,
+        title: String::from_str(env, "t"),
+        description: String::from_str(env, "d"),
+        funding_goal: 1_000,
+        deadline: 0,
+        amount_raised: 0,
+        is_active: true,
+        funds_withdrawn: false,
+        is_cancelled: false,
+        is_verified: false,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+        fee_override: None,
+        deadline_extended: false,
+        effective_amount_raised: 0,
+    }
+}
+
+/// #534: `get_creator_campaigns` must jump straight to the bucket containing
+/// `start` instead of walking every earlier bucket. Seeds two buckets
+/// (bucket 0 full, bucket 1 partial) and campaign records directly via
+/// crate-internal storage helpers — cheaper than driving
+/// `CREATOR_CAMPAIGNS_BUCKET_SIZE` campaigns through the full
+/// `create_campaign` flow — and pages a request that starts inside bucket 1.
+#[test]
+fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let bucket_size = crate::storage::CREATOR_CAMPAIGNS_BUCKET_SIZE;
+    let extra = 5u32;
+    let total = bucket_size + extra;
+
+    // Seeding 500+ persistent entries directly exceeds the default test
+    // budget (which models real network limits); this setup step isn't
+    // what's under test, so lift the cap for it.
+    env.budget().reset_unlimited();
+
+    env.as_contract(&client.address, || {
+        let mut bucket0 = soroban_sdk::Vec::new(&env);
+        for id in 1..=bucket_size {
+            bucket0.push_back(id);
+            crate::storage::set_campaign(&env, id, &minimal_campaign(&env, id, &creator));
+        }
+        crate::storage::set_creator_campaign_bucket(&env, &creator, 0, &bucket0);
+
+        let mut bucket1 = soroban_sdk::Vec::new(&env);
+        for id in (bucket_size + 1)..=total {
+            bucket1.push_back(id);
+            crate::storage::set_campaign(&env, id, &minimal_campaign(&env, id, &creator));
+        }
+        crate::storage::set_creator_campaign_bucket(&env, &creator, 1, &bucket1);
+
+        crate::storage::set_creator_campaign_count(&env, &creator, total);
+    });
+
+    env.budget().reset_default();
+
+    // Start pagination two entries before the bucket boundary, spanning into bucket 1.
+    let page = client.get_creator_campaigns(&creator, &(bucket_size - 2), &10);
+    assert_eq!(page.len(), extra + 2);
+    assert_eq!(page.get(0).unwrap().id, bucket_size - 1);
+    assert_eq!(page.get(1).unwrap().id, bucket_size);
+    assert_eq!(page.get(2).unwrap().id, bucket_size + 1);
+    assert_eq!(page.get(6).unwrap().id, bucket_size + 5);
+
+    // Pagination entirely within bucket 1.
+    let tail = client.get_creator_campaigns(&creator, &bucket_size, &10);
+    assert_eq!(tail.len(), extra);
+    assert_eq!(tail.get(0).unwrap().id, bucket_size + 1);
+    assert_eq!(tail.get(extra - 1).unwrap().id, total);
+}
+
+#[test]
+fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for _ in 0..5 {
+        client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    let total = client.get_campaign_count();
+
+    // Both functions should return empty when start == total_count
+    let list_at_boundary = client.list_campaigns(&total, &10);
+    let active_at_boundary = client.list_active_campaigns(&total, &10);
+    assert_eq!(list_at_boundary.len(), 0);
+    assert_eq!(active_at_boundary.0.len(), 0);
+    assert_eq!(active_at_boundary.1, 0);
+
+    // Both should also return empty when start > total_count
+    let list_beyond_boundary = client.list_campaigns(&(total + 1), &10);
+    let active_beyond_boundary = client.list_active_campaigns(&(total + 1), &10);
+    assert_eq!(list_beyond_boundary.len(), 0);
+    assert_eq!(active_beyond_boundary.0.len(), 0);
+    assert_eq!(active_beyond_boundary.1, 0);
+}
+
+#[test]
+fn test_get_creator_stats_zero_campaigns() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let new_creator = Address::generate(&env);
+
+    // Creator with no campaigns should return zeroed stats without panicking
+    let stats = client.get_creator_stats(&new_creator);
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.total_raised, 0);
+    assert_eq!(stats.total_contributors, 0);
+}
+
+#[test]
+fn test_get_platform_stats_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin.clone());
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    client.init(&admin, &token, &200);
+
+    // Immediately after init, all counters should be zero
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.verified_campaigns, 0);
+    assert_eq!(stats.cancelled_campaigns, 0);
+    assert_eq!(stats.total_amount_raised, 0);
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.scanned_up_to, 0);
 }

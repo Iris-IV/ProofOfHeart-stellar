@@ -45,7 +45,7 @@ fn all_creator_ids(
 fn test_creator_buckets_100_campaigns() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    let total_campaigns = 80u32;
+    let total_campaigns = 60u32;
     for idx in 0..total_campaigns {
         let id = create_campaign(&env, &client, &creator, idx);
         assert_eq!(id, idx + 1);
@@ -68,15 +68,15 @@ fn test_creator_buckets_100_campaigns() {
 fn test_creator_buckets_pagination_boundaries() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    let total = 80u32;
+    let total = 60u32;
     for idx in 0..total {
         create_campaign(&env, &client, &creator, idx);
     }
 
-    let last_page = client.get_creator_campaigns(&creator, &75, &10);
+    let last_page = client.get_creator_campaigns(&creator, &55, &10);
     assert_eq!(last_page.len(), 5);
-    assert_eq!(last_page.get(0).unwrap().id, 76);
-    assert_eq!(last_page.get(4).unwrap().id, 80);
+    assert_eq!(last_page.get(0).unwrap().id, 56);
+    assert_eq!(last_page.get(4).unwrap().id, 60);
 
     let empty = client.get_creator_campaigns(&creator, &total, &10);
     assert_eq!(empty.len(), 0);

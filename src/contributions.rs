@@ -6,14 +6,17 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
-    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
-    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global, DataKey,
+    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
+    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
+    set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_lifetime_contribution, set_personal_cap, set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
+/// `max_contribution_per_user == 0` is an explicit "no cap" sentinel, not
+/// "0 tokens allowed" — see the doc comment on `Campaign::max_contribution_per_user`
+/// (#530). `create_campaign` rejects negative values, so `0` and positive
+/// values are the only inputs the cap check needs to handle here.
 fn check_contribution_caps(
     campaign: &Campaign,
     current_lifetime_contribution: i128,
@@ -25,6 +28,88 @@ fn check_contribution_caps(
         return Err(Error::ContributionCapExceeded);
     }
     Ok(())
+}
+
+/// Fix #408: use checked arithmetic to avoid panic on overflow.
+/// A huge contribution (> 200% of goal) triggers an auto-pause.
+fn check_burst_guard(
+    env: &Env,
+    campaign_id: u32,
+    campaign: &Campaign,
+    amount: i128,
+) -> Result<(), Error> {
+    let amount_bps = amount
+        .checked_mul(crate::BPS_DENOMINATOR as i128)
+        .ok_or(Error::Overflow)?;
+    let threshold = campaign
+        .funding_goal
+        .checked_mul(crate::AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD)
+        .ok_or(Error::Overflow)?;
+    if amount_bps > threshold {
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
+        env.events()
+            .publish(("auto_paused",), ("huge_contribution", amount));
+        return Err(Error::ContractPaused);
+    }
+
+    // #535: skip the burst-count ledger read/write entirely for campaigns
+    // that haven't raised a meaningful share of their goal yet — a burst
+    // isn't possible to meaningfully detect (or worth guarding against) on a
+    // campaign that's still near-empty, so this is a wasted read on the
+    // common happy path.
+    let raised_bps = campaign
+        .amount_raised
+        .checked_mul(crate::BPS_DENOMINATOR as i128)
+        .ok_or(Error::Overflow)?;
+    let burst_check_threshold = campaign
+        .funding_goal
+        .checked_mul(crate::AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS)
+        .ok_or(Error::Overflow)?;
+    if raised_bps <= burst_check_threshold {
+        return Ok(());
+    }
+
+    // Anomaly detection: Burst (> 10 tx/block per campaign)
+    let current_ledger = env.ledger().sequence();
+    let (last_ledger, mut block_count) = get_campaign_block_contribution_count(env, campaign_id);
+    if current_ledger == last_ledger {
+        block_count += 1;
+    } else {
+        block_count = 1;
+    }
+    set_campaign_block_contribution_count(env, campaign_id, current_ledger, block_count);
+
+    if block_count > crate::AUTO_PAUSE_BURST_THRESHOLD {
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
+        env.events()
+            .publish(("auto_paused",), ("burst", block_count));
+        return Err(Error::ContractPaused);
+    }
+
+    Ok(())
+}
+
+fn update_contribution_accounting(
+    env: &Env,
+    campaign_id: u32,
+    contributor: &Address,
+    campaign: &mut Campaign,
+    current: i128,
+    lifetime: i128,
+    amount: i128,
+) {
+    campaign.amount_raised += amount;
+    campaign.effective_amount_raised += amount;
+    set_campaign(env, campaign_id, campaign);
+    set_contribution(env, campaign_id, contributor, current + amount);
+    set_lifetime_contribution(env, campaign_id, contributor, lifetime + amount);
+
+    if lifetime == 0 {
+        increment_contributor_count(env, campaign_id);
+    }
+
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(env, total_raised + amount);
 }
 
 pub(crate) fn contribute(
@@ -65,70 +150,105 @@ pub(crate) fn contribute(
         }
     }
 
-    // Fix #408: use checked arithmetic to avoid panic on overflow.
-    // A huge contribution (> 200% of goal) triggers an auto-pause.
-    let amount_bps = amount.checked_mul(10000).ok_or(Error::Overflow)?;
-    let threshold = campaign
-        .funding_goal
-        .checked_mul(crate::AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD)
-        .ok_or(Error::Overflow)?;
-    if amount_bps > threshold {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
-        env.events()
-            .publish(("auto_paused",), ("huge_contribution", amount));
-        return Err(Error::ContractPaused);
-    }
-
-    // Anomaly detection: Burst (> 10 tx/block per campaign)
-    let current_ledger = env.ledger().sequence();
-    let (last_ledger, mut block_count) = get_campaign_block_contribution_count(env, campaign_id);
-    if current_ledger == last_ledger {
-        block_count += 1;
-    } else {
-        block_count = 1;
-    }
-    set_campaign_block_contribution_count(env, campaign_id, current_ledger, block_count);
-
-    if block_count > crate::AUTO_PAUSE_BURST_THRESHOLD {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
-        env.events()
-            .publish(("auto_paused",), ("burst", block_count));
-        return Err(Error::ContractPaused);
-    }
+    check_burst_guard(env, campaign_id, &campaign, amount)?;
 
     bump_instance_ttl(env);
+    update_contribution_accounting(
+        env,
+        campaign_id,
+        &contributor,
+        &mut campaign,
+        current,
+        lifetime,
+        amount,
+    );
+
     let client = token_client(env);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
 
-    campaign.amount_raised += amount;
-    campaign.effective_amount_raised += amount;
-    set_campaign(env, campaign_id, &campaign);
-    set_contribution(env, campaign_id, &contributor, current + amount);
-    set_lifetime_contribution(env, campaign_id, &contributor, lifetime + amount);
-
-    if lifetime == 0 {
-        increment_contributor_count(env, campaign_id);
-    }
-
-    let total_raised = get_total_raised_global(env);
-    set_total_raised_global(env, total_raised + amount);
-
-    let new_lifetime = lifetime + amount;
-    if let Some(top_addr) = get_top_contributor(env, campaign_id) {
-        if top_addr != contributor {
-            let top_lifetime = get_lifetime_contribution(env, campaign_id, &top_addr);
-            if new_lifetime > top_lifetime {
-                set_top_contributor(env, campaign_id, &contributor);
-            }
-        }
-    } else {
-        set_top_contributor(env, campaign_id, &contributor);
-    }
-
-    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
-
     env.events()
         .publish(("contribution_made", campaign_id, contributor), amount);
+
+    Ok(())
+}
+
+/// Contributes to multiple campaigns in one call, moving the combined amount
+/// in a single token transfer (#518). Auth and pause are checked once up
+/// front; each `(campaign_id, amount)` item is then validated with the same
+/// rules `contribute` uses, and its accounting is applied immediately so a
+/// campaign repeated later in the same batch sees the earlier item's updated
+/// totals. The aggregate transfer happens last — if any item fails, the
+/// whole call reverts atomically and no accounting persists.
+pub(crate) fn batch_contribute(
+    env: &Env,
+    contributor: Address,
+    contributions: soroban_sdk::Vec<(u32, i128)>,
+) -> Result<(), Error> {
+    contributor.require_auth();
+    require_not_paused(env)?;
+
+    if contributions.is_empty() || contributions.len() > crate::MAX_BATCH_CONTRIBUTE_SIZE {
+        return Err(Error::ValidationFailed);
+    }
+
+    bump_instance_ttl(env);
+
+    let mut total: i128 = 0;
+    for (campaign_id, amount) in contributions.iter() {
+        if amount <= 0 {
+            return Err(Error::ContributionMustBePositive);
+        }
+
+        let mut campaign = get_campaign_or_error(env, campaign_id)?;
+        if !campaign.is_verified {
+            return Err(Error::CampaignNotVerified);
+        }
+        require_active_campaign(&campaign)?;
+        if contributor == campaign.creator {
+            return Err(Error::NotAuthorized);
+        }
+        if env.ledger().timestamp() > campaign.deadline {
+            return Err(Error::DeadlinePassed);
+        }
+
+        let current = get_contribution(env, campaign_id, &contributor);
+        let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+
+        check_contribution_caps(&campaign, lifetime, amount)?;
+
+        if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
+            if current + amount > cap {
+                return Err(Error::ContributionCapExceeded);
+            }
+        }
+
+        check_burst_guard(env, campaign_id, &campaign, amount)?;
+
+        update_contribution_accounting(
+            env,
+            campaign_id,
+            &contributor,
+            &mut campaign,
+            current,
+            lifetime,
+            amount,
+        );
+
+        total = total.checked_add(amount).ok_or(Error::Overflow)?;
+
+        env.events().publish(
+            ("contribution_made", campaign_id, contributor.clone()),
+            amount,
+        );
+    }
+
+    let client = token_client(env);
+    client.transfer(&contributor, &env.current_contract_address(), &total);
+
+    env.events().publish(
+        ("batch_contribution_made", contributor),
+        (contributions.len(), total),
+    );
 
     Ok(())
 }

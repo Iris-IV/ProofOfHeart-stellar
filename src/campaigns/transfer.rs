@@ -6,7 +6,8 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, get_creator_campaign_bucket, get_creator_campaign_count, set_campaign,
-    set_creator_campaign_bucket, set_creator_campaign_count, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    set_campaign_creator_index, set_creator_campaign_bucket, set_creator_campaign_count,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::MaybePendingCreator;
 
@@ -80,6 +81,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     new_bucket.push_back(campaign_id);
     set_creator_campaign_bucket(env, &pending, new_bucket_idx, &new_bucket);
     set_creator_campaign_count(env, &pending, new_count + 1);
+    set_campaign_creator_index(env, campaign_id, &pending);
 
     campaign.creator = pending.clone();
     campaign.pending_creator = MaybePendingCreator::None;

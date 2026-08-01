@@ -6,8 +6,10 @@ use crate::lifecycle::{
     token_client,
 };
 use crate::storage::{
-    bump_instance_ttl, get_contribution, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, get_token, set_creator_revenue_claimed, set_revenue_claimed,
+    bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
+    get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
+    get_revenue_pool, get_token, set_contributor_revenue_claimants,
+    set_contributor_revenue_distributed, set_creator_revenue_claimed, set_revenue_claimed,
     set_revenue_pool,
 };
 
@@ -31,12 +33,13 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     }
 
     bump_instance_ttl(env);
-    let token_addr = get_token(env);
-    let client = token::Client::new(env, &token_addr);
-    client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     let current_pool = get_revenue_pool(env, campaign_id);
     set_revenue_pool(env, campaign_id, current_pool + amount);
+
+    let token_addr = get_token(env);
+    let client = token::Client::new(env, &token_addr);
+    client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     env.events()
         .publish(("revenue_deposited", campaign_id, campaign.creator), amount);
@@ -81,10 +84,42 @@ pub(crate) fn claim_revenue(
         .checked_mul(total_pool)
         .and_then(|n| n.checked_mul(campaign.revenue_share_percentage as i128))
         .and_then(|n| n.checked_div(campaign.effective_amount_raised))
-        .and_then(|n| n.checked_div(10000))
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
     let already_claimed = get_revenue_claimed(env, campaign_id, &contributor);
-    let claimable = total_due - already_claimed;
+    let mut claimable = total_due - already_claimed;
+
+    if claimable <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
+    // #526: integer division truncates each contributor's individual share,
+    // so the sum of every contributor's `claimable` can fall short of the
+    // full contributor-side pool, leaving dust stuck in the contract forever.
+    // Once every contributor entitled to this campaign has claimed at least
+    // once, give the last one to claim whatever remains of the
+    // contributor-side pool instead of their individually-truncated share,
+    // so the full allocation is paid out exactly.
+    let is_first_claim = already_claimed == 0;
+    let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
+    let total_contributors = get_contributor_count(env, campaign_id);
+    let is_last_claimant =
+        is_first_claim && total_contributors > 0 && claimants_so_far + 1 >= total_contributors;
+
+    let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
+    if is_last_claimant {
+        let creator_share_bps =
+            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_total = total_pool
+            .checked_mul(creator_share_bps)
+            .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+            .ok_or(Error::Overflow)?;
+        let contributor_pool_total = total_pool - creator_share_total;
+        let pool_remaining = contributor_pool_total - distributed_so_far;
+        if pool_remaining > claimable {
+            claimable = pool_remaining;
+        }
+    }
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -92,12 +127,21 @@ pub(crate) fn claim_revenue(
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
+    set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
+
+    // Track the running sum paid out to contributors, and the count of
+    // distinct contributors who have claimed at least once, so future claims
+    // can detect the last claimant (#526).
+    set_contributor_revenue_distributed(env, campaign_id, distributed_so_far + claimable);
+    if is_first_claim {
+        set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
+    }
+
+    // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
     client.transfer(&env.current_contract_address(), &contributor, &claimable);
-
-    // Update state only after successful external interaction
-    set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
 
     env.events().publish(
         ("revenue_claimed", campaign_id, contributor.clone()),
@@ -113,7 +157,7 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
-    if campaign.revenue_share_percentage > 10000 {
+    if campaign.revenue_share_percentage > crate::BPS_DENOMINATOR {
         return Err(Error::ValidationFailed);
     }
 
@@ -121,10 +165,11 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     // Compute creator entitlement directly instead of as a residual from the
     // contributor pool. This avoids biasing creator payouts upward when
     // contributor-side division truncates (#386).
-    let creator_share_bps = 10000i128 - campaign.revenue_share_percentage as i128;
+    let creator_share_bps =
+        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
     let creator_share_total = total_pool
         .checked_mul(creator_share_bps)
-        .and_then(|n| n.checked_div(10000))
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
@@ -136,15 +181,17 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
+    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+
+    // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
     client.transfer(
         &env.current_contract_address(),
         &campaign.creator,
         &claimable,
     );
-
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
 
     env.events().publish(
         ("creator_revenue_claimed", campaign_id, campaign.creator),

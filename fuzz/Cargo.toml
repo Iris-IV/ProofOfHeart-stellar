@@ -1,0 +1,36 @@
+[package]
+name = "proof-of-heart-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.proof-of-heart]
+path = ".."
+features = ["testutils"]
+
+[patch.crates-io]
+# Same vendored ethnum patch as the parent crate (soroban-sdk 20.1.0 pins
+# ethnum 1.5.0, which fails to compile on Rust 1.80+). Kept in sync with the
+# `[patch.crates-io]` section in ../Cargo.toml.
+ethnum = { path = "../vendor/ethnum" }
+
+# Prevent this from interfering with workspace resolution of the library.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_contribute"
+path = "fuzz_targets/fuzz_contribute.rs"
+test = false
+doc = false
+bench = false

@@ -1,5 +1,8 @@
 use super::helpers::*;
-use crate::{Campaign, DataKey, Error, MaybePendingCreator};
+use crate::{
+    AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
+    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+};
 use soroban_sdk::{Address, Env, String};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
@@ -23,7 +26,7 @@ fn test_migrate_wrong_version_fails() {
 fn test_migrate_double_run_fails() {
     let (env, admin, _, _, _, _, _, client) = setup_env();
     env.as_contract(&client.address, || {
-        env.storage().instance().set(&DataKey::Version, &0u32);
+        env.storage().instance().set(&AdminKey::Version, &0u32);
     });
     client.migrate(&admin, &0u32);
     let result = client.try_migrate(&admin, &0u32);
@@ -68,7 +71,7 @@ fn test_accept_token_update_after_delay_succeeds() {
     client.propose_token_update(&admin, &new_token);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 7 * 86400 + 1;
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
     client.accept_token_update(&admin);
@@ -159,7 +162,7 @@ fn test_platform_stats_after_withdraw() {
     client.contribute(&id, &contributor, &1);
 
     env.ledger().with_mut(|l| {
-        l.timestamp += 31 * 86400;
+        l.timestamp += 31 * SECONDS_PER_DAY;
     });
 
     client.withdraw_funds(&id);
@@ -213,7 +216,7 @@ fn test_resume_campaign_clears_auto_pause_when_active() {
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
 
     env.as_contract(&client.address, || {
-        env.storage().instance().set(&DataKey::AutoPaused, &true);
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
     });
 
     assert!(client.is_paused());
@@ -231,7 +234,7 @@ fn test_paused_admin_parameter_setting_functions_succeed() {
 
     client.pause();
 
-    let result_fee = client.try_set_campaign_fee_override(&admin, &campaign_id, &100u32);
+    let result_fee = client.try_set_campaign_fee_override(&campaign_id, &admin, &100u32);
     assert!(
         result_fee.is_ok(),
         "set_campaign_fee_override must succeed while paused"
@@ -281,7 +284,7 @@ fn test_vote_weight_overflow_fails() {
     env.as_contract(&client.address, || {
         env.storage()
             .persistent()
-            .set(&DataKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
+            .set(&VotingKey::ApproveWeight(campaign_id), &(i128::MAX - 500));
     });
 
     token_admin.mint(&contributor, &501);
@@ -294,7 +297,7 @@ fn test_vote_weight_overflow_fails() {
 
 fn set_auto_paused(env: &Env, client_address: &Address, paused: bool) {
     env.as_contract(client_address, || {
-        env.storage().instance().set(&DataKey::AutoPaused, &paused);
+        env.storage().instance().set(&AdminKey::AutoPaused, &paused);
     });
 }
 
@@ -377,8 +380,12 @@ fn test_pending_creator_none_round_trip() {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert!(read.pending_creator.is_none());
     });
 }
@@ -417,8 +424,12 @@ fn test_pending_creator_some_round_trip() {
         env.storage().instance().extend_ttl(100, 100);
         env.storage()
             .instance()
-            .set(&DataKey::Campaign(1), &campaign);
-        let read: Campaign = env.storage().instance().get(&DataKey::Campaign(1)).unwrap();
+            .set(&CampaignKey::Campaign(1), &campaign);
+        let read: Campaign = env
+            .storage()
+            .instance()
+            .get(&CampaignKey::Campaign(1))
+            .unwrap();
         assert_eq!(read.pending_creator, MaybePendingCreator::Some(pending));
     });
 }
@@ -589,4 +600,142 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
 
     // Previous residual math paid 5001 here; direct creator-side math must pay 5000.
     assert_eq!(creator_after - creator_before, 5_000);
+}
+
+// ── #526 last-claimant revenue dust ────────────────────────────────────────────
+
+/// Issue #526 — per-contributor integer division truncates each individual
+/// share, so the sum of every contributor's claim can fall short of the full
+/// contributor-side pool. The last contributor to claim must absorb that
+/// remainder instead of receiving their own individually-truncated share, so
+/// no revenue is permanently stuck in the contract.
+#[test]
+fn test_last_revenue_claimant_absorbs_rounding_dust() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &10);
+    token_admin.mint(&contributor2, &10);
+    token_admin.mint(&creator, &100);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Issue 526"),
+        description: String::from_str(&env, "Revenue dust regression"),
+        funding_goal: 3,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1);
+    client.contribute(&campaign_id, &contributor2, &2);
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &10);
+
+    // contributor_pool_total = 10 * 5000 / 10000 = 5.
+    // Naive per-contributor math: contributor1 = 1*10*5000/3/10000 = 1,
+    // contributor2 = 2*10*5000/3/10000 = 3 -> sum = 4, leaving 1 stuck.
+    let before1 = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let claimed1 = token.balance(&contributor1) - before1;
+    assert_eq!(claimed1, 1);
+
+    let before2 = token.balance(&contributor2);
+    client.claim_revenue(&campaign_id, &contributor2);
+    let claimed2 = token.balance(&contributor2) - before2;
+
+    // The last claimant (contributor2) must absorb the rounding dust, so the
+    // two contributor claims sum to exactly the contributor-side pool (5),
+    // not the naively-truncated 4.
+    assert_eq!(claimed1 + claimed2, 5);
+    assert_eq!(claimed2, 4);
+}
+
+// ── #528 corrupted campaign storage key ────────────────────────────────────────
+
+/// Issue #528 — if a campaign's persistent storage entry can't be
+/// deserialized into `Campaign`, `get_campaign` must return `None` (and
+/// therefore callers like `get_campaign_or_error` must surface
+/// `Error::CampaignNotFound`) instead of panicking / aborting the host.
+#[test]
+fn test_get_campaign_survives_corrupted_storage_entry() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(client.get_campaign(&campaign_id).id == campaign_id);
+
+    // Corrupt the persistent entry backing this campaign by overwriting it
+    // with a value of a totally different (incompatible) shape.
+    env.as_contract(&client.address, || {
+        let key = CampaignKey::Campaign(campaign_id);
+        env.storage().persistent().set(&key, &"not a campaign");
+    });
+
+    let result = client.try_get_campaign(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+// ── #478 O(1) creator-ownership check ─────────────────────────────────────────
+
+#[test]
+fn test_is_campaign_creator_true_for_owner() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(client.is_campaign_creator(&campaign_id, &creator));
+}
+
+#[test]
+fn test_is_campaign_creator_false_for_non_owner() {
+    let (env, _, creator, contributor, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert!(!client.is_campaign_creator(&campaign_id, &contributor));
+}
+
+#[test]
+fn test_is_campaign_creator_false_for_nonexistent_campaign() {
+    let (_env, _, creator, _, _, _, _, client) = setup_env();
+    assert!(!client.is_campaign_creator(&999, &creator));
+}
+
+#[test]
+fn test_is_campaign_creator_updates_after_transfer() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    let receiver = Address::generate(&env);
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    client.initiate_campaign_transfer(&campaign_id, &receiver);
+    client.accept_campaign_transfer(&campaign_id);
+
+    assert!(!client.is_campaign_creator(&campaign_id, &creator));
+    assert!(client.is_campaign_creator(&campaign_id, &receiver));
+}
+
+// ── #475 list_active_campaigns scan window ────────────────────────────────────
+
+#[test]
+fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    // Create 40 campaigns and cancel the first 35, leaving 5 active campaigns
+    // clustered at the tail. The window this exercises (MAX_SCAN_WINDOW = 1000)
+    // is far larger than the old 200-id window; this asserts the tail campaigns
+    // remain reachable in a single page rather than proving the exact 1000 bound
+    // (proving that directly would itself blow the per-invocation test budget).
+    let mut last_id = 0u32;
+    for _ in 0..40 {
+        last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    }
+    for id in 1..=35 {
+        client.cancel_campaign(&id);
+    }
+
+    let (active, next_cursor) = client.list_active_campaigns(&0, &50);
+    assert_eq!(active.len(), 5);
+    assert_eq!(active.get(0).unwrap().id, 36);
+    assert_eq!(active.get(4).unwrap().id, last_id);
+    assert_eq!(next_cursor, 0);
 }

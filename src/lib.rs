@@ -11,16 +11,31 @@ pub(crate) const CAMPAIGN_DESCRIPTION_MIN_LEN: u32 = 1;
 pub(crate) const CAMPAIGN_DESCRIPTION_MAX_LEN: u32 = 1000;
 pub(crate) const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
 pub(crate) const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
+pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 pub(crate) const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
+pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = BPS_DENOMINATOR; // 100% — hard limit, basis-point formula requires fee <= BPS_DENOMINATOR
 pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
+/// #535: burst detection (the per-block contribution-count read/write) only
+/// runs once a campaign has raised at least this fraction of its funding
+/// goal, in basis points (5000 = 50%). Skips a wasted ledger read on the
+/// happy path for new/low-activity campaigns, which can't plausibly be
+/// mid-burst yet.
+pub(crate) const AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS: i128 = 5000;
 pub(crate) const LIST_MAX_LIMIT: u32 = 50;
+/// #518: max number of `(campaign_id, amount)` pairs accepted by
+/// `batch_contribute` in a single call. Each item pays the full per-item cost
+/// of `contribute` (cap checks, burst guard, two persistent writes), so this
+/// is kept well under `verify_campaigns`' read-mostly batch size of 50.
+pub(crate) const MAX_BATCH_CONTRIBUTE_SIZE: u32 = 20;
 
 mod admin;
+mod bookmarks;
 mod campaigns;
+mod constants;
 mod contributions;
 mod errors;
 mod lifecycle;
@@ -30,10 +45,13 @@ mod storage;
 mod types;
 mod voting;
 
+pub(crate) use constants::{
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+};
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
-pub use storage::DataKey;
 use storage::*;
+pub use storage::{AdminKey, CampaignKey, ContributionKey, RevenueKey, StorageKey, VotingKey};
 pub use types::*;
 
 // Re-export lifecycle helpers so voting.rs can continue using `crate::` paths.
@@ -76,6 +94,18 @@ impl ProofOfHeart {
         contributions::claim_refund(&env, campaign_id, contributor)
     }
 
+    /// Contributes to multiple campaigns in a single transaction, moving the
+    /// combined token amount in one transfer instead of one per campaign
+    /// (#518). Every item is validated with the same rules as `contribute`;
+    /// if any item fails, the whole batch reverts atomically.
+    pub fn batch_contribute(
+        env: Env,
+        contributor: Address,
+        contributions: soroban_sdk::Vec<(u32, i128)>,
+    ) -> Result<(), Error> {
+        contributions::batch_contribute(&env, contributor, contributions)
+    }
+
     // ── Withdrawals ───────────────────────────────────────────────────────────
 
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
@@ -99,6 +129,19 @@ impl ProofOfHeart {
 
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::cancel::cancel_campaign(&env, campaign_id)
+    }
+
+    /// Admin-only targeted fraud response: cancels a single campaign without
+    /// pausing the entire platform (#508). Unlike `cancel_campaign`, this
+    /// bypasses the goal-met anti-rug-pull guard so admins can stop verified
+    /// fraudulent campaigns even after they've hit their funding goal.
+    pub fn admin_cancel_campaign(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        reason: String,
+    ) -> Result<(), Error> {
+        campaigns::cancel::admin_cancel_campaign(&env, admin, campaign_id, reason)
     }
 
     pub fn update_campaign(
@@ -252,12 +295,12 @@ impl ProofOfHeart {
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
-            .get(&DataKey::Paused)
+            .get(&AdminKey::Paused)
             .unwrap_or(false)
             || env
                 .storage()
                 .instance()
-                .get(&DataKey::AutoPaused)
+                .get(&AdminKey::AutoPaused)
                 .unwrap_or(false)
     }
 
@@ -277,11 +320,11 @@ impl ProofOfHeart {
 
     pub fn set_campaign_fee_override(
         env: Env,
-        admin: Address,
         campaign_id: u32,
+        admin: Address,
         fee_bps: u32,
     ) -> Result<(), Error> {
-        admin::set_campaign_fee_override(&env, admin, campaign_id, fee_bps)
+        admin::set_campaign_fee_override(&env, campaign_id, admin, fee_bps)
     }
 
     pub fn set_category_duration_cap(
@@ -334,6 +377,30 @@ impl ProofOfHeart {
         min_balance: i128,
     ) -> Result<(), Error> {
         admin::set_min_voting_balance_fn(&env, admin, min_balance)
+    }
+
+    pub fn set_category_voting_threshold(
+        env: Env,
+        admin: Address,
+        category: Category,
+        threshold_bps: u32,
+    ) -> Result<(), Error> {
+        admin::set_category_voting_threshold(&env, admin, category, threshold_bps)
+    }
+
+    pub fn remove_category_voting_threshold(
+        env: Env,
+        admin: Address,
+        category: Category,
+    ) -> Result<(), Error> {
+        admin::remove_category_voting_threshold(&env, admin, category)
+    }
+
+    /// Returns the approval threshold (in basis points) that actually applies
+    /// to `category`: its per-category override if one is set, otherwise the
+    /// global default (#536).
+    pub fn get_category_voting_threshold(env: Env, category: Category) -> u32 {
+        voting::effective_approval_threshold_bps(&env, category)
     }
 
     // ── Admin: token migration ────────────────────────────────────────────────
@@ -432,6 +499,14 @@ impl ProofOfHeart {
         get_version(&env)
     }
 
+    /// Returns the compiled-in contract version. Unlike `get_version`, this
+    /// reads a constant baked into the WASM at build time rather than
+    /// instance storage, so it can be called on a freshly deployed contract
+    /// before `init` has ever been invoked (#523).
+    pub fn contract_version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
     pub fn get_admin(env: Env) -> Address {
         get_admin(&env)
     }
@@ -492,6 +567,12 @@ impl ProofOfHeart {
         get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
 
+    /// Checks whether `creator` owns `campaign_id` in O(1) via the creator reverse
+    /// index, without scanning the creator's campaign bucket (#478).
+    pub fn is_campaign_creator(env: Env, campaign_id: u32, creator: Address) -> bool {
+        storage::is_campaign_creator(&env, campaign_id, &creator)
+    }
+
     // ── Listing & pagination ──────────────────────────────────────────────────
 
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
@@ -528,10 +609,71 @@ impl ProofOfHeart {
         queries::get_platform_stats(&env)
     }
 
-    pub fn get_campaign_stats(env: Env, campaign_id: u32) -> Option<CampaignStats> {
-        queries::get_campaign_stats(&env, campaign_id)
+    pub fn get_platform_report(env: Env) -> PlatformReport {
+        queries::get_platform_report(&env)
+    }
+
+    pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
+        queries::get_creator_stats(&env, creator)
+    }
+
+    pub fn get_contributor_portfolio(
+        env: Env,
+        contributor: Address,
+    ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+        queries::get_contributor_portfolio(&env, contributor)
+    }
+
+    // ── Bookmarks / saved campaigns ───────────────────────────────────────────
+
+    /// Saves `campaign_id` to `user`'s on-chain bookmark list. Requires
+    /// `user`'s authorization.
+    pub fn save_campaign(env: Env, user: Address, campaign_id: u32) -> Result<(), Error> {
+        bookmarks::save_campaign(&env, user, campaign_id)
+    }
+
+    /// Removes `campaign_id` from `user`'s on-chain bookmark list. Requires
+    /// `user`'s authorization.
+    pub fn remove_saved_campaign(env: Env, user: Address, campaign_id: u32) -> Result<(), Error> {
+        bookmarks::remove_saved_campaign(&env, user, campaign_id)
+    }
+
+    /// Returns the list of campaign ids `user` has bookmarked, in the order
+    /// they were saved.
+    pub fn get_saved_campaigns(env: Env, user: Address) -> soroban_sdk::Vec<u32> {
+        bookmarks::get_saved(&env, user)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+use soroban_sdk::{contract, contractimpl, Env, String, Vec};
+
+#[contract]
+pub struct ProofOfHeartContract;
+
+#[contractimpl]
+impl ProofOfHeartContract {
+    /// Lists active campaigns, optionally filtered by a specific tag string.
+    pub fn list_active_campaigns(env: Env, tag_filter: Option<String>) -> Vec<Campaign> {
+        let all_campaigns: Vec<Campaign> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Campaigns)
+            .unwrap_or(Vec::new(&env));
+
+        match tag_filter {
+            Some(filter_tag) => {
+                let mut filtered = Vec::new(&env);
+                for campaign in all_campaigns.iter() {
+                    if campaign.tags.contains(&filter_tag) {
+                        filtered.push_back(campaign);
+                    }
+                }
+                filtered
+            }
+            None => all_campaigns,
+        }
+    }
+}
