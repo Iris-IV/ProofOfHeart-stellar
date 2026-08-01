@@ -95,6 +95,14 @@ pub enum Error {
     CampaignAlreadyBookmarked = 44,
     /// The campaign is not in the wallet's saved/bookmarked list.
     CampaignNotBookmarked = 45,
+    /// Two campaigns from the same creator have the same title.
+    DuplicateCampaignTitle = 46,
+    /// The contribution amount exceeds the per-transaction limit.
+    ExceedsMaxContributionPerTransaction = 47,
+    /// No emergency withdrawal proposal exists for this campaign.
+    EmergencyWithdrawalNotProposed = 48,
+    /// The emergency withdrawal timelock has not yet elapsed.
+    EmergencyWithdrawalTimelockNotMet = 49,
 }
 
 impl Error {
@@ -148,6 +156,10 @@ impl Error {
             Error::InvalidStateTransition => "InvalidStateTransition",
             Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
             Error::CampaignNotBookmarked => "CampaignNotBookmarked",
+            Error::DuplicateCampaignTitle => "DuplicateCampaignTitle",
+            Error::ExceedsMaxContributionPerTransaction => "ExceedsMaxContributionPerTransaction",
+            Error::EmergencyWithdrawalNotProposed => "EmergencyWithdrawalNotProposed",
+            Error::EmergencyWithdrawalTimelockNotMet => "EmergencyWithdrawalTimelockNotMet",
         }
     }
 }

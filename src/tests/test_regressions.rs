@@ -110,7 +110,7 @@ fn test_propose_token_update_non_admin_fails() {
 fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
     CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "T"),
+        title: unique_title(env),
         description: String::from_str(env, "D"),
         funding_goal: 1,
         duration_days: 30,

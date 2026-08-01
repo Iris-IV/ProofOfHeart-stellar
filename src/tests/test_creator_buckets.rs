@@ -5,7 +5,7 @@ use soroban_sdk::{Address, Env, String};
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign"),
+        unique_title(env),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,
@@ -46,6 +46,11 @@ fn test_creator_buckets_100_campaigns() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let total_campaigns = 60u32;
+    // Seeding 60+ campaigns now also writes a per-campaign title-hash index,
+    // which pushes the cumulative seeding past the default test budget (the
+    // budget models single-transaction network limits; seeding is not what's
+    // under test). Lift the cap for setup, matching test_queries.rs.
+    env.budget().reset_unlimited();
     for idx in 0..total_campaigns {
         let id = create_campaign(&env, &client, &creator, idx);
         assert_eq!(id, idx + 1);
@@ -63,7 +68,6 @@ fn test_creator_buckets_100_campaigns() {
     let big_page = client.get_creator_campaigns(&creator, &0, &u32::MAX);
     assert_eq!(big_page.len(), LIST_MAX_LIMIT);
 }
-
 #[test]
 fn test_creator_buckets_pagination_boundaries() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
@@ -169,7 +173,7 @@ fn test_creator_buckets_multiple_creators() {
     for idx in 0..20 {
         client.create_campaign(&make_params(
             creator2.clone(),
-            String::from_str(&env, "Creator2"),
+            unique_title(&env),
             String::from_str(&env, "Test"),
             1000 + idx as i128,
             30,

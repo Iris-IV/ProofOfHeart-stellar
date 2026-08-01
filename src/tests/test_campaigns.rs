@@ -165,7 +165,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            unique_title(&env),
             String::from_str(&env, "a"),
             1000,
             30,
@@ -180,7 +180,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            unique_title(&env),
             String::from_str(&env, &desc_1000),
             1000,
             30,
@@ -330,7 +330,7 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     for i in 1u32..=3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Desc"),
             1000,
             30,

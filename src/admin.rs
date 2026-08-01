@@ -481,6 +481,93 @@ pub(crate) fn purge_voting_state(
     Ok(())
 }
 
+pub(crate) fn propose_emergency_withdrawal(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+    recipient: Address,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn || campaign.amount_raised == 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+    let propose_timestamp = env.ledger().timestamp();
+    storage::set_emergency_withdrawal_proposal(env, campaign_id, &recipient, propose_timestamp);
+    env.events().publish(
+        (
+            "emergency_withdrawal_proposed",
+            campaign_id,
+            recipient,
+            propose_timestamp,
+        ),
+        (),
+    );
+    Ok(())
+}
+
+pub(crate) fn execute_emergency_withdrawal(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    let (recipient, propose_timestamp) =
+        storage::get_emergency_withdrawal_proposal(env, campaign_id)
+            .ok_or(Error::EmergencyWithdrawalNotProposed)?;
+    let elapsed = env
+        .ledger()
+        .timestamp()
+        .checked_sub(propose_timestamp)
+        .ok_or(Error::EmergencyWithdrawalTimelockNotMet)?;
+    if elapsed < crate::EMERGENCY_WITHDRAW_TIMELOCK_SECS {
+        return Err(Error::EmergencyWithdrawalTimelockNotMet);
+    }
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    let amount = campaign.effective_amount_raised;
+    if amount == 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+    let client = crate::lifecycle::token_client(env);
+    client.transfer(&env.current_contract_address(), &recipient, &amount);
+    campaign.funds_withdrawn = true;
+    campaign.is_active = false;
+    storage::set_campaign(env, campaign_id, &campaign);
+    storage::decrement_active_campaign_count(env);
+    let total_raised = storage::get_total_raised_global(env);
+    storage::set_total_raised_global(
+        env,
+        total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+    );
+    storage::remove_emergency_withdrawal_proposal(env, campaign_id);
+    env.events().publish(
+        (
+            "emergency_withdrawal_executed",
+            campaign_id,
+            recipient,
+            amount,
+        ),
+        (),
+    );
+    Ok(())
+}
+
+pub(crate) fn set_max_tx_contribution_fn(
+    env: &Env,
+    admin: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if amount < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    storage::set_max_tx_contribution(env, amount);
+    env.events()
+        .publish(("max_tx_contribution_updated",), amount);
+    Ok(())
+}
+
 pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
     caller.require_auth();
 

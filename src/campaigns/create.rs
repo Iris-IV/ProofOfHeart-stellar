@@ -1,15 +1,17 @@
-use soroban_sdk::Env;
+use soroban_sdk::{Bytes, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{calculate_deadline, require_not_paused};
+
 use crate::storage::{
     bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
-    get_min_campaign_funding_goal, set_campaign, set_campaign_count, set_campaign_creator_index,
-    set_campaign_start_time, set_category_campaign_bucket, set_category_campaign_count,
-    set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_min_campaign_funding_goal, has_campaign_title, set_campaign, set_campaign_count,
+    set_campaign_creator_index, set_campaign_start_time, set_campaign_title_index,
+    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
+    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -79,6 +81,14 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         return Err(Error::ValidationFailed);
     }
 
+    let mut buf = [0u8; 100];
+    title.copy_into_slice(&mut buf[..title.len() as usize]);
+    let title_bytes = Bytes::from_slice(env, &buf[..title.len() as usize]);
+    let title_hash = env.crypto().sha256(&title_bytes);
+    if has_campaign_title(env, &creator, &title_hash) {
+        return Err(Error::DuplicateCampaignTitle);
+    }
+
     bump_instance_ttl(env);
     let mut count = get_campaign_count(env);
     count += 1;
@@ -126,6 +136,7 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     set_creator_campaign_bucket(env, &creator, bucket_idx, &bucket);
     set_creator_campaign_count(env, &creator, creator_count + 1);
     set_campaign_creator_index(env, count, &creator);
+    set_campaign_title_index(env, &creator, &title_hash);
 
     env.events().publish(
         ("campaign_created", count, creator),

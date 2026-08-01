@@ -592,9 +592,10 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     assert_eq!(client.get_max_campaign_funding_goal(), new_max);
 
     // Previously-rejected goal now succeeds.
+    let title2 = String::from_str(&env, "Max Goal 2");
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        title2,
         desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,

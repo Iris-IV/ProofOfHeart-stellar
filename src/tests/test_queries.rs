@@ -9,7 +9,7 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
     for i in 0..3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Desc"),
             1000 + i as i128,
             30,
@@ -38,7 +38,7 @@ fn test_list_active_campaigns_exclusive_cursor_semantics() {
     for _ in 0..4 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Desc"),
             1000,
             30,
@@ -382,7 +382,7 @@ fn list_campaigns_boundary_cases() {
     for idx in 0..3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -417,7 +417,7 @@ fn list_active_campaigns_boundary_cases_and_sparse_results() {
     for idx in 0..5 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,

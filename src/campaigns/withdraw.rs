@@ -30,7 +30,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.funds_withdrawn {
         return Err(Error::FundsAlreadyWithdrawn);
     }
-    if campaign.amount_raised == 0 {
+    if campaign.effective_amount_raised == 0 {
         return Err(Error::NoFundsToWithdraw);
     }
 
@@ -45,14 +45,14 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .fee_override
         .unwrap_or_else(|| get_platform_fee(env));
     // Ceiling division: ceil(a / b) = (a + b - 1) / b. Use checked arithmetic so
-    // a pathological amount_raised yields Error::Overflow rather than a panic (#408).
+    // a pathological effective_amount_raised yields Error::Overflow rather than a panic (#408).
     let fee_amount = campaign
-        .amount_raised
+        .effective_amount_raised
         .checked_mul(platform_fee as i128)
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.amount_raised - fee_amount;
+    let total_after_fee = campaign.effective_amount_raised - fee_amount;
 
     let reserve_bps = get_withdraw_reserve_percentage(env);
     let reserve_amount = total_after_fee
@@ -99,7 +99,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.amount_raised - reserve_amount)
+            .checked_sub(campaign.effective_amount_raised - reserve_amount)
             .ok_or(Error::Overflow)?,
     );
 

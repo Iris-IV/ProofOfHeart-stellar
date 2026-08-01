@@ -76,6 +76,8 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Maximum contribution per single transaction (0 = unlimited).
+    MaxContributionPerTransaction,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -110,6 +112,11 @@ pub enum CampaignKey {
     /// Reverse mapping from campaign ID to its current creator, keyed by campaign ID.
     /// Enables O(1) ownership verification without scanning a creator's campaign bucket.
     CampaignCreatorIndex(u32),
+    /// Emergency withdrawal proposal for a campaign, keyed by campaign ID.
+    EmergencyWithdrawalProposal(u32),
+    /// Index of title hashes per creator to enforce title uniqueness, keyed by
+    /// `(creator, sha256(title))`.
+    CreatorCampaignTitleIndex(Address, soroban_sdk::BytesN<32>),
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -1048,4 +1055,68 @@ pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address
 /// instead of scanning the creator's campaign bucket.
 pub fn is_campaign_creator(env: &Env, campaign_id: u32, creator: &Address) -> bool {
     get_campaign_creator_index(env, campaign_id).is_some_and(|c| &c == creator)
+}
+
+// ── Max contribution per transaction ───────────────────────────────────────────
+
+pub fn get_max_tx_contribution(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::MaxContributionPerTransaction)
+        .unwrap_or(crate::DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION)
+}
+
+pub fn set_max_tx_contribution(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::MaxContributionPerTransaction, &amount);
+}
+
+// ── Emergency withdrawal proposal ──────────────────────────────────────────────
+
+pub fn get_emergency_withdrawal_proposal(env: &Env, campaign_id: u32) -> Option<(Address, u64)> {
+    let key = CampaignKey::EmergencyWithdrawalProposal(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_emergency_withdrawal_proposal(
+    env: &Env,
+    campaign_id: u32,
+    recipient: &Address,
+    propose_timestamp: u64,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::EmergencyWithdrawalProposal(campaign_id),
+        &(recipient.clone(), propose_timestamp)
+    );
+}
+
+pub fn remove_emergency_withdrawal_proposal(env: &Env, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::EmergencyWithdrawalProposal(campaign_id));
+}
+
+// ── Creator campaign title index ───────────────────────────────────────────────
+
+pub fn has_campaign_title(
+    env: &Env,
+    creator: &Address,
+    title_hash: &soroban_sdk::BytesN<32>,
+) -> bool {
+    let key = CampaignKey::CreatorCampaignTitleIndex(creator.clone(), title_hash.clone());
+    env.storage().persistent().has(&key)
+}
+
+pub fn set_campaign_title_index(
+    env: &Env,
+    creator: &Address,
+    title_hash: &soroban_sdk::BytesN<32>,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::CreatorCampaignTitleIndex(creator.clone(), title_hash.clone()),
+        &true
+    );
 }

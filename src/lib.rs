@@ -41,10 +41,12 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION,
+    EMERGENCY_WITHDRAW_TIMELOCK_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
+pub(crate) use storage::get_max_tx_contribution;
 use storage::*;
 pub use storage::{AdminKey, CampaignKey, ContributionKey, RevenueKey, StorageKey, VotingKey};
 pub use types::*;
@@ -297,6 +299,10 @@ impl ProofOfHeart {
         admin::set_campaign_fee_override(&env, campaign_id, admin, fee_bps)
     }
 
+    pub fn set_max_tx_contribution(env: Env, admin: Address, amount: i128) -> Result<(), Error> {
+        admin::set_max_tx_contribution_fn(&env, admin, amount)
+    }
+
     pub fn set_category_duration_cap(
         env: Env,
         admin: Address,
@@ -410,6 +416,25 @@ impl ProofOfHeart {
         admin::initiate_admin_transfer(&env, admin, new_admin)
     }
 
+    // ── Admin: emergency withdrawal ───────────────────────────────────────────
+
+    pub fn propose_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        recipient: Address,
+    ) -> Result<(), Error> {
+        admin::propose_emergency_withdrawal(&env, admin, campaign_id, recipient)
+    }
+
+    pub fn execute_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        admin::execute_emergency_withdrawal(&env, admin, campaign_id)
+    }
+
     // ── Admin: migrate ────────────────────────────────────────────────────────
 
     pub fn migrate(env: Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
@@ -491,6 +516,10 @@ impl ProofOfHeart {
 
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
+    }
+
+    pub fn get_max_tx_contribution(env: Env) -> i128 {
+        get_max_tx_contribution(&env)
     }
 
     pub fn get_min_campaign_funding_goal(env: Env) -> i128 {

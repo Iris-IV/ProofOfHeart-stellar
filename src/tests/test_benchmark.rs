@@ -97,10 +97,14 @@ fn test_claim_revenue_instruction_budget() {
 fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    // Seeding 70 campaigns now also writes a per-campaign title-hash index,
+    // which pushes cumulative seeding past the default test budget. Lift the
+    // cap for setup so the measured query below is the thing under test.
+    env.budget().reset_unlimited();
     for _ in 0..70u32 {
         let params = CreateCampaignParams {
             creator: creator.clone(),
-            title: String::from_str(&env, "Campaign"),
+            title: unique_title(&env),
             description: String::from_str(&env, "Benchmark campaign"),
             funding_goal: 1_000,
             duration_days: 30,

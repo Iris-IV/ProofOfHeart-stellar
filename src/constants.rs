@@ -15,3 +15,9 @@ pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
 
 /// Delay before a proposed token update can be accepted (7 days).
 pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
+
+/// Timelock before an emergency withdrawal can be executed (7 days).
+pub(crate) const EMERGENCY_WITHDRAW_TIMELOCK_SECS: u64 = 7 * SECONDS_PER_DAY;
+
+/// Default per-transaction contribution limit (0 = unlimited).
+pub(crate) const DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION: i128 = 0;
