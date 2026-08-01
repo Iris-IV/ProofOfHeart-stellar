@@ -51,14 +51,13 @@ pub(crate) fn initiate_campaign_transfer(
 pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
+    require_not_paused(env)?;
 
     let pending = match campaign.pending_creator.clone() {
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
     pending.require_auth();
-
-    require_not_paused(env)?;
 
     bump_instance_ttl(env);
     let old_creator = campaign.creator.clone();
