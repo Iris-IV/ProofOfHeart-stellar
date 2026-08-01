@@ -153,9 +153,6 @@ pub(crate) fn contribute(
     check_burst_guard(env, campaign_id, &campaign, amount)?;
 
     bump_instance_ttl(env);
-    let client = token_client(env);
-    client.transfer(&contributor, &env.current_contract_address(), &amount);
-
     update_contribution_accounting(
         env,
         campaign_id,
@@ -165,6 +162,9 @@ pub(crate) fn contribute(
         lifetime,
         amount,
     );
+
+    let client = token_client(env);
+    client.transfer(&contributor, &env.current_contract_address(), &amount);
 
     env.events()
         .publish(("contribution_made", campaign_id, contributor), amount);
