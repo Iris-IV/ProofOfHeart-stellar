@@ -18,7 +18,10 @@ use proptest::prelude::*;
 
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{testutils::Ledger, String};
+use soroban_sdk::{
+    testutils::{AuthorizedFunction, AuthorizedInvocation, Ledger},
+    IntoVal, String, Symbol, TryFromVal,
+};
 
 // ── Pure logic: mirrors `set_personal_cap_fn`'s bound check and the dual
 //    cap check inside `contribute()` (src/contributions.rs) ────────────────
@@ -226,4 +229,145 @@ proptest! {
             amount
         );
     }
+}
+
+// ── remove_personal_cap (#503) ───────────────────────────────────────────────
+
+/// Setting a cap, then removing it, fully restores the "no personal cap"
+/// state: `get_personal_cap` reads 0 again and a `personal_cap_removed`
+/// event is emitted.
+#[test]
+fn test_remove_personal_cap_restores_no_cap_state() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Remove cap"),
+        description: String::from_str(&env, "remove_personal_cap flow"),
+        funding_goal: 10_000_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+
+    client.set_personal_cap(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 500);
+
+    client.remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+
+    // The removal event is published with (symbol, campaign_id, contributor)
+    // as topics.
+    let events = env.events().all();
+    let last = events.last().unwrap();
+    let topics = &last.1;
+    assert_eq!(topics.len(), 3);
+    let topic_symbol: soroban_sdk::String =
+        soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(
+        topic_symbol,
+        soroban_sdk::String::from_str(&env, "personal_cap_removed")
+    );
+    let topic_campaign: u32 = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(topic_campaign, campaign_id);
+}
+
+/// Removing a cap on a cancelled/inactive campaign fails with
+/// `CampaignNotActive`, mirroring `set_personal_cap_fn`'s guard.
+#[test]
+fn test_remove_personal_cap_inactive_campaign_returns_error() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Remove cap on cancelled"),
+        description: String::from_str(&env, "remove cap on inactive campaign"),
+        funding_goal: 10_000_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.set_personal_cap(&campaign_id, &contributor1, &500);
+
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+/// Removing a cap that was never set must fail with `PersonalCapNotFound`
+/// rather than silently succeeding, so indexers can trust the event.
+#[test]
+fn test_remove_personal_cap_nonexistent_returns_error() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Remove missing cap"),
+        description: String::from_str(&env, "remove cap that does not exist"),
+        funding_goal: 10_000_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    let res = client.try_remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::PersonalCapNotFound);
+}
+
+/// Removing a cap on a non-existent campaign fails with `CampaignNotFound`.
+#[test]
+fn test_remove_personal_cap_unknown_campaign_returns_error() {
+    let (_env, _admin, _creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let res = client.try_remove_personal_cap(&999, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotFound);
+}
+
+/// `remove_personal_cap` must be authorized by the contributor whose cap is
+/// being removed: the recorded auth entries must contain exactly one
+/// authorization, for that contributor, for the `remove_personal_cap` call
+/// (mirrors the auth verification in `test_claim_refund_requires_contributor_auth`).
+#[test]
+fn test_remove_personal_cap_requires_contributor_auth() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Remove cap auth"),
+        description: String::from_str(&env, "remove_personal_cap auth check"),
+        funding_goal: 10_000_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.set_personal_cap(&campaign_id, &contributor1, &500);
+
+    client.remove_personal_cap(&campaign_id, &contributor1);
+
+    let auths = env.auths();
+    assert_eq!(auths.len(), 1);
+    let (auth_addr, invocation) = &auths[0];
+    assert_eq!(auth_addr, &contributor1);
+    assert_eq!(
+        invocation,
+        &AuthorizedInvocation {
+            function: AuthorizedFunction::Contract((
+                client.address.clone(),
+                Symbol::new(&env, "remove_personal_cap"),
+                (campaign_id, contributor1.clone()).into_val(&env),
+            )),
+            sub_invocations: Default::default(),
+        }
+    );
 }

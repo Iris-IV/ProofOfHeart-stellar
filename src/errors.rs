@@ -95,6 +95,8 @@ pub enum Error {
     CampaignAlreadyBookmarked = 44,
     /// The campaign is not in the wallet's saved/bookmarked list.
     CampaignNotBookmarked = 45,
+    /// The contributor has no personal cap set on this campaign.
+    PersonalCapNotFound = 46,
 }
 
 impl Error {
@@ -148,6 +150,7 @@ impl Error {
             Error::InvalidStateTransition => "InvalidStateTransition",
             Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
             Error::CampaignNotBookmarked => "CampaignNotBookmarked",
+            Error::PersonalCapNotFound => "PersonalCapNotFound",
         }
     }
 }
@@ -173,6 +176,10 @@ mod tests {
         assert_eq!(
             Error::GoalMetCancellationNotAllowed.to_string(),
             "GoalMetCancellationNotAllowed"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.to_string(),
+            "PersonalCapNotFound"
         );
     }
 }

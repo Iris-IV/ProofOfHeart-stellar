@@ -457,6 +457,17 @@ impl ProofOfHeart {
         contributions::set_personal_cap_fn(&env, campaign_id, contributor, amount)
     }
 
+    /// Removes the contributor's personal contribution cap for a campaign,
+    /// restoring the campaign-wide `max_contribution_per_user` as the only
+    /// bound on their contributions (#503). Requires `contributor`'s auth.
+    pub fn remove_personal_cap(
+        env: Env,
+        campaign_id: u32,
+        contributor: Address,
+    ) -> Result<(), Error> {
+        contributions::remove_personal_cap_fn(&env, campaign_id, contributor)
+    }
+
     // ── Read-only queries ─────────────────────────────────────────────────────
 
     pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
@@ -647,33 +658,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
-use soroban_sdk::{contract, contractimpl, Env, String, Vec};
-
-#[contract]
-pub struct ProofOfHeartContract;
-
-#[contractimpl]
-impl ProofOfHeartContract {
-    /// Lists active campaigns, optionally filtered by a specific tag string.
-    pub fn list_active_campaigns(env: Env, tag_filter: Option<String>) -> Vec<Campaign> {
-        let all_campaigns: Vec<Campaign> = env
-            .storage()
-            .instance()
-            .get(&DataKey::Campaigns)
-            .unwrap_or(Vec::new(&env));
-
-        match tag_filter {
-            Some(filter_tag) => {
-                let mut filtered = Vec::new(&env);
-                for campaign in all_campaigns.iter() {
-                    if campaign.tags.contains(&filter_tag) {
-                        filtered.push_back(campaign);
-                    }
-                }
-                filtered
-            }
-            None => all_campaigns,
-        }
-    }
-}
