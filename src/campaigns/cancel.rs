@@ -8,7 +8,7 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_pending_refund_total, get_revenue_pool,
-    get_total_raised_global, get_token, increment_cancelled_campaign_count, remove_voting_state,
+    get_token, get_total_raised_global, increment_cancelled_campaign_count, remove_voting_state,
     set_campaign, set_pending_refund_total, set_revenue_pool, set_total_raised_global,
 };
 

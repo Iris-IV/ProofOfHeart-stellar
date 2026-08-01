@@ -6,10 +6,11 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
-    set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_lifetime_contribution, set_personal_cap, set_total_raised_global, AdminKey,
+    get_contribution, get_lifetime_contribution, get_pending_refund_total, get_personal_cap,
+    get_total_raised_global, increment_contributor_count, remove_contribution,
+    remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
+    set_contribution, set_lifetime_contribution, set_pending_refund_total, set_personal_cap,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -293,6 +294,15 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         set_total_raised_global(
             env,
             total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+        );
+    } else {
+        // For cancelled campaigns the escrow was moved to pending_refund_total
+        // at cancellation; drop it per-claimant so the token-swap guard (#407)
+        // sees the true outstanding balance.
+        let pending_refund = get_pending_refund_total(env);
+        set_pending_refund_total(
+            env,
+            pending_refund.checked_sub(amount).ok_or(Error::Overflow)?,
         );
     }
 
