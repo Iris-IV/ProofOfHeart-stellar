@@ -705,13 +705,15 @@ fn test_update_campaign_blocks_after_admin_verification() {
 }
 
 #[test]
-fn test_update_campaign_emits_title_and_description() {
+fn test_update_campaign_emits_old_and_new_title_and_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
@@ -726,14 +728,17 @@ fn test_update_campaign_emits_title_and_description() {
 
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
 
-    assert_eq!(payload.0, new_title);
-    assert_eq!(payload.1, new_desc);
+    assert_eq!(payload.0, orig_title, "old title");
+    assert_eq!(payload.1, orig_desc, "old description");
+    assert_eq!(payload.2, new_title, "new title");
+    assert_eq!(payload.3, new_desc, "new description");
 }
 
 #[test]
-fn test_update_campaign_event_tracks_latest_description() {
+fn test_update_campaign_event_old_values_track_previous_call_not_creation() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
@@ -761,9 +766,15 @@ fn test_update_campaign_event_tracks_latest_description() {
 
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(payload.0, String::from_str(&env, "Title V3"));
-    assert_eq!(payload.1, String::from_str(&env, "Description V3"));
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    // The second call's "old" values must be the state right before it
+    // (V2), not the original values from creation — old-value capture is
+    // per-call, not cumulative.
+    assert_eq!(payload.0, String::from_str(&env, "Title V2"));
+    assert_eq!(payload.1, String::from_str(&env, "Description V2"));
+    assert_eq!(payload.2, String::from_str(&env, "Title V3"));
+    assert_eq!(payload.3, String::from_str(&env, "Description V3"));
 }
 
 #[test]
@@ -833,6 +844,40 @@ fn test_update_campaign_description_success() {
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.description, new_desc);
     assert_eq!(campaign.funding_goal, 1_000);
+}
+
+#[test]
+fn test_update_campaign_description_emits_metadata_updated_with_unchanged_title() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "Original Title");
+    let old_desc = String::from_str(&env, "Original description");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        old_desc.clone(),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let new_desc = String::from_str(&env, "Updated description with more detail");
+    client.update_campaign_description(&campaign_id, &new_desc);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    // Title is unchanged by this entry point — both title slots equal the
+    // original title, only the description pair reflects the edit.
+    assert_eq!(payload.0, title, "old title slot mirrors unchanged title");
+    assert_eq!(payload.1, old_desc, "old description");
+    assert_eq!(payload.2, title, "new title slot mirrors unchanged title");
+    assert_eq!(payload.3, new_desc, "new description");
 }
 
 #[test]

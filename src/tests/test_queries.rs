@@ -531,3 +531,76 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
     assert_eq!(tail.get(0).unwrap().id, bucket_size + 1);
     assert_eq!(tail.get(extra - 1).unwrap().id, total);
 }
+
+#[test]
+fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for _ in 0..5 {
+        client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    let total = client.get_campaign_count();
+
+    // Both functions should return empty when start == total_count
+    let list_at_boundary = client.list_campaigns(&total, &10);
+    let active_at_boundary = client.list_active_campaigns(&total, &10);
+    assert_eq!(list_at_boundary.len(), 0);
+    assert_eq!(active_at_boundary.0.len(), 0);
+    assert_eq!(active_at_boundary.1, 0);
+
+    // Both should also return empty when start > total_count
+    let list_beyond_boundary = client.list_campaigns(&(total + 1), &10);
+    let active_beyond_boundary = client.list_active_campaigns(&(total + 1), &10);
+    assert_eq!(list_beyond_boundary.len(), 0);
+    assert_eq!(active_beyond_boundary.0.len(), 0);
+    assert_eq!(active_beyond_boundary.1, 0);
+}
+
+#[test]
+fn test_get_creator_stats_zero_campaigns() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let new_creator = Address::generate(&env);
+
+    // Creator with no campaigns should return zeroed stats without panicking
+    let stats = client.get_creator_stats(&new_creator);
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.total_raised, 0);
+    assert_eq!(stats.total_contributors, 0);
+}
+
+#[test]
+fn test_get_platform_stats_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin.clone());
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    client.init(&admin, &token, &200);
+
+    // Immediately after init, all counters should be zero
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.verified_campaigns, 0);
+    assert_eq!(stats.cancelled_campaigns, 0);
+    assert_eq!(stats.total_amount_raised, 0);
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.scanned_up_to, 0);
+}

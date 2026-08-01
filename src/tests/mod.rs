@@ -1,12 +1,14 @@
 pub(crate) mod helpers;
 
 mod test_admin;
+mod test_admin_cancel;
 mod test_benchmark;
 mod test_bookmarks;
 mod test_campaign_update;
 mod test_campaigns;
 mod test_cancel_after_goal_met;
 mod test_cancel_revenue_orphan;
+mod test_cap_interactions;
 mod test_contributions;
 mod test_creator_buckets;
 mod test_lifecycle;
