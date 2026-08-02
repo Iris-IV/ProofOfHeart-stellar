@@ -110,6 +110,16 @@ Using separate flags provides a clearer audit trail — indexers can distinguish
 | Burst contribution triggers auto-pause; campaign is still active | `resume_campaign(campaign_id)` or `unpause()` |
 | Burst contribution triggers auto-pause; campaign was cancelled | `unpause()` only (`resume_campaign` fails with `CampaignNotActive`) |
 | Admin pauses manually | `unpause()` |
+## Bookmarks (Out-of-Lifecycle Wallet Action)
+
+Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
+
+- **During Active state** — Before verification, after verification, etc.
+- **After Withdrawal** — To track completed causes.
+- **After Cancellation** — Though the campaign will never become active again, the bookmark persists (documented gap #667).
+- **After Expiration** — Similarly, bookmarks persist for expired/failed campaigns.
+
+Frontend integrations should filter the bookmark list based on campaign state when displaying "saved causes" to users. The contract does not auto-prune bookmarks for cancelled or expired campaigns; the `prune_bookmarks_for_campaign` helper currently documents this gap without a full solution.
 
 ## Token Migration Policy (issue #407)
 
