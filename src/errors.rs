@@ -272,11 +272,12 @@ mod tests {
             "GoalMetCancellationNotAllowed"
         );
         assert_eq!(
-            Error::PersonalCapNotFound.to_string(),
-            "PersonalCapNotFound"
-        );
             Error::InvalidStateTransition.to_string(),
             "InvalidStateTransition"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.to_string(),
+            "PersonalCapNotFound"
         );
         assert_eq!(
             Error::CampaignAlreadyBookmarked.to_string(),
