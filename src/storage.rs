@@ -76,6 +76,9 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Admin-configured delay (seconds) before a proposed token update can be
+    /// accepted, overriding the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
+    TokenUpdateDelaySecs,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -942,6 +945,23 @@ pub fn set_pending_token_release(env: &Env, timestamp: u64) {
 /// Returns the release timestamp for the pending token update.
 pub fn get_pending_token_release(env: &Env) -> Option<u64> {
     env.storage().instance().get(&AdminKey::PendingTokenRelease)
+}
+
+/// Returns the configured token-update timelock delay in seconds, falling
+/// back to `default` (the compiled-in `TOKEN_UPDATE_DELAY_SECS`) if the admin
+/// has never overridden it (#650).
+pub fn get_token_update_delay_secs(env: &Env, default: u64) -> u64 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::TokenUpdateDelaySecs)
+        .unwrap_or(default)
+}
+
+/// Stores the admin-configured token-update timelock delay in seconds.
+pub fn set_token_update_delay_secs(env: &Env, delay_secs: u64) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::TokenUpdateDelaySecs, &delay_secs);
 }
 
 // ── O(1) platform stat counters ───────────────────────────────────────────────
