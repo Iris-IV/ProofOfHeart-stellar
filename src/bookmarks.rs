@@ -49,6 +49,9 @@ pub fn remove_saved_campaign(env: &Env, user: Address, campaign_id: u32) -> Resu
     match position {
         Some(idx) => {
             let mut updated = saved;
+            // Vec::remove shifts all subsequent elements to the left.
+            // Removing the first element causes the largest shift, while removing
+            // the last element requires no shifting.
             updated.remove(idx as u32);
             set_saved_campaigns(env, &user, &updated);
 
