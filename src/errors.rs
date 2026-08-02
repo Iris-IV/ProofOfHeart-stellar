@@ -99,6 +99,22 @@ pub enum Error {
     PersonalCapNotFound = 46,
 }
 
+/// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
+/// a bare list of variant identifiers. Each name is derived from the
+/// identifier via `stringify!` instead of being retyped as a separate string
+/// literal, so `name()` cannot report a name that has drifted (e.g. via a
+/// typo) from the actual variant it matches — the only thing left to keep in
+/// sync by hand is the list of identifiers itself, and forgetting one there
+/// is still caught by the compiler because the expanded `match` remains
+/// exhaustive-checked against every `Error` variant (#651).
+macro_rules! error_names {
+    ($self:expr, [$($variant:ident),* $(,)?]) => {
+        match $self {
+            $(Error::$variant => stringify!($variant),)*
+        }
+    };
+}
+
 impl Error {
     /// Returns the canonical string name of this error variant, so event
     /// payloads and debug logs can show a human-readable name instead of the
@@ -152,6 +168,56 @@ impl Error {
             Error::CampaignNotBookmarked => "CampaignNotBookmarked",
             Error::PersonalCapNotFound => "PersonalCapNotFound",
         }
+        error_names!(
+            self,
+            [
+                NotAuthorized,
+                CampaignNotFound,
+                CampaignNotActive,
+                FundingGoalMustBePositive,
+                InvalidDuration,
+                InvalidRevenueShare,
+                RevenueShareOnlyForStartup,
+                DeadlinePassed,
+                ContributionMustBePositive,
+                DeadlineNotPassed,
+                FundsAlreadyWithdrawn,
+                FundingGoalNotReached,
+                NoFundsToWithdraw,
+                CampaignAlreadyVerified,
+                ValidationFailed,
+                AlreadyVoted,
+                NotTokenHolder,
+                VotingQuorumNotMet,
+                VotingThresholdNotMet,
+                AlreadyInitialized,
+                NotPendingOwner,
+                NoTransferPending,
+                InvalidNewOwner,
+                ContractPaused,
+                ContributionCapExceeded,
+                CampaignNotVerified,
+                AmountRaisedIsZero,
+                RevenueSharingNotEnabled,
+                CancellationNotAllowed,
+                Overflow,
+                InvalidTokenContract,
+                CreationDisabled,
+                FundingGoalTooLow,
+                AdminVerificationConflict,
+                CommunityVerificationConflict,
+                DeadlineAlreadyExtended,
+                ExtensionTooLong,
+                FundingGoalTooHigh,
+                InvalidPlatformFee,
+                TransferAlreadyPending,
+                InvalidVestingDelay,
+                GoalMetCancellationNotAllowed,
+                InvalidStateTransition,
+                CampaignAlreadyBookmarked,
+                CampaignNotBookmarked,
+            ]
+        )
     }
 }
 
@@ -309,5 +375,22 @@ mod tests {
             Error::CampaignNotBookmarked.to_string()
         );
         assert_eq!(Error::Overflow.name(), Error::Overflow.to_string());
+    }
+
+    /// #651: `name()`'s match arms are generated via `stringify!`, so every
+    /// variant's reported name is guaranteed to match its identifier exactly
+    /// (case included) — this is a sample spot-check, not an exhaustiveness
+    /// proof (the compiler already guarantees the match is exhaustive).
+    #[test]
+    fn name_matches_identifier_for_every_variant() {
+        assert_eq!(
+            Error::CampaignAlreadyBookmarked.name(),
+            "CampaignAlreadyBookmarked"
+        );
+        assert_eq!(Error::CampaignNotBookmarked.name(), "CampaignNotBookmarked");
+        assert_eq!(
+            Error::InvalidStateTransition.name(),
+            "InvalidStateTransition"
+        );
     }
 }
