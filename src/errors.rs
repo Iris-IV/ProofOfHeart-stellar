@@ -95,8 +95,10 @@ pub enum Error {
     CampaignAlreadyBookmarked = 44,
     /// The campaign is not in the wallet's saved/bookmarked list.
     CampaignNotBookmarked = 45,
+    /// The fee override basis points exceed the maximum allowed (100%).
+    InvalidFeeOverride = 46,
     /// The contributor has no personal cap set on this campaign.
-    PersonalCapNotFound = 46,
+    PersonalCapNotFound = 47,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -113,6 +115,7 @@ macro_rules! error_names {
             $(Error::$variant => stringify!($variant),)*
         }
     };
+}
 }
 
 impl Error {
@@ -168,6 +171,7 @@ impl Error {
                 InvalidStateTransition,
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
+                InvalidFeeOverride,
                 PersonalCapNotFound,
             ]
         )
