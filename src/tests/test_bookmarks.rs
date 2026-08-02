@@ -178,9 +178,13 @@ fn test_save_campaign_then_cancel() {
 }
 
 #[test]
-fn test_remove_saved_campaign_first_vs_last() {
+fn test_get_saved_returns_insertion_order_after_interleaved_add_remove_add() {
+    // Verifies that get_saved returns campaign ids in the order they were saved,
+    // even after a mid-list removal. The doc comment promises "in the order they
+    // were saved", which should hold after remove operations.
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
+    // Create three campaigns
     let id1 = client.create_campaign(&make_params(
         creator.clone(),
         String::from_str(&env, "Campaign 1"),
@@ -215,25 +219,32 @@ fn test_remove_saved_campaign_first_vs_last() {
         0i128,
     ));
 
-    // Save three campaigns: [id1, id2, id3]
+    // Save all three in order: [id1, id2, id3]
     client.save_campaign(&contributor1, &id1);
     client.save_campaign(&contributor1, &id2);
     client.save_campaign(&contributor1, &id3);
 
-    // Test removing the last element (id3) - no shifting required
-    client.remove_saved_campaign(&contributor1, &id3);
-    let saved_after_last_removed = client.get_saved_campaigns(&contributor1);
-    assert_eq!(saved_after_last_removed.len(), 2);
-    assert_eq!(saved_after_last_removed.get(0).unwrap(), id1);
-    assert_eq!(saved_after_last_removed.get(1).unwrap(), id2);
+    let saved = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved.len(), 3);
+    assert_eq!(saved.get(0).unwrap(), id1);
+    assert_eq!(saved.get(1).unwrap(), id2);
+    assert_eq!(saved.get(2).unwrap(), id3);
 
-    // Add it back to have three again: [id1, id2, id3]
-    client.save_campaign(&contributor1, &id3);
+    // Remove the middle campaign (id2)
+    client.remove_saved_campaign(&contributor1, &id2);
 
-    // Test removing the first element (id1) - largest shifting required (id2, id3 shift left)
-    client.remove_saved_campaign(&contributor1, &id1);
-    let saved_after_first_removed = client.get_saved_campaigns(&contributor1);
-    assert_eq!(saved_after_first_removed.len(), 2);
-    assert_eq!(saved_after_first_removed.get(0).unwrap(), id2);
-    assert_eq!(saved_after_first_removed.get(1).unwrap(), id3);
+    let saved_after_remove = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved_after_remove.len(), 2);
+    assert_eq!(saved_after_remove.get(0).unwrap(), id1);
+    assert_eq!(saved_after_remove.get(1).unwrap(), id3);
+
+    // Re-add id2 - it should be appended at the end, not inserted back in its original position
+    client.save_campaign(&contributor1, &id2);
+
+    let saved_after_readd = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved_after_readd.len(), 3);
+    // Order should reflect insertion order: id1, id3 (from before), then id2 (re-added)
+    assert_eq!(saved_after_readd.get(0).unwrap(), id1);
+    assert_eq!(saved_after_readd.get(1).unwrap(), id3);
+    assert_eq!(saved_after_readd.get(2).unwrap(), id2);
 }
