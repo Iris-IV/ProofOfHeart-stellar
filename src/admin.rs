@@ -6,13 +6,13 @@ use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
     get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
-    get_total_raised_global, get_version, is_initialized, remove_has_voted, remove_pending_admin,
-    remove_pending_token, remove_voting_state, set_admin, set_approval_threshold_bps,
-    set_campaign_count, set_creation_disabled, set_initialized, set_max_campaign_funding_goal,
-    set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
-    set_pending_token, set_pending_token_release, set_platform_fee, set_token,
-    set_total_raised_global, set_version, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage, AdminKey,
+    get_token_update_delay_secs, get_total_raised_global, get_version, is_initialized,
+    remove_has_voted, remove_pending_admin, remove_pending_token, remove_voting_state, set_admin,
+    set_approval_threshold_bps, set_campaign_count, set_creation_disabled, set_initialized,
+    set_max_campaign_funding_goal, set_min_campaign_funding_goal, set_min_votes_quorum,
+    set_min_voting_balance, set_pending_admin, set_pending_token, set_pending_token_release,
+    set_platform_fee, set_token, set_token_update_delay_secs, set_total_raised_global, set_version,
+    set_withdraw_release_delay_days, set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
 
@@ -332,10 +332,11 @@ pub(crate) fn propose_token_update(
     .map_err(|_| Error::InvalidTokenContract)?
     .map_err(|_| Error::InvalidTokenContract)?;
 
+    let delay_secs = get_token_update_delay_secs(env, crate::TOKEN_UPDATE_DELAY_SECS);
     let release_after = env
         .ledger()
         .timestamp()
-        .checked_add(crate::TOKEN_UPDATE_DELAY_SECS)
+        .checked_add(delay_secs)
         .ok_or(Error::ValidationFailed)?;
 
     bump_instance_ttl(env);
@@ -386,6 +387,28 @@ pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error
     bump_instance_ttl(env);
     remove_pending_token(env);
     env.events().publish(("token_update_cancelled",), ());
+    Ok(())
+}
+
+/// Lets the admin override the timelock delay that `propose_token_update`
+/// enforces before a pending token update can be accepted, instead of it
+/// being fixed at the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
+/// Does not affect a token update that is already pending: that keeps the
+/// release timestamp computed with the delay in effect at proposal time.
+pub(crate) fn set_token_update_delay_secs_fn(
+    env: &Env,
+    admin: Address,
+    delay_secs: u64,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if delay_secs == 0 || delay_secs > crate::MAX_TOKEN_UPDATE_DELAY_SECS {
+        return Err(Error::ValidationFailed);
+    }
+    let old_delay = get_token_update_delay_secs(env, crate::TOKEN_UPDATE_DELAY_SECS);
+    bump_instance_ttl(env);
+    set_token_update_delay_secs(env, delay_secs);
+    env.events()
+        .publish(("token_update_delay_updated",), (old_delay, delay_secs));
     Ok(())
 }
 
