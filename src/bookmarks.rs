@@ -6,18 +6,27 @@
 //! address, so any client can display a user's saved campaigns directly from
 //! chain state.
 
+extern crate std;
+
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::get_campaign_or_error;
 use crate::storage::{get_saved_campaigns, set_saved_campaigns};
 
+fn require_auth_or_not_authorized(_env: &Env, user: &Address) -> Result<(), Error> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| user.require_auth())) {
+        Ok(()) => Ok(()),
+        Err(_) => Err(Error::NotAuthorized),
+    }
+}
+
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
-/// Requires the wallet's authorization. Fails if the campaign doesn't exist
-/// or is already bookmarked.
+/// Requires the wallet's authorization for the supplied `user` address.
+/// Fails if the campaign doesn't exist or is already bookmarked.
 pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), Error> {
-    user.require_auth();
+    require_auth_or_not_authorized(env, &user)?;
 
     // Ensure the campaign actually exists before letting it be bookmarked.
     get_campaign_or_error(env, campaign_id)?;
@@ -38,10 +47,10 @@ pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), E
 
 /// Removes `campaign_id` from `user`'s saved-campaigns list.
 ///
-/// Requires the wallet's authorization. Fails if the campaign isn't
-/// currently bookmarked.
+/// Requires the wallet's authorization for the supplied `user` address.
+/// Fails if the campaign isn't currently bookmarked.
 pub fn remove_saved_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), Error> {
-    user.require_auth();
+    require_auth_or_not_authorized(env, &user)?;
 
     let saved = get_saved_campaigns(env, &user);
     let position = saved.iter().position(|id| id == campaign_id);
