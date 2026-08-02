@@ -362,8 +362,7 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
     assert_eq!(admin_in_topics, admin);
 
-    let data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(data, ());
+    let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
 }
 
 #[test]
