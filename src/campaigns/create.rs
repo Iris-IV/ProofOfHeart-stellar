@@ -6,10 +6,11 @@ use crate::storage::{
     bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
-    get_min_campaign_funding_goal, set_campaign, set_campaign_count, set_campaign_creator_index,
-    set_campaign_start_time, set_category_campaign_bucket, set_category_campaign_count,
-    set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_min_campaign_funding_goal, get_withdraw_release_delay_days,
+    get_withdraw_reserve_percentage, set_campaign, set_campaign_count, set_campaign_creator_index,
+    set_campaign_start_time, set_campaign_vesting, set_category_campaign_bucket,
+    set_category_campaign_count, set_creator_campaign_bucket, set_creator_campaign_count,
+    set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -107,6 +108,13 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         deadline_extended: false,
         effective_amount_raised: 0,
     };
+
+    // Snapshot the current global vesting parameters per-campaign so that
+    // future changes to `set_vesting_params` do not retroactively affect
+    // campaigns already created (#466).
+    let vesting_delay = get_withdraw_release_delay_days(env);
+    let vesting_bps = get_withdraw_reserve_percentage(env);
+    set_campaign_vesting(env, count, vesting_delay, vesting_bps);
 
     set_campaign(env, count, &campaign);
     set_campaign_start_time(env, count, env.ledger().timestamp());

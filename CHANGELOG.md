@@ -13,6 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - Reverted two accidental merges that shipped a broken duplicate `ProofOfHeartContract` contract (a stray `list_active_campaigns(tag_filter)`, category max-goal cap functions, and a `remove_personal_cap` impl referencing non-existent storage keys), plus orphaned TypeScript SDK files and stray frontend React files with no build setup. The real `ProofOfHeart` contract is now the only contract in the crate.
+### Removed
+
+- Removed the dead `BlockContributionCount` storage key variant and its unused `get_block_contribution_count` / `set_block_contribution_count` helpers. Only the per-campaign `BlockCampaignContributionCount` is actually used by the anomaly-detection burst guard (#435).
+
+### Fixed
+
+- `resume_campaign` now checks the global `AutoPaused` flag before `require_active_campaign`, returning early with `ValidationFailed` when the contract is not auto-paused instead of failing on an unrelated campaign-state check. The admin recovery path via `unpause()` also clears `AutoPaused` alongside `Paused` so neither flag can permanently lock the contract (#436).
+
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
 
 - `update_campaign_description` now blocks edits once `amount_raised > 0`, preventing bait-and-switch after contributions (#166).
