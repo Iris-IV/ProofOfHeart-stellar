@@ -120,54 +120,6 @@ impl Error {
     /// payloads and debug logs can show a human-readable name instead of the
     /// bare discriminant number.
     pub fn name(&self) -> &'static str {
-        match self {
-            Error::NotAuthorized => "NotAuthorized",
-            Error::CampaignNotFound => "CampaignNotFound",
-            Error::CampaignNotActive => "CampaignNotActive",
-            Error::FundingGoalMustBePositive => "FundingGoalMustBePositive",
-            Error::InvalidDuration => "InvalidDuration",
-            Error::InvalidRevenueShare => "InvalidRevenueShare",
-            Error::RevenueShareOnlyForStartup => "RevenueShareOnlyForStartup",
-            Error::DeadlinePassed => "DeadlinePassed",
-            Error::ContributionMustBePositive => "ContributionMustBePositive",
-            Error::DeadlineNotPassed => "DeadlineNotPassed",
-            Error::FundsAlreadyWithdrawn => "FundsAlreadyWithdrawn",
-            Error::FundingGoalNotReached => "FundingGoalNotReached",
-            Error::NoFundsToWithdraw => "NoFundsToWithdraw",
-            Error::CampaignAlreadyVerified => "CampaignAlreadyVerified",
-            Error::ValidationFailed => "ValidationFailed",
-            Error::AlreadyVoted => "AlreadyVoted",
-            Error::NotTokenHolder => "NotTokenHolder",
-            Error::VotingQuorumNotMet => "VotingQuorumNotMet",
-            Error::VotingThresholdNotMet => "VotingThresholdNotMet",
-            Error::AlreadyInitialized => "AlreadyInitialized",
-            Error::NotPendingOwner => "NotPendingOwner",
-            Error::NoTransferPending => "NoTransferPending",
-            Error::InvalidNewOwner => "InvalidNewOwner",
-            Error::ContractPaused => "ContractPaused",
-            Error::ContributionCapExceeded => "ContributionCapExceeded",
-            Error::CampaignNotVerified => "CampaignNotVerified",
-            Error::AmountRaisedIsZero => "AmountRaisedIsZero",
-            Error::RevenueSharingNotEnabled => "RevenueSharingNotEnabled",
-            Error::CancellationNotAllowed => "CancellationNotAllowed",
-            Error::Overflow => "Overflow",
-            Error::InvalidTokenContract => "InvalidTokenContract",
-            Error::CreationDisabled => "CreationDisabled",
-            Error::FundingGoalTooLow => "FundingGoalTooLow",
-            Error::AdminVerificationConflict => "AdminVerificationConflict",
-            Error::CommunityVerificationConflict => "CommunityVerificationConflict",
-            Error::DeadlineAlreadyExtended => "DeadlineAlreadyExtended",
-            Error::ExtensionTooLong => "ExtensionTooLong",
-            Error::FundingGoalTooHigh => "FundingGoalTooHigh",
-            Error::InvalidPlatformFee => "InvalidPlatformFee",
-            Error::TransferAlreadyPending => "TransferAlreadyPending",
-            Error::InvalidVestingDelay => "InvalidVestingDelay",
-            Error::GoalMetCancellationNotAllowed => "GoalMetCancellationNotAllowed",
-            Error::InvalidStateTransition => "InvalidStateTransition",
-            Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
-            Error::CampaignNotBookmarked => "CampaignNotBookmarked",
-            Error::PersonalCapNotFound => "PersonalCapNotFound",
-        }
         error_names!(
             self,
             [
@@ -216,6 +168,7 @@ impl Error {
                 InvalidStateTransition,
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
+                PersonalCapNotFound,
             ]
         )
     }
@@ -236,7 +189,7 @@ mod tests {
 
     #[test]
     fn display_matches_variant_name() {
-        // Comprehensive check: all 45 variants' Display output matches their name()
+        // Comprehensive check: all 46 variants' Display output matches their name()
         // This ensures the name()/Display pairing stays correct as variants are added.
         assert_eq!(Error::NotAuthorized.to_string(), "NotAuthorized");
         assert_eq!(Error::CampaignNotFound.to_string(), "CampaignNotFound");
@@ -340,6 +293,8 @@ mod tests {
         assert_eq!(
             Error::PersonalCapNotFound.to_string(),
             "PersonalCapNotFound"
+        );
+        assert_eq!(
             Error::InvalidStateTransition.to_string(),
             "InvalidStateTransition"
         );
