@@ -1,6 +1,5 @@
 use super::helpers::*;
 use crate::{
-    bookmarks,
     storage::{set_campaign, set_saved_campaigns},
     types::{Campaign, MaybePendingCreator},
     Category, Error,
@@ -179,14 +178,14 @@ fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
         effective_amount_raised: 0,
     };
 
-    let result = env.as_contract(&client.address, || {
+    env.as_contract(&client.address, || {
         set_campaign(&env, campaign_id, &campaign);
         set_saved_campaigns(&env, &contributor1, &soroban_sdk::vec![&env, campaign_id]);
-
-        bookmarks::remove_saved_campaign(&env, contributor2.clone(), campaign_id)
     });
 
-    assert_eq!(result, Err(Error::NotAuthorized));
+    let result = client.try_remove_saved_campaign(&contributor2, &campaign_id);
+
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
 }
 
 #[test]
