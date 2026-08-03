@@ -337,7 +337,6 @@ impl ProofOfHeart {
         admin::set_category_duration_cap(&env, admin, category, max_days)
     }
 
-
     pub fn remove_category_duration_cap(
         env: Env,
         admin: Address,
