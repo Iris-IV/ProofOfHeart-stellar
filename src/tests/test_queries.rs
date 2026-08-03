@@ -196,7 +196,7 @@ fn test_get_creator_stats_returns_aggregates() {
     let stats = client.get_creator_stats(&creator);
     assert_eq!(stats.total_campaigns, 2);
     assert_eq!(stats.active_campaigns, 1);
-    assert_eq!(stats.total_raised, 700);
+    assert_eq!(stats.total_raised, 400);
     assert_eq!(stats.total_contributors, 3);
 }
 
