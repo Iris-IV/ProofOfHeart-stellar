@@ -41,10 +41,12 @@ fn test_update_campaign_blocks_after_admin_verification() {
 fn test_update_campaign_emits_title_and_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
