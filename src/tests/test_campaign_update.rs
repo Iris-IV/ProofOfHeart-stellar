@@ -162,7 +162,7 @@ fn test_update_campaign_description_success() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
+    // Do NOT verify the campaign, so we can edit it!
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     assert!(client
@@ -172,6 +172,30 @@ fn test_update_campaign_description_success() {
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.description, new_desc);
     assert_eq!(campaign.funding_goal, 1_000);
+}
+
+#[test]
+fn test_update_campaign_description_blocks_after_verification() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        String::from_str(&env, "Original description"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "Updated description with more detail"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 }
 
 #[test]
@@ -241,7 +265,7 @@ fn test_campaign_ownership_transfer_flow() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
+    // Do NOT verify the campaign so we can still edit its description!
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
@@ -425,7 +449,7 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
 }
 
 #[test]
-fn test_update_description_after_contribution() {
+fn test_update_campaign_description_with_contributions_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &1000);
 
@@ -444,10 +468,9 @@ fn test_update_description_after_contribution() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     let new_desc = String::from_str(&env, "New Description After Contribution");
-    client.update_campaign_description(&campaign_id, &new_desc);
+    let res = client.try_update_campaign_description(&campaign_id, &new_desc);
 
-    let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.description, new_desc);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 }
 
 #[test]

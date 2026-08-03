@@ -60,19 +60,20 @@ pub(crate) fn update_campaign_description(
     campaign_id: u32,
     description: String,
 ) -> Result<(), Error> {
-    require_not_paused(env)?;
-    let mut campaign = get_creator_campaign(env, campaign_id)?;
-
-    require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn {
-        return Err(Error::CampaignNotActive);
-    }
-
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
         || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
     {
         return Err(Error::ValidationFailed);
     }
+
+    require_not_paused(env)?;
+    let mut campaign = get_creator_campaign(env, campaign_id)?;
+
+    if campaign.funds_withdrawn {
+        return Err(Error::CampaignNotActive);
+    }
+    require_active_campaign(&campaign)?;
+    require_unverified_campaign(&campaign)?;
 
     bump_instance_ttl(env);
     let old_description = campaign.description.clone();

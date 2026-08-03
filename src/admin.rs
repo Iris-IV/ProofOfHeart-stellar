@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String, Symbol, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};

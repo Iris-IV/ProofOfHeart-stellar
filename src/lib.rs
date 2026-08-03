@@ -337,18 +337,6 @@ impl ProofOfHeart {
         admin::set_category_duration_cap(&env, admin, category, max_days)
     }
 
-    pub fn set_category_max_goal_cap(
-        env: Env,
-        admin: Address,
-        category: String,
-        max_goal: i128,
-    ) -> Result<(), Error> {
-        admin::set_category_max_goal_cap(&env, admin, category, max_goal)
-    }
-
-    pub fn get_category_max_goal_cap(env: Env, category: String) -> Option<i128> {
-        admin::get_category_max_goal_cap(&env, category)
-    }
 
     pub fn remove_category_duration_cap(
         env: Env,
