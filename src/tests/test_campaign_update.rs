@@ -59,6 +59,7 @@ fn test_update_campaign_emits_title_and_description() {
     let new_desc = String::from_str(&env, "Updated Description");
     client.update_campaign(&campaign_id, &new_title, &new_desc);
 
+    // #349: campaign_metadata_updated emits (old_title, old_desc, new_title, new_desc).
     let events = env.events().all();
     let last_event = events.last().unwrap();
     let payload: (String, String, String, String) =
@@ -72,10 +73,12 @@ fn test_update_campaign_emits_title_and_description() {
 fn test_update_campaign_event_tracks_latest_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Learner,
@@ -84,17 +87,16 @@ fn test_update_campaign_event_tracks_latest_description() {
         0i128,
     ));
 
-    client.update_campaign(
-        &campaign_id,
-        &String::from_str(&env, "Title V2"),
-        &String::from_str(&env, "Description V2"),
-    );
-    client.update_campaign(
-        &campaign_id,
-        &String::from_str(&env, "Title V3"),
-        &String::from_str(&env, "Description V3"),
-    );
+    let title_v2 = String::from_str(&env, "Title V2");
+    let desc_v2 = String::from_str(&env, "Description V2");
+    let title_v3 = String::from_str(&env, "Title V3");
+    let desc_v3 = String::from_str(&env, "Description V3");
 
+    client.update_campaign(&campaign_id, &title_v2, &desc_v2);
+    client.update_campaign(&campaign_id, &title_v3, &desc_v3);
+
+    // #349: last event payload is (old_title, old_desc, new_title, new_desc).
+    // The second call's "old" is V2, "new" is V3.
     let events = env.events().all();
     let last_event = events.last().unwrap();
     let payload: (String, String, String, String) =
@@ -525,9 +527,11 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
     // Cancel the campaign (was blocked while auto-paused)
     client.cancel_campaign(&campaign_id);
 
-    // resume_campaign fails because campaign is cancelled
+    // resume_campaign returns ValidationFailed because unpause already
+    // cleared AutoPaused, and the new early check (fix #436) catches it
+    // before the campaign-state check.
     let res2 = client.try_resume_campaign(&campaign_id, &creator);
-    assert_eq!(res2.unwrap_err().unwrap(), Error::CampaignNotActive);
+    assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // But operations still work because unpause already cleared AutoPaused
     let new_id = client.create_campaign(&CreateCampaignParams {

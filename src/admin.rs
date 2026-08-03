@@ -507,14 +507,10 @@ pub(crate) fn purge_voting_state(
 pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
     caller.require_auth();
 
-    let campaign = get_campaign_or_error(env, campaign_id)?;
-    require_active_campaign(&campaign)?;
-
-    let admin = get_admin(env);
-    if caller != campaign.creator && caller != admin {
-        return Err(Error::NotAuthorized);
-    }
-
+    // Check auto-pause FIRST: if the contract isn't auto-paused, bail early
+    // without touching campaign storage. Also ensures the admin can still
+    // clear the global flag via unpause() even if the triggering campaign
+    // has since become inactive (fix #436).
     let auto_paused: bool = env
         .storage()
         .instance()
@@ -522,6 +518,14 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
         .unwrap_or(false);
     if !auto_paused {
         return Err(Error::ValidationFailed);
+    }
+
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+
+    let admin = get_admin(env);
+    if caller != campaign.creator && caller != admin {
+        return Err(Error::NotAuthorized);
     }
 
     bump_instance_ttl(env);
