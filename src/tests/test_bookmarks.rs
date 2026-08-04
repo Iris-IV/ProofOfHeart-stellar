@@ -159,11 +159,25 @@ fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
 
     client.save_campaign(&contributor1, &campaign_id);
 
-    // Disable auto-mocked auths to test that attempting to remove a saved campaign for contributor2
-    // fails with a host authorization error if unauthenticated.
-    env.set_auths(&[]);
+    client.remove_saved_campaign(&contributor1, &campaign_id);
+
+    // Verify that remove_saved_campaign requires authorization from the specified user (contributor1)
+    let auths = env.auths();
+    let found = auths.iter().any(|(addr, inv)| {
+        *addr == contributor1
+            && match &inv.function {
+                soroban_sdk::testutils::AuthorizedFunction::Contract((contract, function, _)) => {
+                    contract == &client.address
+                        && function == &soroban_sdk::Symbol::new(&env, "remove_saved_campaign")
+                }
+                _ => false,
+            }
+    });
+    assert!(found, "remove_saved_campaign must record authorization for contributor1");
+
+    // Also verify trying to remove a campaign that contributor2 hasn't bookmarked fails cleanly
     let result = client.try_remove_saved_campaign(&contributor2, &campaign_id);
-    assert!(result.is_err());
+    assert_eq!(result, Err(Ok(Error::CampaignNotBookmarked)));
 }
 
 #[test]
