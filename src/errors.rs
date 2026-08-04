@@ -95,6 +95,8 @@ pub enum Error {
     CampaignAlreadyBookmarked = 44,
     /// The campaign is not in the wallet's saved/bookmarked list.
     CampaignNotBookmarked = 45,
+    /// The contributor has no personal cap set on this campaign.
+    PersonalCapNotFound = 46,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -166,6 +168,7 @@ impl Error {
                 InvalidStateTransition,
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
+                PersonalCapNotFound,
             ]
         )
     }
@@ -186,7 +189,7 @@ mod tests {
 
     #[test]
     fn display_matches_variant_name() {
-        // Comprehensive check: all 45 variants' Display output matches their name()
+        // Comprehensive check: all 46 variants' Display output matches their name()
         // This ensures the name()/Display pairing stays correct as variants are added.
         assert_eq!(Error::NotAuthorized.to_string(), "NotAuthorized");
         assert_eq!(Error::CampaignNotFound.to_string(), "CampaignNotFound");
@@ -286,6 +289,10 @@ mod tests {
         assert_eq!(
             Error::GoalMetCancellationNotAllowed.to_string(),
             "GoalMetCancellationNotAllowed"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.to_string(),
+            "PersonalCapNotFound"
         );
         assert_eq!(
             Error::InvalidStateTransition.to_string(),
