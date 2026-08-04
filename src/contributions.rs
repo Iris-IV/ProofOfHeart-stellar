@@ -23,7 +23,10 @@ fn check_contribution_caps(
     amount: i128,
 ) -> Result<(), Error> {
     if campaign.max_contribution_per_user > 0
-        && current_lifetime_contribution + amount > campaign.max_contribution_per_user
+        && current_lifetime_contribution
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?
+            > campaign.max_contribution_per_user
     {
         return Err(Error::ContributionCapExceeded);
     }
@@ -97,19 +100,40 @@ fn update_contribution_accounting(
     current: i128,
     lifetime: i128,
     amount: i128,
-) {
-    campaign.amount_raised += amount;
-    campaign.effective_amount_raised += amount;
+) -> Result<(), Error> {
+    campaign.amount_raised = campaign
+        .amount_raised
+        .checked_add(amount)
+        .ok_or(Error::Overflow)?;
+    campaign.effective_amount_raised = campaign
+        .effective_amount_raised
+        .checked_add(amount)
+        .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, campaign);
-    set_contribution(env, campaign_id, contributor, current + amount);
-    set_lifetime_contribution(env, campaign_id, contributor, lifetime + amount);
+    set_contribution(
+        env,
+        campaign_id,
+        contributor,
+        current.checked_add(amount).ok_or(Error::Overflow)?,
+    );
+    set_lifetime_contribution(
+        env,
+        campaign_id,
+        contributor,
+        lifetime.checked_add(amount).ok_or(Error::Overflow)?,
+    );
 
     if lifetime == 0 {
         increment_contributor_count(env, campaign_id);
     }
 
     let total_raised = get_total_raised_global(env);
-    set_total_raised_global(env, total_raised + amount);
+    set_total_raised_global(
+        env,
+        total_raised.checked_add(amount).ok_or(Error::Overflow)?,
+    );
+
+    Ok(())
 }
 
 pub(crate) fn contribute(
@@ -145,7 +169,7 @@ pub(crate) fn contribute(
     check_contribution_caps(&campaign, lifetime, amount)?;
 
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if current + amount > cap {
+        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
             return Err(Error::ContributionCapExceeded);
         }
     }
@@ -161,7 +185,10 @@ pub(crate) fn contribute(
         current,
         lifetime,
         amount,
-    );
+    )?;
+
+    let client = token_client(env);
+    client.transfer(&contributor, &env.current_contract_address(), &amount);
 
     let client = token_client(env);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
@@ -217,7 +244,7 @@ pub(crate) fn batch_contribute(
         check_contribution_caps(&campaign, lifetime, amount)?;
 
         if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-            if current + amount > cap {
+            if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
                 return Err(Error::ContributionCapExceeded);
             }
         }
@@ -232,7 +259,7 @@ pub(crate) fn batch_contribute(
             current,
             lifetime,
             amount,
-        );
+        )?;
 
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
@@ -319,6 +346,36 @@ pub(crate) fn set_personal_cap_fn(
     env.events().publish(
         ("personal_cap_set", campaign_id, contributor.clone()),
         amount,
+    );
+    Ok(())
+}
+
+/// Removes the contributor's personal contribution cap for a campaign (#503).
+/// Mirrors `set_personal_cap_fn`'s guards: the caller must authorize and the
+/// campaign must still be active. Removing a cap that is not set is an error
+/// rather than a silent no-op, so indexers can rely on `personal_cap_removed`
+/// meaning a cap actually existed.
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - The campaign is cancelled, withdrawn, or otherwise inactive.
+/// * `PersonalCapNotFound` - The contributor has no personal cap set on this campaign.
+pub(crate) fn remove_personal_cap_fn(
+    env: &Env,
+    campaign_id: u32,
+    contributor: Address,
+) -> Result<(), Error> {
+    contributor.require_auth();
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+    if get_personal_cap(env, campaign_id, &contributor).is_none() {
+        return Err(Error::PersonalCapNotFound);
+    }
+    bump_instance_ttl(env);
+    remove_personal_cap(env, campaign_id, &contributor);
+    env.events().publish(
+        ("personal_cap_removed", campaign_id, contributor.clone()),
+        (),
     );
     Ok(())
 }
