@@ -105,6 +105,7 @@ pub enum Error {
 /// sync by hand is the list of identifiers itself, and forgetting one there
 /// is still caught by the compiler because the expanded `match` remains
 /// exhaustive-checked against every `Error` variant (#651).
+#[allow(unused_macros)]
 macro_rules! error_names {
     ($self:expr, [$($variant:ident),* $(,)?]) => {
         match $self {
