@@ -112,6 +112,17 @@ Additional derived conditions used by the contract:
 - If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
 
+## Bookmarks (Out-of-Lifecycle Wallet Action)
+
+Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
+
+- **During Active state** — Before verification, after verification, etc.
+- **After Withdrawal** — To track completed causes.
+- **After Cancellation** — Though the campaign will never become active again, the bookmark persists (documented gap #667).
+- **After Expiration** — Similarly, bookmarks persist for expired/failed campaigns.
+
+Frontend integrations should filter the bookmark list based on campaign state when displaying "saved causes" to users. The contract does not auto-prune bookmarks for cancelled or expired campaigns; the `prune_bookmarks_for_campaign` helper currently documents this gap without a full solution.
+
 ## Token Migration Policy (issue #407)
 
 The contract supports a two-step token migration via `propose_token_update` (7-day delay) followed by `accept_token_update`. To prevent stranding escrowed campaign balances in the old token:
@@ -126,3 +137,17 @@ The contract supports a two-step token migration via `propose_token_update` (7-d
 3. If a new campaign is created (or a refund is left unclaimed) during the 7-day window, `accept_token_update` will reject the swap and the admin must cancel the pending update and repeat the process.
 
 > **Known limitation:** undistributed revenue-sharing pools (`deposit_revenue`) are not yet tracked by `total_raised_global`. A withdrawn revenue-sharing campaign with an unclaimed pool could still leave funds in the old token across a migration. Tracking revenue pools in the migration guard is tracked as a follow-up.
+
+
+# Campaign Lifecycle & Deadline Calculation Policy
+
+## 1. Time & Duration Mechanics
+Smart contracts on Soroban rely on ledger timestamps, which represent strict UTC Unix timestamps in seconds. 
+
+### Deadline Computation Rule
+When a campaign is created via `create_campaign`, the expiration deadline is calculated deterministically using elapsed seconds:
+$$\text{deadline} = \text{env.ledger().timestamp()} + (\text{duration\_days} \times 86400)$$
+
+* **Strict Elapsed Time**: A "30-day" campaign represents exactly $30 \times 86400 = 2,592,000$ seconds of ledger time elapsed.
+* **No Calendar Drift**: Because Stellar ledgers do not account for local timezones, leap seconds, or Daylight Saving Time (DST) shifts, expiration times are immutable and mathematically precise relative to block progression.
+* **Frontend Expectation**: Frontend clients should display countdown timers based on absolute Unix timestamp deltas rather than local calendar day increments to prevent user confusion.
