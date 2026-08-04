@@ -7,9 +7,10 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_reserve,
-    get_platform_fee, get_total_raised_global, get_withdraw_release_delay_days,
-    get_withdraw_reserve_percentage, set_campaign, set_campaign_reserve, set_total_raised_global,
-    set_withdraw_release_delay_days, set_withdraw_reserve_percentage,
+    get_campaign_vesting, get_platform_fee, get_total_raised_global,
+    get_withdraw_release_delay_days, get_withdraw_reserve_percentage, set_campaign,
+    set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
+    set_withdraw_reserve_percentage,
 };
 use crate::types::CampaignReserve;
 
@@ -54,7 +55,15 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         / crate::BPS_DENOMINATOR as i128;
     let total_after_fee = campaign.amount_raised - fee_amount;
 
-    let reserve_bps = get_withdraw_reserve_percentage(env);
+    // Use per-campaign vesting params snapshotted at creation, falling back
+    // to the global defaults for campaigns created before the snapshot was
+    // introduced (#466).
+    let (delay_days, reserve_bps) = get_campaign_vesting(env, campaign_id).unwrap_or_else(|| {
+        (
+            get_withdraw_release_delay_days(env),
+            get_withdraw_reserve_percentage(env),
+        )
+    });
     let reserve_amount = total_after_fee
         .checked_mul(reserve_bps as i128)
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
@@ -70,7 +79,6 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     decrement_active_campaign_count(env);
 
     if reserve_amount > 0 {
-        let delay_days = get_withdraw_release_delay_days(env);
         let release_timestamp = env
             .ledger()
             .timestamp()

@@ -714,6 +714,115 @@ fn test_is_campaign_creator_updates_after_transfer() {
     assert!(client.is_campaign_creator(&campaign_id, &receiver));
 }
 
+// ── #650 admin-configurable token update delay ────────────────────────────────
+
+/// Issue #650 — with no override set, the effective delay is the compiled-in
+/// default and proposing a token update still enforces it.
+#[test]
+fn test_token_update_delay_defaults_to_constant() {
+    let (_, _admin, _, _, _, _, _, client) = setup_env();
+    assert_eq!(
+        client.get_token_update_delay_secs(),
+        TOKEN_UPDATE_DELAY_SECS
+    );
+}
+
+/// Issue #650 — the admin can shorten the timelock, and the new delay (not
+/// the compiled-in default) is what `accept_token_update` enforces.
+#[test]
+fn test_set_token_update_delay_secs_shortens_timelock() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    let new_token = setup_second_token(&env, &admin);
+
+    let one_day = SECONDS_PER_DAY;
+    client.set_token_update_delay_secs(&admin, &one_day);
+    assert_eq!(client.get_token_update_delay_secs(), one_day);
+
+    client.propose_token_update(&admin, &new_token);
+
+    // Halfway through the shortened delay: still too early.
+    env.ledger().with_mut(|l| {
+        l.timestamp += one_day / 2;
+    });
+    let result = client.try_accept_token_update(&admin);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Past the shortened (1-day) delay, well before the old 7-day default.
+    env.ledger().with_mut(|l| {
+        l.timestamp += one_day;
+    });
+    client.accept_token_update(&admin);
+    assert_eq!(client.get_token(), new_token);
+}
+
+/// Issue #650 — the admin can lengthen the timelock beyond the 7-day default.
+#[test]
+fn test_set_token_update_delay_secs_lengthens_timelock() {
+    let (env, admin, _, _, _, _, _, client) = setup_env();
+    let new_token = setup_second_token(&env, &admin);
+
+    let thirty_days = 30 * SECONDS_PER_DAY;
+    client.set_token_update_delay_secs(&admin, &thirty_days);
+    client.propose_token_update(&admin, &new_token);
+
+    // Past the old 7-day default, but not the new 30-day delay.
+    env.ledger().with_mut(|l| {
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+    let result = client.try_accept_token_update(&admin);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += thirty_days;
+    });
+    client.accept_token_update(&admin);
+    assert_eq!(client.get_token(), new_token);
+}
+
+#[test]
+fn test_set_token_update_delay_secs_rejects_zero() {
+    let (_, admin, _, _, _, _, _, client) = setup_env();
+    let result = client.try_set_token_update_delay_secs(&admin, &0u64);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_set_token_update_delay_secs_rejects_above_max() {
+    let (_, admin, _, _, _, _, _, client) = setup_env();
+    let too_long = 365 * SECONDS_PER_DAY + 1;
+    let result = client.try_set_token_update_delay_secs(&admin, &too_long);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_set_token_update_delay_secs_non_admin_fails() {
+    let (env, _admin, _, _, _, _, _, client) = setup_env();
+    let stranger = Address::generate(&env);
+    let result = client.try_set_token_update_delay_secs(&stranger, &SECONDS_PER_DAY);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+// ── #652 public views for constants.rs values ─────────────────────────────────
+
+#[test]
+fn test_get_bps_denominator_matches_constant() {
+    let (_, _, _, _, _, _, _, client) = setup_env();
+    assert_eq!(client.get_bps_denominator(), 10_000u32);
+}
+
+// ── #653 bookmark Error discriminant lock ─────────────────────────────────────
+
+/// Issue #653 — `CampaignAlreadyBookmarked` and `CampaignNotBookmarked` are
+/// the newest `Error` variants. Locks their exact discriminant values so a
+/// careless future edit to the enum (e.g. inserting a variant above them)
+/// fails this test instead of silently renumbering them, which would change
+/// the on-the-wire error codes existing clients match against.
+#[test]
+fn test_bookmark_error_discriminants_are_locked() {
+    assert_eq!(Error::CampaignAlreadyBookmarked as u32, 44);
+    assert_eq!(Error::CampaignNotBookmarked as u32, 45);
+}
+
 // ── #475 list_active_campaigns scan window ────────────────────────────────────
 
 #[test]
