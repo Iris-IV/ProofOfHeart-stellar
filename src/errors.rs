@@ -1,3 +1,4 @@
+#![allow(unused_macros)]
 use soroban_sdk::contracterror;
 
 /// Represents a distinct error type that can occur within the contract.
