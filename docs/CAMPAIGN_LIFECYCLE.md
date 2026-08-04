@@ -1,6 +1,6 @@
 # Campaign Lifecycle
 
-## States
+## Overview
 
 ```
 Created → Active → Verified (optional) → Withdrawn (goal met)
@@ -16,42 +16,7 @@ A campaign progresses through the following states:
 5. **Cancelled** — Creator calls `cancel_campaign()`. Campaign becomes inactive; contributors can `claim_refund()`.
 6. **Expired** — Deadline passes without meeting the goal. Contributors can `claim_refund()`.
 
-## Pause Mechanism
-
-The contract has two independent pause flags:
-
-### Manual Pause (`DataKey::Paused`)
-
-- Set by admin via `pause()`.
-- Cleared by admin via `unpause()`.
-- Emits `contract_paused` / `contract_unpaused`.
-
-### Auto-Pause (`DataKey::AutoPaused`)
-
-Automatically set on either of two anomaly triggers during `contribute()`:
-
-- **Huge contribution** — A single contribution exceeds 200% of the campaign's `funding_goal` (`amount * 10000 > funding_goal * 20000`). Emits `("auto_paused",)` with `("huge_contribution", amount)`.
-- **Burst** — More than 10 contributions to the same campaign in a single ledger (block). Emits `("auto_paused",)` with `("burst", block_count)`.
-
-In both cases the contribution is rejected (`ContractPaused` error) and the storage write is rolled back, so `AutoPaused` never persists in production — the flag is always cleared on the next successful call. This caveat is important for indexers.
-
-- Blocks all state-changing operations (same as manual pause).
-- Cleared by:
-  - **`unpause()`** — Admin can always clear the auto-pause flag, even if the triggering campaign is no longer active.
-  - **`resume_campaign(campaign_id)`** — Admin clears the flag, but only if the referenced campaign is still active (not cancelled/expired).
-
-### Why two flags?
-
-Using separate flags provides a clearer audit trail — indexers can distinguish between an admin-initiated pause and an automatic safety pause. The admin can always recover the contract via `unpause()`, even when `resume_campaign()` is blocked (e.g., the triggering campaign was cancelled).
-
-### Recovery Scenarios
-
-| Scenario | Recovery |
-|----------|----------|
-| Burst contribution triggers auto-pause; campaign is still active | `resume_campaign(campaign_id)` or `unpause()` |
-| Burst contribution triggers auto-pause; campaign was cancelled | `unpause()` only (`resume_campaign` fails with `CampaignNotActive`) |
-| Admin pauses manually | `unpause()` |
-# Campaign Lifecycle (State Machine)
+## State Machine
 
 Campaigns are represented by a `Campaign` struct with these key state flags:
 
@@ -64,8 +29,6 @@ Additional derived conditions used by the contract:
 
 - **Funded**: `amount_raised >= funding_goal`
 - **Expired/Failed**: `ledger.timestamp() > deadline && amount_raised < funding_goal`
-
-## States
 
 ### 1) Active (unverified)
 
@@ -112,6 +75,41 @@ Additional derived conditions used by the contract:
 - If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
 
+## Pause Mechanism
+
+The contract has two independent pause flags:
+
+### Manual Pause (`AdminKey::Paused`)
+
+- Set by admin via `pause()`.
+- Cleared by admin via `unpause()`.
+- Emits `contract_paused` / `contract_unpaused`.
+
+### Auto-Pause (`AdminKey::AutoPaused`)
+
+Automatically set on either of two anomaly triggers during `contribute()`:
+
+- **Huge contribution** — A single contribution exceeds 200% of the campaign's `funding_goal` (`amount * 10000 > funding_goal * 20000`). Emits `("auto_paused",)` with `("huge_contribution", amount)`.
+- **Burst** — More than 10 contributions to the same campaign in a single ledger (block). Emits `("auto_paused",)` with `("burst", block_count)`.
+
+In both cases the contribution is rejected (`ContractPaused` error) and the storage write is rolled back, so `AutoPaused` never persists in production — the flag is always cleared on the next successful call. This caveat is important for indexers.
+
+- Blocks all state-changing operations (same as manual pause).
+- Cleared by:
+  - **`unpause()`** — Admin can always clear the auto-pause flag, even if the triggering campaign is no longer active.
+  - **`resume_campaign(campaign_id)`** — Admin clears the flag, but only if the referenced campaign is still active (not cancelled/expired).
+
+### Why two flags?
+
+Using separate flags provides a clearer audit trail — indexers can distinguish between an admin-initiated pause and an automatic safety pause. The admin can always recover the contract via `unpause()`, even when `resume_campaign()` is blocked (e.g., the triggering campaign was cancelled).
+
+### Recovery Scenarios
+
+| Scenario | Recovery |
+|----------|----------|
+| Burst contribution triggers auto-pause; campaign is still active | `resume_campaign(campaign_id)` or `unpause()` |
+| Burst contribution triggers auto-pause; campaign was cancelled | `unpause()` only (`resume_campaign` fails with `CampaignNotActive`) |
+| Admin pauses manually | `unpause()` |
 ## Bookmarks (Out-of-Lifecycle Wallet Action)
 
 Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
@@ -138,16 +136,17 @@ The contract supports a two-step token migration via `propose_token_update` (7-d
 
 > **Known limitation:** undistributed revenue-sharing pools (`deposit_revenue`) are not yet tracked by `total_raised_global`. A withdrawn revenue-sharing campaign with an unclaimed pool could still leave funds in the old token across a migration. Tracking revenue pools in the migration guard is tracked as a follow-up.
 
+## Deadline Calculation Policy
 
-# Campaign Lifecycle & Deadline Calculation Policy
+### Time & Duration Mechanics
 
-## 1. Time & Duration Mechanics
-Smart contracts on Soroban rely on ledger timestamps, which represent strict UTC Unix timestamps in seconds. 
+Smart contracts on Soroban rely on ledger timestamps, which represent strict UTC Unix timestamps in seconds.
 
 ### Deadline Computation Rule
+
 When a campaign is created via `create_campaign`, the expiration deadline is calculated deterministically using elapsed seconds:
 $$\text{deadline} = \text{env.ledger().timestamp()} + (\text{duration\_days} \times 86400)$$
 
-* **Strict Elapsed Time**: A "30-day" campaign represents exactly $30 \times 86400 = 2,592,000$ seconds of ledger time elapsed.
-* **No Calendar Drift**: Because Stellar ledgers do not account for local timezones, leap seconds, or Daylight Saving Time (DST) shifts, expiration times are immutable and mathematically precise relative to block progression.
-* **Frontend Expectation**: Frontend clients should display countdown timers based on absolute Unix timestamp deltas rather than local calendar day increments to prevent user confusion.
+- **Strict Elapsed Time**: A "30-day" campaign represents exactly $30 \times 86400 = 2{,}592{,}000$ seconds of ledger time elapsed.
+- **No Calendar Drift**: Because Stellar ledgers do not account for local timezones, leap seconds, or Daylight Saving Time (DST) shifts, expiration times are immutable and mathematically precise relative to block progression.
+- **Frontend Expectation**: Frontend clients should display countdown timers based on absolute Unix timestamp deltas rather than local calendar day increments to prevent user confusion.
