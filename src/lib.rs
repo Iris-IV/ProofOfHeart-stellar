@@ -46,7 +46,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY,
+    TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
@@ -417,6 +418,18 @@ impl ProofOfHeart {
         admin::cancel_token_update(&env, admin)
     }
 
+    /// Overrides the timelock delay `propose_token_update` enforces before a
+    /// pending token update can be accepted (default: 7 days), so platforms
+    /// that want a longer or shorter timelock don't need a code change and
+    /// redeploy (#650). Must be in `(0, 365 days]`.
+    pub fn set_token_update_delay_secs(
+        env: Env,
+        admin: Address,
+        delay_secs: u64,
+    ) -> Result<(), Error> {
+        admin::set_token_update_delay_secs_fn(&env, admin, delay_secs)
+    }
+
     // ── Admin: admin transfer ─────────────────────────────────────────────────
 
     pub fn initiate_admin_transfer(
@@ -521,6 +534,21 @@ impl ProofOfHeart {
 
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
+    }
+
+    /// Returns the basis-point denominator (10_000 == 100%) that fee and
+    /// threshold values are expressed against, so off-chain code can read it
+    /// from the deployed contract instead of hardcoding it (#652).
+    pub fn get_bps_denominator(_env: Env) -> u32 {
+        BPS_DENOMINATOR
+    }
+
+    /// Returns the timelock delay (seconds) currently enforced by
+    /// `propose_token_update`: the admin override if one has been set via
+    /// `set_token_update_delay_secs`, otherwise the compiled-in
+    /// `TOKEN_UPDATE_DELAY_SECS` default (#650, #652).
+    pub fn get_token_update_delay_secs(env: Env) -> u64 {
+        get_token_update_delay_secs(&env, TOKEN_UPDATE_DELAY_SECS)
     }
 
     pub fn get_min_campaign_funding_goal(env: Env) -> i128 {
