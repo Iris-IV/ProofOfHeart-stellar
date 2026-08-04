@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the dead `BlockContributionCount` storage key variant and its unused `get_block_contribution_count` / `set_block_contribution_count` helpers. Only the per-campaign `BlockCampaignContributionCount` is actually used by the anomaly-detection burst guard (#435).
+
 ### Fixed
+
+- `resume_campaign` now checks the global `AutoPaused` flag before `require_active_campaign`, returning early with `ValidationFailed` when the contract is not auto-paused instead of failing on an unrelated campaign-state check. The admin recovery path via `unpause()` also clears `AutoPaused` alongside `Paused` so neither flag can permanently lock the contract (#436).
 
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
 
@@ -19,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Infrastructure
 
+- Added a `Makefile` with a `build-docker` target utilizing the `stellar/rs-soroban-sdk` image to guarantee WASM binary reproducibility, allowing anyone to verify that the deployed on-chain bytecode matches the source (#533).
 - Resolved pre-existing CI debt surfaced by the `fmt` and `clippy` gates added in #403: test fixture missing bindings restored in `src/test.rs` and `src/tests/test_init.rs`, `result` double-move fixed in `src/tests/test_admin.rs`, `cargo fmt --all` drift cleared across `src/issues_test.rs` and `src/lib.rs`, and clippy lints addressed (`manual_div_ceil` in `src/lib.rs`; `dead_code` suppressed on deferred storage helpers pending the DataKey audit in #409). All three CI jobs (`test`, `fmt`, `clippy`) now exit 0 on a clean checkout (#418).
 
 ### Refactored
