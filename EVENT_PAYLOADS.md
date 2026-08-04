@@ -356,6 +356,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `personal_cap_removed`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("personal_cap_removed", campaign_id: u32, contributor: Address)` |
+| Data    | `()`                                                       |
+| Source  | `lib.rs` — `remove_personal_cap()`                         |
+
+---
+
 ### `admin_transfer_initiated`
 
 | Field   | Value                                                      |
@@ -486,4 +496,4 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
-> **Total: 48 documented `publish()` call sites**
+> **Total: 49 documented `publish()` call sites**

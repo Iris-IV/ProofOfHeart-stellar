@@ -43,8 +43,11 @@ git remote add upstream https://github.com/Iris-IV/ProofOfHeart-stellar.git
 > **Heads up:** The first `cargo build` downloads and compiles all Rust dependencies. This can take **10–20 minutes** and use **1–2 GB** of disk space. Subsequent builds are much faster.
 
 ```bash
-# Build WASM
-cargo build --target wasm32-unknown-unknown --release
+# Build WASM (Local development)
+stellar contract build
+
+# Build reproducible WASM (Required for production deployment)
+make build-docker
 
 # Run tests
 cargo test --features testutils
@@ -60,7 +63,7 @@ CI runs these checks on every PR. Run locally before pushing:
 cargo fmt --check
 cargo clippy --all-targets --features testutils -- -D warnings
 cargo test --features testutils
-cargo build --target wasm32-unknown-unknown --release
+stellar contract build
 ```
 
 All four must pass.
