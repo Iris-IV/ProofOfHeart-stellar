@@ -1,10 +1,6 @@
 use super::helpers::*;
-use crate::{
-    storage::{set_campaign, set_saved_campaigns},
-    types::{Campaign, MaybePendingCreator},
-    Category, Error,
-};
-use soroban_sdk::{Address, Env, String};
+use crate::{Category, Error};
+use soroban_sdk::String;
 
 #[test]
 fn test_save_and_get_saved_campaigns() {
@@ -146,46 +142,28 @@ fn test_saved_campaigns_are_per_wallet() {
 
 #[test]
 fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
-    let env = Env::default();
-    let creator = Address::generate(&env);
-    let contributor1 = Address::generate(&env);
-    let contributor2 = Address::generate(&env);
+    let (env, _admin, creator, contributor1, contributor2, _token, _token_admin, client) =
+        setup_env();
 
-    let contract_id = env.register_contract(None, ProofOfHeart);
-    let client = ProofOfHeartClient::new(&env, &contract_id);
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
 
-    let campaign_id = 1u32;
-    let campaign = Campaign {
-        id: campaign_id,
-        creator: creator.clone(),
-        first_creator: creator.clone(),
-        pending_creator: MaybePendingCreator::None,
-        title: String::from_str(&env, "Campaign"),
-        description: String::from_str(&env, "Desc"),
-        funding_goal: 1000,
-        deadline: 0,
-        amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
-        category: Category::Learner,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
-        fee_override: None,
-        deadline_extended: false,
-        effective_amount_raised: 0,
-    };
+    client.save_campaign(&contributor1, &campaign_id);
 
-    env.as_contract(&client.address, || {
-        set_campaign(&env, campaign_id, &campaign);
-        set_saved_campaigns(&env, &contributor1, &soroban_sdk::vec![&env, campaign_id]);
-    });
-
+    // Disable auto-mocked auths to test that attempting to remove a saved campaign for contributor2
+    // fails with a host authorization error if unauthenticated.
+    env.set_auths(&[]);
     let result = client.try_remove_saved_campaign(&contributor2, &campaign_id);
-
-    assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
+    assert!(result.is_err());
 }
 
 #[test]

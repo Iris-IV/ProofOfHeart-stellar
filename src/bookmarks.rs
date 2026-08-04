@@ -12,40 +12,12 @@ use crate::errors::Error;
 use crate::lifecycle::get_campaign_or_error;
 use crate::storage::{get_saved_campaigns, set_saved_campaigns};
 
-/// Requires `user`'s authorization, converting a rejected auth (which the SDK
-/// escalates into a panic) into a recoverable `Error::NotAuthorized`.
-///
-/// The auth failure is surfaced as a panic by the SDK, and a panic that
-/// escapes a contract call reaches the generated `extern "C"` entrypoint
-/// (which is `nounwind`), so it cannot be caught by the host's `catch_unwind`.
-/// The only place it can be caught is inside the contract body, below that
-/// boundary. `catch_unwind` requires std, so this is gated on the `testutils`
-/// feature: in wasm/production builds (no `testutils`), a rejected auth simply
-/// panics the call as usual, while native tests (`--features testutils`) get a
-/// typed error.
-fn require_auth_or_not_authorized(user: &Address) -> Result<(), Error> {
-    #[cfg(feature = "testutils")]
-    {
-        extern crate std;
-        use core::panic::AssertUnwindSafe;
-        match std::panic::catch_unwind(AssertUnwindSafe(|| user.require_auth())) {
-            Ok(()) => Ok(()),
-            Err(_) => Err(Error::NotAuthorized),
-        }
-    }
-    #[cfg(not(feature = "testutils"))]
-    {
-        user.require_auth();
-        Ok(())
-    }
-}
-
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
-/// Requires the wallet's authorization for the supplied `user` address.
-/// Fails if the campaign doesn't exist or is already bookmarked.
+/// Requires the wallet's authorization. Fails if the campaign doesn't exist
+/// or is already bookmarked.
 pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), Error> {
-    require_auth_or_not_authorized(&user)?;
+    user.require_auth();
 
     // Ensure the campaign actually exists before letting it be bookmarked.
     get_campaign_or_error(env, campaign_id)?;
@@ -66,10 +38,10 @@ pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), E
 
 /// Removes `campaign_id` from `user`'s saved-campaigns list.
 ///
-/// Requires the wallet's authorization for the supplied `user` address.
-/// Fails if the campaign isn't currently bookmarked.
+/// Requires the wallet's authorization. Fails if the campaign isn't
+/// currently bookmarked.
 pub fn remove_saved_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), Error> {
-    require_auth_or_not_authorized(&user)?;
+    user.require_auth();
 
     let saved = get_saved_campaigns(env, &user);
     let position = saved.iter().position(|id| id == campaign_id);
