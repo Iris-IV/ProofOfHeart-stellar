@@ -139,8 +139,11 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 git clone https://github.com/Iris-IV/ProofOfHeart-stellar.git
 cd ProofOfHeart-stellar
 
-# Build the contract
-cargo build --target wasm32-unknown-unknown --release
+# Build the contract for local development
+stellar contract build
+
+# Build a deterministic, reproducible WASM binary for deployment/verification
+make build-docker
 ```
 
 ### Test
