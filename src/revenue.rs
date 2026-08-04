@@ -33,12 +33,13 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     }
 
     bump_instance_ttl(env);
-    let token_addr = get_token(env);
-    let client = token::Client::new(env, &token_addr);
-    client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     let current_pool = get_revenue_pool(env, campaign_id);
     set_revenue_pool(env, campaign_id, current_pool + amount);
+
+    let token_addr = get_token(env);
+    let client = token::Client::new(env, &token_addr);
+    client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     env.events()
         .publish(("revenue_deposited", campaign_id, campaign.creator), amount);
@@ -126,11 +127,8 @@ pub(crate) fn claim_revenue(
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
-    let client = token_client(env);
-    client.transfer(&env.current_contract_address(), &contributor, &claimable);
-
-    // Update state only after successful external interaction
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
     set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
 
     // Track the running sum paid out to contributors, and the count of
@@ -140,6 +138,10 @@ pub(crate) fn claim_revenue(
     if is_first_claim {
         set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
     }
+
+    // Token transfer happens after all state updates (CEI pattern).
+    let client = token_client(env);
+    client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
     env.events().publish(
         ("revenue_claimed", campaign_id, contributor.clone()),
@@ -179,15 +181,17 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     bump_instance_ttl(env);
 
-    // Transfer tokens BEFORE updating state to prevent balance wipe on failed transfer
+    // Update state before the token transfer (CEI pattern) so that a
+    // malicious token contract cannot re-enter and double-claim (#557).
+    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+
+    // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
     client.transfer(
         &env.current_contract_address(),
         &campaign.creator,
         &claimable,
     );
-
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
 
     env.events().publish(
         ("creator_revenue_claimed", campaign_id, campaign.creator),

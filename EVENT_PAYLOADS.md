@@ -249,7 +249,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaigns_bulk_verified",)`                             |
-| Data    | `(verified_count: u32, total: u32)`                        |
+| Data    | `(verified_count: u32, failed_count: u32, total: u32)`       |
 | Source  | `lib.rs:1175` — `verify_campaigns()`                       |
 
 ---
