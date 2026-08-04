@@ -173,7 +173,10 @@ fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
                 _ => false,
             }
     });
-    assert!(found, "remove_saved_campaign must record authorization for contributor1");
+    assert!(
+        found,
+        "remove_saved_campaign must record authorization for contributor1"
+    );
 
     // Also verify trying to remove a campaign that contributor2 hasn't bookmarked fails cleanly
     let result = client.try_remove_saved_campaign(&contributor2, &campaign_id);
