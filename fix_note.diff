@@ -1,0 +1,12 @@
+diff --git a/src/contributions.rs b/src/contributions.rs
+--- a/src/contributions.rs
++++ b/src/contributions.rs
+@@ -163,8 +163,7 @@
+     );
+ 
+     let client = token_client(env);
+     client.transfer(&contributor, &env.current_contract_address(), &amount);
+-    // Removed any duplicate client.transfer calls from merge artifacts
+ 
+     env.events()
+         .publish(("contribution_made", campaign_id, contributor), amount);
