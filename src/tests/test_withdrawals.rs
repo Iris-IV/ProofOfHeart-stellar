@@ -365,6 +365,88 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
 }
 
+/// Regression test for issue #466: vesting params set AFTER campaign creation
+/// must NOT retroactively affect campaigns already created.
+#[test]
+fn test_vesting_snapshot_not_affected_by_later_changes() {
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+
+    // No vesting set yet — default is (0, 0).
+    let campaign_id_1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign Before Vesting"),
+        String::from_str(&env, "Created before vesting was enabled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id_1);
+
+    // Verify campaign 1 has (0, 0) vesting snapshotted
+    env.as_contract(&client.address, || {
+        let vesting = storage::get_campaign_vesting(&env, campaign_id_1);
+        assert_eq!(vesting, Some((0, 0)));
+    });
+
+    // Now enable vesting: 7 days delay, 20% reserve.
+    client.set_vesting_params(&admin, &7, &2000);
+
+    // Create campaign #2 after vesting was enabled.
+    let campaign_id_2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign After Vesting"),
+        String::from_str(&env, "Created after vesting was enabled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id_2);
+
+    // Verify campaign 2 has (7, 2000) vesting snapshotted
+    env.as_contract(&client.address, || {
+        let vesting_2 = storage::get_campaign_vesting(&env, campaign_id_2);
+        assert_eq!(vesting_2, Some((7, 2000)));
+    });
+
+    // Fund both campaigns
+    token_admin.mint(&contributor, &2000);
+    client.contribute(&campaign_id_1, &contributor, &1000);
+    client.contribute(&campaign_id_2, &contributor, &1000);
+
+    // Fast forward past deadline
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
+    });
+
+    // Withdraw campaign #1 — should have NO vesting (0% reserve).
+    // Goal: 1000. Fee (300 bps): 30. Remaining: 970. Reserve (0%): 0.
+    // Creator gets full 970 immediately.
+    client.withdraw_funds(&campaign_id_1);
+    assert_eq!(token.balance(&creator), 970);
+
+    // Withdraw campaign #2 — should have 20% vesting.
+    // Goal: 1000. Fee (300 bps): 30. Remaining: 970. Reserve (20%): 194.
+    // Creator gets 776 immediately, 194 later.
+    client.withdraw_funds(&campaign_id_2);
+    assert_eq!(token.balance(&creator), 970 + 776);
+
+    // Campaign 1's reserve should be None (no reserve was withheld)
+    assert_eq!(client.get_campaign_reserve(&campaign_id_1), None);
+
+    // Campaign 2 should have a reserve
+    let reserve_2 = client
+        .get_campaign_reserve(&campaign_id_2)
+        .expect("campaign 2 should have reserve");
+    assert_eq!(reserve_2.amount, 194);
+}
+
 #[test]
 fn test_withdraw_event_payload_tuple() {
     let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
