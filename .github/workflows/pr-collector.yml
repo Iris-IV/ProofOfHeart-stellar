@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Check out the *base* repo at HEAD (not the fork's code)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Explicitly check out the base branch, not the PR head, so that
           # untrusted code from the fork never runs in this step.
@@ -222,7 +222,7 @@ jobs:
       # The artifact is keyed by PR number so the privileged workflow can find
       # it deterministically via the `pr_number` input it receives.
       - name: Upload PR artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           # Name pattern consumed by pr-review.yml
           name: pr-${{ github.event.pull_request.number }}
