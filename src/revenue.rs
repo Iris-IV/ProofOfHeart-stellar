@@ -35,18 +35,11 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     bump_instance_ttl(env);
 
     let current_pool = get_revenue_pool(env, campaign_id);
-    let new_pool = current_pool.checked_add(amount).ok_or(Error::Overflow)?;
-
-    // Reject the deposit if the resulting pool would cause `claim_revenue` to overflow
-    // when calculating a contributor's share, assuming the worst-case where a single
-    // contributor contributed the entire `effective_amount_raised`.
-    campaign
-        .effective_amount_raised
-        .checked_mul(new_pool)
-        .and_then(|n| n.checked_mul(campaign.revenue_share_percentage as i128))
-        .ok_or(Error::Overflow)?;
-
-    set_revenue_pool(env, campaign_id, new_pool);
+    set_revenue_pool(
+        env,
+        campaign_id,
+        current_pool.checked_add(amount).ok_or(Error::Overflow)?,
+    );
 
     let token_addr = get_token(env);
     let client = token::Client::new(env, &token_addr);
@@ -106,16 +99,24 @@ pub(crate) fn claim_revenue(
 
     // #526: integer division truncates each contributor's individual share,
     // so the sum of every contributor's `claimable` can fall short of the
-    // full contributor-side pool, leaving dust stuck in the contract forever.
+    // full contributor-side pool, leaving dust in the contract until the
+    // final eligible contributor claims.
     // Once every contributor entitled to this campaign has claimed at least
     // once, give the last one to claim whatever remains of the
     // contributor-side pool instead of their individually-truncated share,
     // so the full allocation is paid out exactly.
+    //
+    // #675: a pull-based claim cannot safely infer that a contributor will
+    // never claim: transferring that contributor's entitlement (or the dust)
+    // early would make a later valid claim underfunded. Resolving dust when a
+    // contributor is permanently inactive requires an explicit claim deadline
+    // and finalization flow, neither of which exists in this API.
     let is_first_claim = already_claimed == 0;
     let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
     let total_contributors = get_contributor_count(env, campaign_id);
-    let is_last_claimant =
-        is_first_claim && total_contributors > 0 && claimants_so_far + 1 >= total_contributors;
+    let is_last_claimant = is_first_claim
+        && total_contributors > 0
+        && claimants_so_far.checked_add(1).ok_or(Error::Overflow)? >= total_contributors;
 
     let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
     if is_last_claimant {
@@ -140,14 +141,31 @@ pub(crate) fn claim_revenue(
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
-    set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
+    set_revenue_claimed(
+        env,
+        campaign_id,
+        &contributor,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Track the running sum paid out to contributors, and the count of
     // distinct contributors who have claimed at least once, so future claims
     // can detect the last claimant (#526).
-    set_contributor_revenue_distributed(env, campaign_id, distributed_so_far + claimable);
+    set_contributor_revenue_distributed(
+        env,
+        campaign_id,
+        distributed_so_far
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
     if is_first_claim {
-        set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
+        set_contributor_revenue_claimants(
+            env,
+            campaign_id,
+            claimants_so_far.checked_add(1).ok_or(Error::Overflow)?,
+        );
     }
 
     // Token transfer happens after all state updates (CEI pattern).
@@ -195,7 +213,13 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+    set_creator_revenue_claimed(
+        env,
+        campaign_id,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
