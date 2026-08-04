@@ -64,7 +64,6 @@ fn test_update_campaign_emits_title_and_description() {
     let payload: (String, String, String, String) =
         soroban_sdk::FromVal::from_val(&env, &last_event.2);
 
-
     assert_eq!(payload.2, new_title);
     assert_eq!(payload.3, new_desc);
 }
