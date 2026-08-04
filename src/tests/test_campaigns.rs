@@ -1233,9 +1233,11 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
     // Cancel the campaign (was blocked while auto-paused)
     client.cancel_campaign(&campaign_id);
 
-    // resume_campaign fails because campaign is cancelled
+    // resume_campaign returns ValidationFailed because unpause already
+    // cleared AutoPaused, and the new early check (fix #436) catches it
+    // before the campaign-state check.
     let res2 = client.try_resume_campaign(&campaign_id, &creator);
-    assert_eq!(res2.unwrap_err().unwrap(), Error::CampaignNotActive);
+    assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // But operations still work because unpause already cleared AutoPaused
     let new_id = client.create_campaign(&CreateCampaignParams {

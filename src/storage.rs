@@ -76,6 +76,9 @@ pub enum AdminKey {
     WithdrawReleaseDelayDays,
     /// Percentage of funds held in reserve (basis points).
     WithdrawReservePercentage,
+    /// Admin-configured delay (seconds) before a proposed token update can be
+    /// accepted, overriding the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
+    TokenUpdateDelaySecs,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -85,6 +88,8 @@ pub enum CampaignKey {
     CampaignCount,
     /// Campaign data, keyed by campaign ID.
     Campaign(u32),
+    /// Per-campaign vesting parameters snapshotted at creation time (#466).
+    CampaignVesting(u32),
     /// Unix timestamp when the campaign was created, keyed by campaign ID.
     CampaignStartTime(u32),
     /// Held reserve for a campaign, keyed by campaign ID.
@@ -125,8 +130,6 @@ pub enum ContributionKey {
     ContributorCount(u32),
     /// Total amount raised across all campaigns.
     TotalRaised,
-    /// Tracking contributions per block for anomaly detection (global, legacy).
-    BlockContributionCount,
     /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
     BlockCampaignContributionCount(u32),
 }
@@ -806,23 +809,6 @@ pub fn remove_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) {
 
 // ── Anomaly detection ─────────────────────────────────────────────────────────
 
-/// Returns (ledger_sequence, contribution_count) for the block tracking.
-#[allow(dead_code)]
-pub fn get_block_contribution_count(env: &Env) -> (u32, u32) {
-    env.storage()
-        .instance()
-        .get(&ContributionKey::BlockContributionCount)
-        .unwrap_or((0, 0))
-}
-
-/// Stores (ledger_sequence, contribution_count) for the block tracking.
-#[allow(dead_code)]
-pub fn set_block_contribution_count(env: &Env, sequence: u32, count: u32) {
-    env.storage()
-        .instance()
-        .set(&ContributionKey::BlockContributionCount, &(sequence, count));
-}
-
 /// Returns (ledger_sequence, contribution_count) for a specific campaign.
 pub fn get_campaign_block_contribution_count(env: &Env, campaign_id: u32) -> (u32, u32) {
     env.storage()
@@ -881,6 +867,28 @@ pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReser
 
 pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
     persistent_set!(env, CampaignKey::CampaignReserve(campaign_id), reserve);
+}
+
+// ── Per-campaign vesting snapshot (#466) ─────────────────────────────────────
+
+pub fn get_campaign_vesting(env: &Env, campaign_id: u32) -> Option<(u64, u32)> {
+    let key = CampaignKey::CampaignVesting(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_vesting(env: &Env, campaign_id: u32, delay_days: u64, reserve_bps: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignVesting(campaign_id),
+        &(delay_days, reserve_bps)
+    );
+}
+
+#[expect(dead_code)]
+pub fn remove_campaign_vesting(env: &Env, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::CampaignVesting(campaign_id));
 }
 
 // ── Creation disabled flag ───────────────────────────────────────────────────
@@ -946,6 +954,23 @@ pub fn set_pending_token_release(env: &Env, timestamp: u64) {
 /// Returns the release timestamp for the pending token update.
 pub fn get_pending_token_release(env: &Env) -> Option<u64> {
     env.storage().instance().get(&AdminKey::PendingTokenRelease)
+}
+
+/// Returns the configured token-update timelock delay in seconds, falling
+/// back to `default` (the compiled-in `TOKEN_UPDATE_DELAY_SECS`) if the admin
+/// has never overridden it (#650).
+pub fn get_token_update_delay_secs(env: &Env, default: u64) -> u64 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::TokenUpdateDelaySecs)
+        .unwrap_or(default)
+}
+
+/// Stores the admin-configured token-update timelock delay in seconds.
+pub fn set_token_update_delay_secs(env: &Env, delay_secs: u64) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::TokenUpdateDelaySecs, &delay_secs);
 }
 
 // ── O(1) platform stat counters ───────────────────────────────────────────────

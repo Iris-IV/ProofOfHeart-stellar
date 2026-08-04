@@ -80,3 +80,24 @@ This is **expected, non-breaking behavior**: applying a lowered cap retroactivel
 - **Documentation**: This entry exists so cap changes are understood as prospective-only; operators should not assume lowering a category cap affects campaigns already in flight.
 - **Monitoring**: The `category_duration_cap_set` / `category_duration_cap_removed` events let indexers flag the change and, if desired, surface a "grandfathered under a previous, longer cap" indicator on affected campaigns in a frontend.
 - **Future Improvements**: If retroactive shortening is ever desired (e.g. for abuse response), it should be a distinct, explicitly audited admin action — such as `force_shorten_deadline` — rather than an implicit side effect of `set_category_duration_cap`, to keep the two concerns (future policy vs. existing campaign state) separate.
+
+## Bookmarks / Saved Campaigns
+
+### Public-Read Information Disclosure (#659)
+
+**Description**: The `get_saved` function (exposed as `get_saved_campaigns` in the contract interface) returns the list of campaign IDs a wallet address has bookmarked — and it does so **without requiring any authentication**. Any client, wallet, indexer, or on-chain contract can call this function with an arbitrary `Address` and retrieve that address's full list of saved campaigns. The module-level documentation in `src/bookmarks.rs` explicitly acknowledges this: *"This is a public, unauthenticated read — any wallet/app can display another wallet's saved causes."*
+
+**Privacy Concern**:
+1. A user bookmarks several campaigns they consider sensitive (e.g., health-related fundraisers, political causes, community controversies).
+2. A third party calls `get_saved_campaigns` with the user's address and learns which campaigns the user has saved, revealing the user's interests and affiliations.
+3. Because bookmarks are stored directly in the contract's persistent storage keyed by the user's address, there is no mechanism for a user to mark individual bookmarks as private or to restrict read access to specific callers. The on-chain data is equally visible to all.
+
+**Mitigation Status**:
+This is an **intentional design decision** and not a security vulnerability under the current contract model. On Stellar/Soroban, all contract storage reads are public — any `pub` function is callable by any account. Making `get_saved` require authentication would not meaningfully restrict read access (anyone can still call it with any address) and would add unnecessary gas cost and authentication complexity without gaining privacy. The tradeoff is identical to that of other public query functions in the contract (`get_campaign`, `list_campaigns`, `get_contributor_portfolio`, etc.) — the contract stores data on a public ledger and therefore cannot offer private read access.
+
+A related but separate bookmark-privacy concern is that `save_campaign` (which **does** require `user.require_auth()`) reveals the caller's identity through authentication. The fact that a specific address called `save_campaign` is observable in the transaction envelope and event logs means that bookmarking activity is linkable to an address regardless of whether `get_saved_campaigns` is called.
+
+**Risk Management**:
+- **Client expectations**: Applications integrating the bookmark feature should **not** present bookmarks as private or confidential. The UI should disclose (e.g., via a tooltip or informational banner) that saved campaigns are publicly visible on-chain.
+- **User education**: Wallets or frontends should inform users that their saved-campaigns list is readable by any party who knows their public address.
+- **Future alternatives**: A fully private bookmark mechanism would require off-chain storage (e.g., a locally encrypted list held in the user's wallet, or a private database indexed by a hash of the user's address). On-chain bookmarks are inherently public by the design of the ledger; this entry documents the boundary explicitly so integrators understand the tradeoff. Any future on-chain privacy solution would require protocol-level changes, not just a contract patch.
