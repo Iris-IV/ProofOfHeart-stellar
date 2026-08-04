@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(unexpected_cfgs)]
+#![allow(unused_macros)]
 
 /// Current contract version. Increment this on each breaking upgrade.
 const CONTRACT_VERSION: u32 = 1;
