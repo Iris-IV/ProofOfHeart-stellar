@@ -24,7 +24,10 @@ fn check_contribution_caps(
     amount: i128,
 ) -> Result<(), Error> {
     if campaign.max_contribution_per_user > 0
-        && current_lifetime_contribution + amount > campaign.max_contribution_per_user
+        && current_lifetime_contribution
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?
+            > campaign.max_contribution_per_user
     {
         return Err(Error::ContributionCapExceeded);
     }
@@ -98,19 +101,40 @@ fn update_contribution_accounting(
     current: i128,
     lifetime: i128,
     amount: i128,
-) {
-    campaign.amount_raised += amount;
-    campaign.effective_amount_raised += amount;
+) -> Result<(), Error> {
+    campaign.amount_raised = campaign
+        .amount_raised
+        .checked_add(amount)
+        .ok_or(Error::Overflow)?;
+    campaign.effective_amount_raised = campaign
+        .effective_amount_raised
+        .checked_add(amount)
+        .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, campaign);
-    set_contribution(env, campaign_id, contributor, current + amount);
-    set_lifetime_contribution(env, campaign_id, contributor, lifetime + amount);
+    set_contribution(
+        env,
+        campaign_id,
+        contributor,
+        current.checked_add(amount).ok_or(Error::Overflow)?,
+    );
+    set_lifetime_contribution(
+        env,
+        campaign_id,
+        contributor,
+        lifetime.checked_add(amount).ok_or(Error::Overflow)?,
+    );
 
     if lifetime == 0 {
         increment_contributor_count(env, campaign_id);
     }
 
     let total_raised = get_total_raised_global(env);
-    set_total_raised_global(env, total_raised + amount);
+    set_total_raised_global(
+        env,
+        total_raised.checked_add(amount).ok_or(Error::Overflow)?,
+    );
+
+    Ok(())
 }
 
 pub(crate) fn contribute(
@@ -146,7 +170,7 @@ pub(crate) fn contribute(
     check_contribution_caps(&campaign, lifetime, amount)?;
 
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if current + amount > cap {
+        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
             return Err(Error::ContributionCapExceeded);
         }
     }
@@ -162,7 +186,7 @@ pub(crate) fn contribute(
         current,
         lifetime,
         amount,
-    );
+    )?;
 
     let client = token_client(env);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
@@ -218,7 +242,7 @@ pub(crate) fn batch_contribute(
         check_contribution_caps(&campaign, lifetime, amount)?;
 
         if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-            if current + amount > cap {
+            if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
                 return Err(Error::ContributionCapExceeded);
             }
         }
@@ -233,7 +257,7 @@ pub(crate) fn batch_contribute(
             current,
             lifetime,
             amount,
-        );
+        )?;
 
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
