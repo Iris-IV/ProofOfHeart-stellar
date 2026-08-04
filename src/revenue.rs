@@ -35,7 +35,11 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     bump_instance_ttl(env);
 
     let current_pool = get_revenue_pool(env, campaign_id);
-    set_revenue_pool(env, campaign_id, current_pool + amount);
+    set_revenue_pool(
+        env,
+        campaign_id,
+        current_pool.checked_add(amount).ok_or(Error::Overflow)?,
+    );
 
     let token_addr = get_token(env);
     let client = token::Client::new(env, &token_addr);
@@ -103,8 +107,9 @@ pub(crate) fn claim_revenue(
     let is_first_claim = already_claimed == 0;
     let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
     let total_contributors = get_contributor_count(env, campaign_id);
-    let is_last_claimant =
-        is_first_claim && total_contributors > 0 && claimants_so_far + 1 >= total_contributors;
+    let is_last_claimant = is_first_claim
+        && total_contributors > 0
+        && claimants_so_far.checked_add(1).ok_or(Error::Overflow)? >= total_contributors;
 
     let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
     if is_last_claimant {
@@ -129,14 +134,31 @@ pub(crate) fn claim_revenue(
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
-    set_revenue_claimed(env, campaign_id, &contributor, already_claimed + claimable);
+    set_revenue_claimed(
+        env,
+        campaign_id,
+        &contributor,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Track the running sum paid out to contributors, and the count of
     // distinct contributors who have claimed at least once, so future claims
     // can detect the last claimant (#526).
-    set_contributor_revenue_distributed(env, campaign_id, distributed_so_far + claimable);
+    set_contributor_revenue_distributed(
+        env,
+        campaign_id,
+        distributed_so_far
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
     if is_first_claim {
-        set_contributor_revenue_claimants(env, campaign_id, claimants_so_far + 1);
+        set_contributor_revenue_claimants(
+            env,
+            campaign_id,
+            claimants_so_far.checked_add(1).ok_or(Error::Overflow)?,
+        );
     }
 
     // Token transfer happens after all state updates (CEI pattern).
@@ -183,7 +205,13 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
-    set_creator_revenue_claimed(env, campaign_id, already_claimed + claimable);
+    set_creator_revenue_claimed(
+        env,
+        campaign_id,
+        already_claimed
+            .checked_add(claimable)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
