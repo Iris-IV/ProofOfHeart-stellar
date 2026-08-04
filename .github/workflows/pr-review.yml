@@ -455,17 +455,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          CONCLUSION=$(gh api "repos/$REPO/commits/$HEAD_SHA/status" --jq '.state' 2>/dev/null || echo "unknown")
+          # GitHub Actions reports job results as *check runs*, not the legacy
+          # commit statuses, so the old /commits/{sha}/status endpoint returned
+          # "pending" forever on an Actions-only repo. Query the check-runs API
+          # instead; an empty result means CI has not started -> not green.
+          SUMMARY=$(gh api \
+            "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+            --jq '{total: .total_count, conclusions: [.check_runs[].conclusion]}' \
+            2>/dev/null || echo '{"total":0,"conclusions":[]}')
 
-          if [ "$CONCLUSION" = "success" ]; then
-            echo "ci_green=true" >> "$GITHUB_OUTPUT"
-            echo "CI status: $CONCLUSION — all checks passing."
-          elif [ "$CONCLUSION" = "pending" ]; then
+          TOTAL=$(echo "$SUMMARY" | jq -r '.total')
+          INFLIGHT=$(echo "$SUMMARY" | jq \
+            '[.conclusions[] | select(. == null or . == "pending" or . == "in_progress" or . == "queued")] | length')
+          BROKEN=$(echo "$SUMMARY" | jq \
+            '[.conclusions[] | select(. != null and . != "success" and . != "neutral" and . != "skipped")] | length')
+
+          if [ "$TOTAL" -eq 0 ]; then
             echo "ci_green=false" >> "$GITHUB_OUTPUT"
-            echo "CI status: $CONCLUSION — checks still running. Skipping auto-merge."
+            echo "CI status: no check runs found — CI may not have started. Skipping auto-merge."
+          elif [ "$INFLIGHT" -gt 0 ]; then
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            echo "CI status: checks still in progress. Skipping auto-merge."
+          elif [ "$BROKEN" -gt 0 ]; then
+            echo "ci_green=false" >> "$GITHUB_OUTPUT"
+            echo "CI status: one or more checks failing. Skipping auto-merge."
           else
-            echo "ci_green=false" >> "$GITHUB_OUTPUT"
-            echo "CI status: $CONCLUSION — checks failing or unknown. Skipping auto-merge."
+            echo "ci_green=true" >> "$GITHUB_OUTPUT"
+            echo "CI status: all checks passing."
           fi
 
       # ── Auto-merge approved PRs at high confidence ────────────────────────
