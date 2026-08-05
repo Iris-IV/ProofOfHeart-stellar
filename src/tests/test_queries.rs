@@ -204,7 +204,10 @@ fn test_get_campaign_stats_after_contributions() {
 
     let stats = client.get_campaign_stats(&campaign_id);
     assert_eq!(stats.contributor_count, 1);
-    assert_eq!(stats.top_contributor, Some(contributor1.clone()));
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
     assert_eq!(stats.avg_contribution, 400);
     assert!(stats.last_contribution_time > 0);
     let first_time = stats.last_contribution_time;

@@ -204,7 +204,7 @@ pub struct CampaignReserve {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignStats {
     pub contributor_count: u32,
-    pub top_contributor: Option<Address>,
+    pub top_contributor: MaybePendingCreator,
     pub avg_contribution: i128,
     pub last_contribution_time: u64,
 }
