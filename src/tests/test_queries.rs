@@ -181,6 +181,7 @@ fn test_get_campaign_stats_empty_before_any_contribution() {
 }
 
 #[test]
+#[test]
 fn test_get_campaign_stats_after_contributions() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
@@ -200,6 +201,7 @@ fn test_get_campaign_stats_after_contributions() {
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
+    let first_contribution_time = env.ledger().timestamp();
     client.contribute(&campaign_id, &contributor1, &400);
 
     let stats = client.get_campaign_stats(&campaign_id);
@@ -209,13 +211,13 @@ fn test_get_campaign_stats_after_contributions() {
         MaybePendingCreator::Some(contributor1.clone())
     );
     assert_eq!(stats.avg_contribution, 400);
-    assert!(stats.last_contribution_time > 0);
-    let first_time = stats.last_contribution_time;
+    assert_eq!(stats.last_contribution_time, first_contribution_time);
 
     // contributor2 contributes more and should become the new top contributor
     env.ledger().with_mut(|li| {
         li.timestamp += 1;
     });
+    let second_contribution_time = env.ledger().timestamp();
     client.contribute(&campaign_id, &contributor2, &900);
 
     let stats = client.get_campaign_stats(&campaign_id);
@@ -226,7 +228,7 @@ fn test_get_campaign_stats_after_contributions() {
     );
     // avg_contribution = amount_raised / contributor_count = 1300 / 2 = 650
     assert_eq!(stats.avg_contribution, 650);
-    assert!(stats.last_contribution_time >= first_time);
+    assert_eq!(stats.last_contribution_time, second_contribution_time);
 }
 
 #[test]
