@@ -220,7 +220,10 @@ fn test_get_campaign_stats_after_contributions() {
 
     let stats = client.get_campaign_stats(&campaign_id);
     assert_eq!(stats.contributor_count, 2);
-    assert_eq!(stats.top_contributor, Some(contributor2.clone()));
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor2.clone())
+    );
     // avg_contribution = amount_raised / contributor_count = 1300 / 2 = 650
     assert_eq!(stats.avg_contribution, 650);
     assert!(stats.last_contribution_time >= first_time);
@@ -250,7 +253,10 @@ fn test_get_campaign_stats_top_contributor_does_not_regress_on_smaller_contribut
     client.contribute(&campaign_id, &contributor2, &100);
 
     let stats = client.get_campaign_stats(&campaign_id);
-    assert_eq!(stats.top_contributor, Some(contributor1));
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
 }
 
 #[test]
