@@ -134,7 +134,7 @@ mod tests {
         assert_eq!(topic1, user);
 
         // Data: campaign_id as u32
-        let payload: u32 = FromVal::from_val(&env, &data);
+        let payload: u32 = FromVal::from_val(&env, data);
         assert_eq!(payload, id);
     }
 
@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(topic1, user);
 
         // Data: campaign_id as u32
-        let payload: u32 = FromVal::from_val(&env, &data);
+        let payload: u32 = FromVal::from_val(&env, data);
         assert_eq!(payload, id);
     }
 }

@@ -160,7 +160,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 |---------|------------------------------------------------------------|
 | Topics  | `("campaign_unbookmarked", user: Address)`                 |
 | Data    | `campaign_id: u32`                                         |
-| Source  | `src/bookmarks.rs:56` — `remove_saved_campaign()`           |
+| Source  | `src/bookmarks.rs:59` — `remove_saved_campaign()`           |
 
 ---
 
