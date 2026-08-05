@@ -5,7 +5,7 @@ use crate::storage::{
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
     get_last_contribution_time, get_platform_fee, get_token, get_top_contributor,
-    get_total_raised_global, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    get_total_raised_net, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
     CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{
@@ -276,7 +276,7 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         active_campaigns: get_active_campaign_count(env),
         verified_campaigns: get_verified_campaign_count(env),
         cancelled_campaigns: get_cancelled_campaign_count(env),
-        total_amount_raised: get_total_raised_global(env),
+        total_amount_raised: get_total_raised_net(env),
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
     }
@@ -314,7 +314,7 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
 pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
     let total_campaigns = get_campaign_count(env);
     let active_campaigns = get_active_campaign_count(env);
-    let total_raised = get_total_raised_global(env);
+    let total_raised = get_total_raised_net(env);
     let platform_fee_bps = get_platform_fee(env);
     let is_paused = env
         .storage()

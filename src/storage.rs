@@ -125,6 +125,10 @@ pub enum ContributionKey {
     PersonalCap(u32, Address),
     ContributorCount(u32),
     TotalRaised,
+    /// Platform-stats display total: like `TotalRaised`, but a cancelled
+    /// campaign's claimable amount is removed at cancellation time (#455).
+    TotalRaisedNet,
+    /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
     BlockCampaignContributionCount(u32),
     /// The address of the largest contributor to a campaign, keyed by campaign ID.
     TopContributor(u32),
@@ -742,6 +746,38 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage()
         .instance()
         .set(&ContributionKey::TotalRaised, &amount);
+}
+
+/// Returns the platform-stats display total raised. It mirrors every movement
+/// of `total_raised_global` (contributions, refunds, withdrawals, reserve
+/// releases) and additionally removes a cancelled campaign's full claimable
+/// amount at cancellation time (#455). This counter feeds read-only platform
+/// stats; it is NOT the token-migration escrow gate — that remains
+/// `total_raised_global` (#407), so refunds still escrowed in the current
+/// token keep blocking `accept_token_update` until each contributor claims
+/// them.
+///
+/// Not written by `init()` on purpose: an absent key reads as `0` (so fresh
+/// contracts report an empty platform total), the first write happens on the
+/// first contribution, and skipping the eager write keeps the testutils event
+/// snapshot stable for tests with very large event logs.
+///
+/// Deployment note: a contract upgraded to a build with this counter has no
+/// backfilled value — pre-upgrade activity is absent until a migration
+/// populates it (e.g. from `total_raised_global` minus cancelled campaigns'
+/// claimable amounts). Coordinate with the #604/#718 work before deploying.
+pub fn get_total_raised_net(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&ContributionKey::TotalRaisedNet)
+        .unwrap_or(0)
+}
+
+/// Stores the platform-stats display total raised.
+pub fn set_total_raised_net(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&ContributionKey::TotalRaisedNet, &amount);
 }
 
 // ── Creator campaigns (bucketed) ──────────────────────────────────────────────

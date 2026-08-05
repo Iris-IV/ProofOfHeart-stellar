@@ -7,10 +7,10 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_reserve,
-    get_campaign_vesting, get_platform_fee, get_total_raised_global,
+    get_campaign_vesting, get_platform_fee, get_total_raised_global, get_total_raised_net,
     get_withdraw_release_delay_days, get_withdraw_reserve_percentage, set_campaign,
-    set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage,
+    set_campaign_reserve, set_total_raised_global, set_total_raised_net,
+    set_withdraw_release_delay_days, set_withdraw_reserve_percentage,
 };
 use crate::types::CampaignReserve;
 
@@ -100,6 +100,13 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
             .checked_sub(campaign.amount_raised - reserve_amount)
             .ok_or(Error::Overflow)?,
     );
+    let total_raised_net = get_total_raised_net(env);
+    set_total_raised_net(
+        env,
+        total_raised_net
+            .checked_sub(campaign.amount_raised - reserve_amount)
+            .ok_or(Error::Overflow)?,
+    );
 
     // Token transfers happen after all state updates (CEI pattern).
     let admin_addr = get_admin(env);
@@ -161,6 +168,13 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     set_total_raised_global(
         env,
         total_raised
+            .checked_sub(reserve.amount)
+            .ok_or(Error::Overflow)?,
+    );
+    let total_raised_net = get_total_raised_net(env);
+    set_total_raised_net(
+        env,
+        total_raised_net
             .checked_sub(reserve.amount)
             .ok_or(Error::Overflow)?,
     );

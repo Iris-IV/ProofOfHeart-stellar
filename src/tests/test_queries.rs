@@ -153,7 +153,9 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.total_amount_raised, 700);
+    // Issue #455: cancelled campaign's raised amount is subtracted from
+    // the platform-wide total at cancellation time, so only c1's 400 remains.
+    assert_eq!(stats.total_amount_raised, 400);
 }
 
 #[test]
@@ -682,6 +684,245 @@ fn test_get_creator_stats_zero_campaigns() {
     assert_eq!(stats.active_campaigns, 0);
     assert_eq!(stats.total_raised, 0);
     assert_eq!(stats.total_contributors, 0);
+}
+
+// ── Issue #455 regression tests: platform-stats total on cancellation ──────────
+
+#[test]
+fn test_cancel_campaign_removes_claimable_amount_from_platform_stats() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancel stats test"),
+        String::from_str(&env, "Verify platform stats after cancel"),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &1000);
+
+    assert_eq!(client.get_platform_stats().total_amount_raised, 1000);
+
+    client.cancel_campaign(&id);
+
+    // Issue #455: cancellation must subtract the full claimable amount
+    // (campaign.amount_raised) from the platform-stats counter.
+    assert_eq!(client.get_platform_stats().total_amount_raised, 0);
+}
+
+#[test]
+fn test_unclaimed_refund_does_not_inflate_platform_stats() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Unclaimed refund"),
+        String::from_str(&env, "Reproduce #455 directly"),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &500);
+
+    // Cancel but do NOT claim refund
+    client.cancel_campaign(&id);
+
+    // The cancelled campaign's 500 must no longer be counted in the
+    // platform-stats total, even though no contributor has claimed a refund.
+    assert_eq!(client.get_platform_stats().total_amount_raised, 0);
+}
+
+#[test]
+fn test_refund_claim_after_cancel_does_not_double_decrement() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "No double decrement"),
+        String::from_str(&env, "Verify #455 prevents double subtraction"),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &600);
+    client.contribute(&id, &contributor2, &400);
+
+    assert_eq!(client.get_platform_stats().total_amount_raised, 1000);
+
+    // Cancel: subtracts full 1000 → platform-stats total = 0
+    client.cancel_campaign(&id);
+    assert_eq!(client.get_platform_stats().total_amount_raised, 0);
+
+    // Claim first refund: should NOT decrement the platform-stats counter again
+    client.claim_refund(&id, &contributor1);
+    assert_eq!(
+        client.get_platform_stats().total_amount_raised,
+        0,
+        "platform-stats total must not go negative after first refund"
+    );
+
+    // Claim second refund: should NOT decrement the platform-stats counter again
+    client.claim_refund(&id, &contributor2);
+    assert_eq!(
+        client.get_platform_stats().total_amount_raised,
+        0,
+        "platform-stats total must not go negative after second refund"
+    );
+}
+
+#[test]
+fn test_multiple_campaigns_cancel_accounting() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    let c_a = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign A"),
+        String::from_str(&env, "A"),
+        5000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let c_b = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign B"),
+        String::from_str(&env, "B"),
+        5000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&c_a);
+    client.verify_campaign(&c_b);
+    client.contribute(&c_a, &contributor1, &100);
+    client.contribute(&c_b, &contributor2, &200);
+
+    assert_eq!(client.get_platform_stats().total_amount_raised, 300);
+
+    // Cancel A: platform-stats total should drop by 100 → 200
+    client.cancel_campaign(&c_a);
+    assert_eq!(
+        client.get_platform_stats().total_amount_raised,
+        200,
+        "After cancelling A, only B's 200 should remain"
+    );
+
+    // Cancel B: platform-stats total should drop by 200 → 0
+    client.cancel_campaign(&c_b);
+    assert_eq!(
+        client.get_platform_stats().total_amount_raised,
+        0,
+        "After cancelling both, the platform-stats total should be 0"
+    );
+}
+
+#[test]
+fn test_zero_value_campaign_cancel_no_underflow() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    // Create a campaign with no contributions (amount_raised = 0).
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Zero Value"),
+        String::from_str(&env, "Verify no underflow on cancel"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    assert_eq!(client.get_platform_stats().total_amount_raised, 0);
+
+    // Cancelling a campaign with amount_raised == 0 must not underflow.
+    client.cancel_campaign(&id);
+    assert_eq!(client.get_platform_stats().total_amount_raised, 0);
+}
+
+/// Pins the two-counter invariant: the platform-stats counter diverges from
+/// the escrow counter only by the sum of cancelled campaigns' claimable
+/// amounts, and they converge again once those refunds are claimed.
+#[test]
+fn test_platform_stats_align_with_escrow_after_refund_settlement() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    // c1 stays active; c2 gets cancelled.
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Active"),
+        String::from_str(&env, "Stays active"),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancelled"),
+        String::from_str(&env, "Gets cancelled"),
+        2000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&c1);
+    client.verify_campaign(&c2);
+    client.contribute(&c1, &contributor1, &500);
+    client.contribute(&c2, &contributor2, &300);
+
+    assert_eq!(client.get_platform_stats().total_amount_raised, 800);
+    assert_eq!(client.get_total_raised_global(), 800);
+
+    // Cancel c2: the stats counter drops by c2's 300, but the escrow counter
+    // stays put because the refund is still owed in the current token.
+    client.cancel_campaign(&c2);
+    assert_eq!(client.get_platform_stats().total_amount_raised, 500);
+    assert_eq!(client.get_total_raised_global(), 800);
+
+    // Once the refund is claimed, escrow drops to match the stats counter.
+    client.claim_refund(&c2, &contributor2);
+    assert_eq!(client.get_platform_stats().total_amount_raised, 500);
+    assert_eq!(client.get_total_raised_global(), 500);
 }
 
 #[test]

@@ -7,10 +7,11 @@ use crate::lifecycle::{
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
     get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
-    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
-    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global, AdminKey,
+    get_total_raised_global, get_total_raised_net, increment_contributor_count,
+    remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
+    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
+    set_total_raised_net, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -132,6 +133,14 @@ fn update_contribution_accounting(
     set_total_raised_global(
         env,
         total_raised.checked_add(amount).ok_or(Error::Overflow)?,
+    );
+
+    let total_raised_net = get_total_raised_net(env);
+    set_total_raised_net(
+        env,
+        total_raised_net
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?,
     );
 
     Ok(())
@@ -321,11 +330,28 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, &campaign);
 
+    // `total_raised_global` is the token-migration escrow gate (#407): it must
+    // track every payout from the contract in the current token, so it is
+    // always decremented here — including for cancelled campaigns, whose
+    // refunds remain escrowed until claimed.
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(
         env,
         total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
     );
+
+    // The platform-stats counter (#455) was already reduced by the full
+    // claimable amount at cancellation time, so only decrement it for
+    // expired/failed (non-cancelled) campaigns to avoid double subtraction.
+    if !campaign.is_cancelled {
+        let total_raised_net = get_total_raised_net(env);
+        set_total_raised_net(
+            env,
+            total_raised_net
+                .checked_sub(amount)
+                .ok_or(Error::Overflow)?,
+        );
+    }
 
     let client = token_client(env);
     client.transfer(&env.current_contract_address(), &contributor, &amount);

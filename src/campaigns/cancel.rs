@@ -8,7 +8,8 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
-    increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
+    get_total_raised_net, increment_cancelled_campaign_count, remove_voting_state, set_campaign,
+    set_revenue_pool, set_total_raised_net,
 };
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -50,6 +51,19 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    // Issue #455: remove the cancelled campaign's claimable amount from the
+    // platform-stats counter so unclaimed refunds no longer permanently
+    // inflate the statistic. `total_raised_global` (the token-migration
+    // escrow gate, #407) is deliberately left untouched — refunds stay
+    // escrowed in the current token until each contributor claims them.
+    let total_raised_net = get_total_raised_net(env);
+    set_total_raised_net(
+        env,
+        total_raised_net
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("campaign_cancelled", campaign_id, campaign.creator.clone()),
@@ -99,6 +113,19 @@ pub(crate) fn admin_cancel_campaign(
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    // Issue #455: remove the cancelled campaign's claimable amount from the
+    // platform-stats counter so unclaimed refunds no longer permanently
+    // inflate the statistic. `total_raised_global` (the token-migration
+    // escrow gate, #407) is deliberately left untouched — refunds stay
+    // escrowed in the current token until each contributor claims them.
+    let total_raised_net = get_total_raised_net(env);
+    set_total_raised_net(
+        env,
+        total_raised_net
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
