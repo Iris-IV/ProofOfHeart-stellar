@@ -198,3 +198,13 @@ pub struct CampaignReserve {
     /// Whether the reserve has already been released.
     pub released: bool,
 }
+
+/// Stats for a specific campaign.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignStats {
+    pub contributor_count: u32,
+    pub top_contributor: MaybePendingCreator,
+    pub avg_contribution: i128,
+    pub last_contribution_time: u64,
+}

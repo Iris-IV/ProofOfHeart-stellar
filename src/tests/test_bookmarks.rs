@@ -141,6 +141,49 @@ fn test_saved_campaigns_are_per_wallet() {
 }
 
 #[test]
+fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
+    let (env, _admin, creator, contributor1, contributor2, _token, _token_admin, client) =
+        setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.save_campaign(&contributor1, &campaign_id);
+
+    client.remove_saved_campaign(&contributor1, &campaign_id);
+
+    // Verify that remove_saved_campaign requires authorization from the specified user (contributor1)
+    let auths = env.auths();
+    let found = auths.iter().any(|(addr, inv)| {
+        *addr == contributor1
+            && match &inv.function {
+                soroban_sdk::testutils::AuthorizedFunction::Contract((contract, function, _)) => {
+                    contract == &client.address
+                        && function == &soroban_sdk::Symbol::new(&env, "remove_saved_campaign")
+                }
+                _ => false,
+            }
+    });
+    assert!(
+        found,
+        "remove_saved_campaign must record authorization for contributor1"
+    );
+
+    // Also verify trying to remove a campaign that contributor2 hasn't bookmarked fails cleanly
+    let result = client.try_remove_saved_campaign(&contributor2, &campaign_id);
+    assert_eq!(result, Err(Ok(Error::CampaignNotBookmarked)));
+}
+
+#[test]
 fn test_save_campaign_then_cancel() {
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
