@@ -181,7 +181,6 @@ fn test_get_campaign_stats_empty_before_any_contribution() {
 }
 
 #[test]
-#[test]
 fn test_get_campaign_stats_after_contributions() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
