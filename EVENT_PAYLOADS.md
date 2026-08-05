@@ -249,8 +249,13 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaigns_bulk_verified",)`                             |
-| Data    | `(verified_count: u32, total: u32)`                        |
-| Source  | `lib.rs:1175` — `verify_campaigns()`                       |
+| Data    | `(verified_count: u32, failed_ids: Vec<u32>)`              |
+| Source  | `lib.rs:273` — `verify_campaigns()`                        |
+
+> #442: the payload used to be `(verified_count, total)`; it now carries the
+> per-id outcome. `failed_ids` lists every campaign id in the processed batch
+> (up to 50) that could not be verified, so indexers can distinguish partial
+> success from total failure without re-querying the contract.
 
 ---
 
