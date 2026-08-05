@@ -656,6 +656,10 @@ impl ProofOfHeart {
         queries::get_creator_stats(&env, creator)
     }
 
+    pub fn get_campaign_stats(env: Env, campaign_id: u32) -> CampaignStats {
+        queries::get_campaign_stats(&env, campaign_id)
+    }
+
     pub fn get_contributor_portfolio(
         env: Env,
         contributor: Address,

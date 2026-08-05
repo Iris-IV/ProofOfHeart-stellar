@@ -8,7 +8,7 @@ use crate::storage::{
     CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
     MaybePendingCreator
 };
-use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
+use crate::types::{Campaign, CampaignStats, Category, CreatorStats, PlatformReport, PlatformStats};
 
 /// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
 /// in ascending order.
@@ -261,6 +261,29 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         total_amount_raised: get_total_raised_global(env),
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
+    }
+}
+
+/// Returns aggregate contribution stats for a single campaign: contributor
+/// count, current top contributor, average contribution size, and the
+/// timestamp of the most recent contribution.
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let amount_raised = get_campaign(env, campaign_id)
+        .map(|c| c.amount_raised)
+        .unwrap_or(0);
+
+    let avg_contribution = if contributor_count > 0 {
+        amount_raised / contributor_count as i128
+    } else {
+        0
+    };
+
+    CampaignStats {
+        contributor_count,
+        top_contributor: get_top_contributor(env, campaign_id),
+        avg_contribution,
+        last_contribution_time: get_last_contribution_time(env, campaign_id),
     }
 }
 
