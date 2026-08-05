@@ -18,6 +18,24 @@
 # No code from the fork is ever executed.  The PR diff arrives as a
 # pre-built artifact uploaded by pr-collector.yml (the unprivileged sibling).
 #
+# Merge safety (fixes #467)
+# ─────────────────────────
+# The workflow this one replaced merged with `gh pr merge --admin`, which
+# bypasses branch protection entirely — that is how a build with duplicate
+# error discriminants reached `main` without CI ever passing.  Three things
+# stop that from recurring:
+#
+#   1. `--admin` is gone.  Branch protection is the final authority; if it
+#      says no, the merge fails and the job goes red.
+#   2. A merge is only *attempted* once every check on the head commit has
+#      completed successfully and the PR is conflict-free.  The gate fails
+#      closed — pending, missing, or failing checks all mean no merge.
+#   3. Every action is pinned to a full commit SHA, so a compromised or
+#      retagged upstream action cannot silently gain access to OWNER_PAT.
+#
+# The model's confidence score gates whether a merge is *proposed*, never
+# whether the repository's own rules apply.
+#
 # References
 # ──────────
 #   https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
@@ -120,7 +138,7 @@ jobs:
       # so we use dawidd6/action-download-artifact which searches across runs.
       - name: Download PR artifact
         if: steps.gate.outputs.skip != 'true'
-        uses: dawidd6/action-download-artifact@v6
+        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name: pr-${{ github.event.pull_request.number }}
@@ -440,13 +458,108 @@ jobs:
               ;;
           esac
 
+      # ── Require CI green before any merge is attempted (fixes #467) ───────
+      #
+      # The previous revision of this workflow merged with `gh pr merge
+      # --admin`, which bypasses branch protection outright — that is how the
+      # broken build introducing duplicate error discriminants reached `main`.
+      # `--admin` is gone; GitHub's own branch protection is now the final
+      # authority on whether a merge is allowed.
+      #
+      # This step is belt-and-braces on top of that: it refuses to even attempt
+      # the merge unless every check on the head commit has completed
+      # successfully and the PR is free of conflicts, so a blocked PR produces
+      # a readable comment instead of an opaque API error.
+      - name: Verify CI is green
+        if: |
+          steps.gate.outputs.skip != 'true'
+          && steps.meta.outputs.auto_fraud != 'true'
+          && steps.review.outputs.decision == 'APPROVE'
+          && steps.act.outputs.merge_ok == 'true'
+        id: ci
+        env:
+          GH_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM:        ${{ steps.meta.outputs.pr_number }}
+          REPO:          ${{ github.repository }}
+          # This workflow's own check run appears in the PR's rollup. Excluding
+          # it by name keeps the gate from waiting on itself forever.
+          SELF_WORKFLOW: ${{ github.workflow }}
+        run: |
+          set -euo pipefail
+
+          # Checks are usually finished by the time a reviewer types the
+          # trigger phrase, but allow a bounded wait for stragglers. Fails
+          # closed: if they have not settled within the window, no merge.
+          ATTEMPTS=10
+          SLEEP=30
+
+          for i in $(seq 1 "$ATTEMPTS"); do
+            PR_JSON=$(gh pr view "$PR_NUM" --repo "$REPO" \
+              --json statusCheckRollup,mergeable)
+
+            # statusCheckRollup mixes CheckRun objects (status/conclusion) with
+            # commit StatusContext objects (state); handle both shapes. The
+            # rollup is null when no checks have been reported at all.
+            CHECKS=$(echo "$PR_JSON" | jq --arg self "$SELF_WORKFLOW" \
+              '[ (.statusCheckRollup // [])[]
+                 | select((.workflowName // "") != $self) ]')
+
+            TOTAL=$(echo "$CHECKS" | jq 'length')
+            PENDING=$(echo "$CHECKS" | jq '[ .[] | select(
+                (((.status // "COMPLETED") | ascii_upcase) != "COMPLETED")
+                or (((.state // "SUCCESS") | ascii_upcase) == "PENDING")
+              ) ] | length')
+            FAILED=$(echo "$CHECKS" | jq '[ .[] | select(
+                (((.conclusion // "") | ascii_upcase)
+                   | IN("FAILURE","TIMED_OUT","CANCELLED","ACTION_REQUIRED","STARTUP_FAILURE"))
+                or (((.state // "") | ascii_upcase) | IN("FAILURE","ERROR"))
+              ) ] | length')
+
+            MERGEABLE=$(echo "$PR_JSON" | jq -r '.mergeable // "UNKNOWN"')
+
+            echo "attempt $i/$ATTEMPTS — checks: $TOTAL total, $PENDING pending, $FAILED failed; mergeable=$MERGEABLE"
+
+            if [ "$PENDING" -eq 0 ] && [ "$MERGEABLE" != "UNKNOWN" ]; then
+              break
+            fi
+
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              sleep "$SLEEP"
+            fi
+          done
+
+          REASON=""
+          if [ "$TOTAL" -eq 0 ]; then
+            REASON="no status checks reported on the head commit"
+          elif [ "$PENDING" -ne 0 ]; then
+            REASON="$PENDING check(s) still running after $((ATTEMPTS * SLEEP))s"
+          elif [ "$FAILED" -ne 0 ]; then
+            REASON="$FAILED check(s) failing"
+          elif [ "$MERGEABLE" != "MERGEABLE" ]; then
+            REASON="pull request is not mergeable (state: $MERGEABLE)"
+          fi
+
+          if [ -n "$REASON" ]; then
+            echo "green=false"          >> "$GITHUB_OUTPUT"
+            echo "reason=$REASON"       >> "$GITHUB_OUTPUT"
+            echo "CI gate not satisfied: $REASON"
+          else
+            echo "green=true"           >> "$GITHUB_OUTPUT"
+            echo "reason=none"          >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Auto-merge approved PRs at high confidence ────────────────────────
+      #
+      # No `--admin`. If branch protection requires approvals, up-to-date
+      # branches, or checks this job did not inspect, the merge is rejected by
+      # GitHub and this step fails loudly — which is the intended behaviour.
       - name: Auto-merge approved PRs at high confidence
         if: |
           steps.gate.outputs.skip != 'true'
           && steps.meta.outputs.auto_fraud != 'true'
           && steps.review.outputs.decision == 'APPROVE'
           && steps.act.outputs.merge_ok == 'true'
+          && steps.ci.outputs.green == 'true'
         env:
           GH_TOKEN: ${{ secrets.OWNER_PAT }}
           PR_NUM:   ${{ steps.meta.outputs.pr_number }}
@@ -454,16 +567,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          COMMIT_BODY=$(gh pr view "$PR_NUM" --json commits \
+          MERGE_BODY=$(gh pr view "$PR_NUM" --json commits \
             --jq '[.commits[].messageBody] | join("\n")' \
             | grep -viE 'co-authored-by:.*(claude|qwen|copilot|github-actions|bot|\[bot\]|gpt|openai|anthropic)' \
+            | sed '/^$/N;/^\n$/d' \
             || true)
-
-          MERGE_BODY=$(printf '%s\n\nCo-authored-by: Dopey <hello@sshdopey.com>' "$COMMIT_BODY" \
-            | sed '/^$/N;/^\n$/d')
 
           gh pr merge "$PR_NUM" \
             --squash \
-            --admin \
             --subject "$PR_TITLE" \
             --body    "$MERGE_BODY"
+
+      # ── Explain a skipped merge instead of failing silently ───────────────
+      - name: Report why the merge was skipped
+        if: |
+          steps.gate.outputs.skip != 'true'
+          && steps.meta.outputs.auto_fraud != 'true'
+          && steps.review.outputs.decision == 'APPROVE'
+          && steps.act.outputs.merge_ok == 'true'
+          && steps.ci.outputs.green != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM:   ${{ steps.meta.outputs.pr_number }}
+          REASON:   ${{ steps.ci.outputs.reason }}
+        run: |
+          set -euo pipefail
+
+          gh pr comment "$PR_NUM" --body "$(printf '%s\n\n%s' \
+            "Auto-merge skipped: $REASON." \
+            "The review above still stands — this PR just needs a green build (or a maintainer merge) before it can land.")"
