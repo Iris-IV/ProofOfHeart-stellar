@@ -508,7 +508,7 @@ fn test_withdraw_event_payload_tuple() {
 
 #[test]
 fn test_bps_ceil_offset_value() {
-    assert_eq!(BPS_CEIL_OFFSET, BPS_DENOMINATOR as i128 - 1);
+    assert_eq!(BPS_CEIL_OFFSET, 9_999);
     // Ceiling division property: (a + BPS_CEIL_OFFSET) / BPS_DENOMINATOR == ceil(a / BPS_DENOMINATOR)
     assert_eq!(BPS_CEIL_OFFSET / BPS_DENOMINATOR as i128, 0); // ceil(0/10000) = 0
     assert_eq!((1 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(1/10000) = 1
