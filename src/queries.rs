@@ -5,10 +5,11 @@ use crate::storage::{
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
     get_platform_fee, get_token, get_total_raised_global, get_verified_campaign_count,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
-    MaybePendingCreator
+    MaybePendingCreator, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, CampaignStats, Category, CreatorStats, PlatformReport, PlatformStats};
+use crate::types::{
+    Campaign, CampaignStats, Category, CreatorStats, PlatformReport, PlatformStats,
+};
 
 /// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
 /// in ascending order.
