@@ -137,6 +137,8 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
 
+    campaign.creator.require_auth();
+
     // Defense-in-depth: a reserve is only ever created inside `withdraw_funds`
     // after `funds_withdrawn` is set to true. Re-assert the invariant here so a
     // reserve seeded through some other path (migration, admin grant, etc.) on a
@@ -144,8 +146,6 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     if !campaign.funds_withdrawn {
         return Err(Error::ValidationFailed);
     }
-
-    campaign.creator.require_auth();
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
