@@ -9,6 +9,30 @@ use crate::storage::{
 };
 use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
 
+/// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
+/// in ascending order.
+///
+/// # Pagination
+///
+/// The `start` parameter is an **exclusive cursor** — pass the last campaign ID
+/// from the previous page to begin the next page. Begin with `start = 0`.
+///
+/// After each request, set `start` to the ID of the last campaign received.
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.list_campaigns(&start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start = page.get(page.len() - 1).unwrap().id;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
     let mut campaigns = soroban_sdk::Vec::new(env);
