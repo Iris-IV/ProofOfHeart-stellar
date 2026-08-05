@@ -346,3 +346,33 @@ pub(crate) fn set_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Removes the contributor's personal contribution cap for a campaign (#503).
+/// Mirrors `set_personal_cap_fn`'s guards: the caller must authorize and the
+/// campaign must still be active. Removing a cap that is not set is an error
+/// rather than a silent no-op, so indexers can rely on `personal_cap_removed`
+/// meaning a cap actually existed.
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - The campaign is cancelled, withdrawn, or otherwise inactive.
+/// * `PersonalCapNotFound` - The contributor has no personal cap set on this campaign.
+pub(crate) fn remove_personal_cap_fn(
+    env: &Env,
+    campaign_id: u32,
+    contributor: Address,
+) -> Result<(), Error> {
+    contributor.require_auth();
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+    if get_personal_cap(env, campaign_id, &contributor).is_none() {
+        return Err(Error::PersonalCapNotFound);
+    }
+    bump_instance_ttl(env);
+    remove_personal_cap(env, campaign_id, &contributor);
+    env.events().publish(
+        ("personal_cap_removed", campaign_id, contributor.clone()),
+        (),
+    );
+    Ok(())
+}

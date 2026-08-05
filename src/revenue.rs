@@ -99,11 +99,18 @@ pub(crate) fn claim_revenue(
 
     // #526: integer division truncates each contributor's individual share,
     // so the sum of every contributor's `claimable` can fall short of the
-    // full contributor-side pool, leaving dust stuck in the contract forever.
+    // full contributor-side pool, leaving dust in the contract until the
+    // final eligible contributor claims.
     // Once every contributor entitled to this campaign has claimed at least
     // once, give the last one to claim whatever remains of the
     // contributor-side pool instead of their individually-truncated share,
     // so the full allocation is paid out exactly.
+    //
+    // #675: a pull-based claim cannot safely infer that a contributor will
+    // never claim: transferring that contributor's entitlement (or the dust)
+    // early would make a later valid claim underfunded. Resolving dust when a
+    // contributor is permanently inactive requires an explicit claim deadline
+    // and finalization flow, neither of which exists in this API.
     let is_first_claim = already_claimed == 0;
     let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
     let total_contributors = get_contributor_count(env, campaign_id);
