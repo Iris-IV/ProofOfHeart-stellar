@@ -209,9 +209,9 @@ Practically unreachable, but inconsistent with the weight path immediately below
 
 The CHANGELOG (#166 fix) mentions this was hardened for `update_campaign_description` once contributions exist, but `update_campaign` itself has the same hole on the verified-but-uncontributed window.
 
-#### 🟡 P2 — `verify_campaigns` (batch) silently skips failed entries past the first
+#### 🟡 P2 — `verify_campaigns` (batch) silently skips failed entries past the first — ✅ RESOLVED (#442)
 
-**`src/lib.rs:1131-1176`** captures only `first_error` and continues. Calls beyond a partial-success batch return `Err(first_error)` along with a `campaigns_bulk_verified` event reporting `(verified_count, total_count)`. Callers cannot distinguish "first failed, rest succeeded" from "all failed". Either return `(verified, errors_vec)` or stop on first error.
+The old `src/lib.rs:1131-1176` captured only `first_error` and continued, so a partial-success batch returned `Err(first_error)` with a `campaigns_bulk_verified` event reporting only `(verified_count, total_count)` — callers could not distinguish "first failed, rest succeeded" from "all failed", and on-chain the `Err` reverted the whole batch. `verify_campaigns` now returns `(verified_ids, failed_ids)` covering every id it processed (up to the 50-id cap), committing the successful verifications even when other ids fail; the `campaigns_bulk_verified` event payload is now `(verified_count, failed_ids)`.
 
 ### 2.2 Performance Bottlenecks
 
