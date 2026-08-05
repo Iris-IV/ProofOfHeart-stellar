@@ -501,3 +501,78 @@ fn test_withdraw_event_payload_tuple() {
     let data: (u32, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
     assert_eq!(data, (300, 776, 194));
 }
+
+/// Regression test for #459: a migration-planted CampaignReserve on a campaign
+/// with `funds_withdrawn == false` must NOT be drainable.
+#[test]
+fn test_withdraw_reserve_rejects_reserve_on_non_withdrawn_campaign() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    // Enable vesting so we can create a legitimate reserve later.
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Plant Reserve No Withdraw"),
+        String::from_str(
+            &env,
+            "Reserve planted before withdraw leaves funds_unwithdrawn==true",
+        ),
+        1000,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Fund the campaign so it can be withdrawn.
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    // Fast-forward past deadline so withdraw_funds would succeed.
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
+    });
+
+    // ── Part 1: Plant a CampaignReserve on a campaign that has NOT yet
+    // ── withdrawn funds, simulating a migration artefact or bug.
+    let future_release = env.ledger().timestamp() + 7 * SECONDS_PER_DAY;
+    let planted_reserve = crate::types::CampaignReserve {
+        amount: 194,
+        release_timestamp: future_release,
+        released: false,
+    };
+    env.as_contract(&client.address, || {
+        storage::set_campaign_reserve(&env, campaign_id, &planted_reserve);
+    });
+
+    // Verify the planted reserve exists.
+    assert_eq!(
+        client.get_campaign_reserve(&campaign_id),
+        Some(planted_reserve.clone())
+    );
+
+    // Attempting to withdraw the reserve should fail because funds_withdrawn is false.
+    let res = client.try_withdraw_reserve(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // ── Part 2: The normal withdraw → reserve flow must still work.
+    client.withdraw_funds(&campaign_id);
+
+    // Now the campaign has funds_withdrawn == true and a legitimate reserve.
+    // Fast-forward past the reserve release delay.
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 8 * SECONDS_PER_DAY;
+    });
+
+    // Withdraw reserve should now succeed.
+    client.withdraw_reserve(&campaign_id);
+    let reserve = client
+        .get_campaign_reserve(&campaign_id)
+        .expect("reserve should exist after withdraw_reserve");
+    assert!(reserve.released);
+}

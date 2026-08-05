@@ -136,6 +136,20 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     }
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
+
+    // Defense-in-depth: only release reserve on campaigns that have
+    // actually withdrawn funds. A migration-planted reserve on a
+    // non-withdrawn campaign must not be drainable.
+    //
+    // Uses ValidationFailed (same error as the release-timestamp check above)
+    // because the existing error variants NoFundsToWithdraw (no reserve at
+    // all) and FundingGoalNotReached (goal not met) describe different
+    // failure modes — this guard is about the campaign never having called
+    // withdraw_funds, which is a distinct invariant violation.
+    if !campaign.funds_withdrawn {
+        return Err(Error::ValidationFailed);
+    }
+
     campaign.creator.require_auth();
 
     // Update state before the token transfer (CEI pattern) so that a

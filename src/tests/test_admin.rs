@@ -369,6 +369,58 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     assert_eq!(client.get_token(), new_token_address);
 }
 
+// ── Issue #470: partial refund must still block token swap ──────────
+
+#[test]
+fn test_token_swap_blocked_after_partial_refund() {
+    let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Partial Refund"),
+        String::from_str(&env, "Partial refund blocks swap"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+    client.contribute(&campaign_id, &contributor2, &500);
+
+    // Cancel → ActiveCampaignCount → 0, but both contributions remain
+    // escrowed in the old token pending claim_refund.
+    client.cancel_campaign(&campaign_id);
+
+    // Only contributor1 claims their refund (partial refund).
+    // contributor2's 500 remains escrowed in the old token, so
+    // total_raised_global is still 500.
+    client.claim_refund(&campaign_id, &contributor1);
+
+    let new_token_address = env.register_stellar_asset_contract(admin.clone());
+    client.propose_token_update(&admin, &new_token_address);
+    env.ledger().with_mut(|l| {
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+
+    // Must be blocked: contributor2's refund is still escrowed in the
+    // old token (total_raised_global = 500 != 0).
+    let res = client.try_accept_token_update(&admin);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Once all refunds are claimed, the swap can proceed.
+    client.claim_refund(&campaign_id, &contributor2);
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+}
+
 // ── initialisation & config ─────────────────────────────────────────────────────
 
 #[test]
