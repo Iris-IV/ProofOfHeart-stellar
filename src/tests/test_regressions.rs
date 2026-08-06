@@ -3,7 +3,7 @@ use crate::{
     AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
     VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env, String, Vec};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
 
@@ -118,6 +118,7 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     }
 }
 
@@ -263,6 +264,7 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 500,
+        tags: Vec::new(&env),
     };
     let campaign_id = client.create_campaign(&params);
 
@@ -587,6 +589,7 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
         has_revenue_sharing: true,
         revenue_share_percentage: 5000, // 50%
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
@@ -628,6 +631,7 @@ fn test_last_revenue_claimant_absorbs_rounding_dust() {
         has_revenue_sharing: true,
         revenue_share_percentage: 5000, // 50%
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 

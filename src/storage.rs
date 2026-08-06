@@ -879,11 +879,7 @@ pub fn set_tag_campaign_bucket(
     bucket_index: u32,
     ids: &soroban_sdk::Vec<u32>,
 ) {
-    persistent_set!(
-        env,
-        CampaignKey::TagCampaignsBucket(tag, bucket_index),
-        ids
-    );
+    persistent_set!(env, CampaignKey::TagCampaignsBucket(tag, bucket_index), ids);
 }
 
 // ── Personal cap ─────────────────────────────────────────────────────────────

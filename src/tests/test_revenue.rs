@@ -3,7 +3,7 @@ use proptest::prelude::*;
 
 use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams, Error};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 // ── pull-based revenue distribution ─────────────────────────────────────────────
 
@@ -17,6 +17,7 @@ fn test_pull_based_revenue_distribution() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Next Gen AI"),
         String::from_str(&env, "Build AI"),
@@ -57,6 +58,7 @@ fn test_revenue_sharing_edge_cases() {
         setup_env();
 
     let campaign_nr = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "No Revenue"),
         String::from_str(&env, "Non-revenue campaign"),
@@ -76,6 +78,7 @@ fn test_revenue_sharing_edge_cases() {
     token_admin.mint(&creator, &100);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Rounding Test"),
         String::from_str(&env, "Test rounding and pool edge cases"),
@@ -121,6 +124,7 @@ fn test_claim_revenue_at_full_revenue_share_pays_entire_pool_to_contributors() {
     token_admin.mint(&creator, &1_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Full Revenue Share"),
         String::from_str(&env, "Contributors receive the full revenue pool"),
@@ -161,6 +165,7 @@ fn test_claim_creator_revenue_at_zero_revenue_share_pays_entire_pool_to_creator(
     token_admin.mint(&creator, &1_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Zero Revenue Share"),
         String::from_str(&env, "Creator receives the full revenue pool"),
@@ -201,6 +206,7 @@ fn test_claim_revenue_requires_contributor_auth() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue Claim Auth"),
         String::from_str(&env, "Testing claim revenue auth"),
@@ -245,6 +251,7 @@ fn test_revenue_lifecycle_e2e() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue Sharing Campaign"),
         String::from_str(
@@ -306,6 +313,7 @@ fn test_revenue_claim_after_full_refunds_no_panic() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue Refund Test"),
         String::from_str(&env, "Testing revenue claim after full refund"),
@@ -342,6 +350,7 @@ fn test_claim_creator_revenue_overflow_returns_error_not_panic() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Creator Revenue Overflow"),
         String::from_str(&env, "total_pool * share must not panic"),
@@ -380,6 +389,7 @@ fn test_claim_revenue_blocked_before_funds_withdrawn() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &5000);
@@ -409,6 +419,7 @@ fn test_deposit_revenue_negative_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -435,6 +446,7 @@ fn test_deposit_revenue_zero_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -461,6 +473,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Educator Campaign"),
         String::from_str(&env, "No revenue sharing"),
@@ -487,6 +500,7 @@ fn test_deposit_revenue_when_paused() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -533,6 +547,7 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -555,6 +570,7 @@ fn test_deposit_revenue_requires_funds_withdrawn() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue pre-withdraw blocked"),
         String::from_str(&env, "Deposit requires successful withdrawal"),
@@ -580,6 +596,7 @@ fn test_deposit_revenue_cancelled_campaign() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -892,6 +909,7 @@ fn test_cancel_campaign_refunds_revenue_pool() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000, // 20% to contributors
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -959,6 +977,7 @@ fn test_cannot_claim_revenue_after_cancel() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -1012,6 +1031,7 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
         has_revenue_sharing: true,
         revenue_share_percentage: 3000, // 30% to contributors
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -1078,6 +1098,7 @@ fn test_cancel_campaign_emits_revenue_refund_event() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -1120,6 +1141,7 @@ fn test_cancel_campaign_with_no_revenue() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 

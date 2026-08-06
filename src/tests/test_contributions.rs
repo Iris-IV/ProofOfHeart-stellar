@@ -5,7 +5,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
-    Address, IntoVal, String, Symbol,
+    Address, IntoVal, String, Symbol, Vec,
 };
 
 // ── contribute & basic failure states ───────────────────────────────────────────
@@ -17,6 +17,7 @@ fn test_contribute_and_withdraw_success() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Code Camp"),
         String::from_str(&env, "Learn Rust"),
@@ -50,6 +51,7 @@ fn test_creator_cannot_contribute_to_own_campaign() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Self Funding Block"),
         String::from_str(&env, "Creator should not contribute"),
@@ -73,6 +75,7 @@ fn test_failure_states() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Deadline Test"),
         String::from_str(&env, "Desc"),
@@ -127,6 +130,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     token_admin.mint(&creator3, &10000);
 
     let campaign_1 = client.create_campaign(&make_params(
+        &env,
         creator1.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "Educator campaign"),
@@ -140,6 +144,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     let _ = client.try_verify_campaign(&campaign_1);
 
     let campaign_2 = client.create_campaign(&make_params(
+        &env,
         creator2.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Learner campaign"),
@@ -153,6 +158,7 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
     let _ = client.try_verify_campaign(&campaign_2);
 
     let campaign_3 = client.create_campaign(&make_params(
+        &env,
         creator3.clone(),
         String::from_str(&env, "Campaign 3"),
         String::from_str(&env, "Startup campaign"),
@@ -215,6 +221,7 @@ fn test_deadline_boundary() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Boundary Test"),
         String::from_str(&env, "Testing exact deadline boundary"),
@@ -270,6 +277,7 @@ fn test_contribution_accounting_invariant() {
     token_admin.mint(&contributor3, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Invariant Campaign"),
         String::from_str(&env, "Accounting invariant check"),
@@ -305,6 +313,7 @@ fn test_view_functions_error_handling() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "View Test"),
         String::from_str(&env, "Testing view functions"),
@@ -336,6 +345,7 @@ fn test_contribute_one_second_before_deadline() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Almost Deadline"),
         String::from_str(&env, "Desc"),
@@ -375,6 +385,7 @@ fn test_contribute_overflow_returns_error_not_panic() {
     token_admin.mint(&contributor1, &1_000_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Overflow Test"),
         String::from_str(&env, "Checked arithmetic campaign"),
@@ -401,6 +412,7 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cap persistence"),
         String::from_str(&env, "lifetime cap test"),
@@ -429,6 +441,7 @@ fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Multi tx cap"),
         String::from_str(&env, "lifetime cap across txs"),
@@ -457,6 +470,7 @@ fn test_personal_cap_enforcement() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cap Test"),
         String::from_str(&env, "Testing caps"),
@@ -491,6 +505,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Science Book"),
         String::from_str(&env, "Teaching science to kids"),
@@ -522,6 +537,7 @@ fn test_anomaly_auto_pause_burst() {
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Burst Test"),
         String::from_str(&env, "Testing burst"),
@@ -578,6 +594,7 @@ fn test_low_activity_campaign_skips_burst_check() {
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Low Activity"),
         String::from_str(&env, "Testing burst skip"),
@@ -616,6 +633,7 @@ fn test_huge_contribution_triggers_auto_pause() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -636,6 +654,7 @@ fn test_cancel_and_refund() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Failed Idea"),
         String::from_str(&env, "Desc"),
@@ -669,6 +688,7 @@ fn test_claim_refund_requires_contributor_auth() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Auth Refund"),
         String::from_str(&env, "Only contributor can claim"),
@@ -710,6 +730,7 @@ fn test_double_refund_prevention() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Double Refund"),
         String::from_str(&env, "Test double refund"),
@@ -739,6 +760,7 @@ fn test_refund_requires_deadline_passed_and_goal_missed() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Failed Campaign"),
         String::from_str(&env, "Desc"),
@@ -778,6 +800,7 @@ fn test_no_refund_when_goal_reached() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Successful Campaign"),
         String::from_str(&env, "Desc"),
@@ -817,6 +840,7 @@ fn test_claim_refund_state_mutation_order() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Refund Order Test"),
         String::from_str(&env, "Testing state mutation order"),
@@ -854,6 +878,7 @@ fn test_claim_refund_multiple_contributors_isolation() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Multi Refund Test"),
         String::from_str(&env, "Testing multiple refunds"),
@@ -889,6 +914,7 @@ fn test_claim_refund_expired_campaign() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Expired Campaign"),
         String::from_str(&env, "Will expire"),
@@ -935,6 +961,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -980,6 +1007,7 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     token_admin.mint(&creator, &10_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue Refund Denominator"),
         String::from_str(
@@ -1032,6 +1060,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
     token_admin.mint(&contributor1, &5000);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cleanup Cancel Refund"),
         String::from_str(&env, "Storage cleanup test"),
@@ -1074,6 +1103,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
     token_admin.mint(&contributor1, &5000);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cleanup Failed"),
         String::from_str(&env, "Failed campaign refund"),
@@ -1115,6 +1145,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Zero Raised Guard"),
         String::from_str(&env, "Directly test AmountRaisedIsZero guard"),
@@ -1151,6 +1182,7 @@ fn test_claim_refund_preserves_lifetime_contribution() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "LT Cleanup"),
         String::from_str(&env, "Test lifetime cleanup"),
@@ -1183,6 +1215,7 @@ fn test_batch_contribute_multiple_campaigns_single_transfer() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_a = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign A"),
         String::from_str(&env, "First"),
@@ -1194,6 +1227,7 @@ fn test_batch_contribute_multiple_campaigns_single_transfer() {
         0i128,
     ));
     let campaign_b = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign B"),
         String::from_str(&env, "Second"),
@@ -1237,6 +1271,7 @@ fn test_batch_contribute_rejects_oversized_batch() {
     token_admin.mint(&contributor1, &10_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Oversized"),
         String::from_str(&env, "Too many items"),
@@ -1264,6 +1299,7 @@ fn test_batch_contribute_reverts_fully_on_invalid_item() {
     token_admin.mint(&contributor1, &5_000);
 
     let good_campaign = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Good"),
         String::from_str(&env, "Would succeed alone"),
@@ -1297,6 +1333,7 @@ fn test_batch_contribute_duplicate_campaign_id_cumulative_against_cap() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Capped"),
         String::from_str(&env, "Cumulative duplicate check"),

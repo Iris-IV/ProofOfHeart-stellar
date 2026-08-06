@@ -20,6 +20,7 @@ fn make_campaign(
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     })
 }
 

@@ -8,6 +8,7 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
 
     for i in 0..3 {
         let id = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),
@@ -37,6 +38,7 @@ fn test_list_active_campaigns_exclusive_cursor_semantics() {
 
     for _ in 0..4 {
         let _ = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),
@@ -66,6 +68,7 @@ fn test_get_campaigns_by_category_with_pagination() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let id1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Learner 1"),
         String::from_str(&env, "a"),
@@ -77,6 +80,7 @@ fn test_get_campaigns_by_category_with_pagination() {
         0i128,
     ));
     let _id2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Publisher 1"),
         String::from_str(&env, "b"),
@@ -88,6 +92,7 @@ fn test_get_campaigns_by_category_with_pagination() {
         0i128,
     ));
     let id3 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Learner 2"),
         String::from_str(&env, "c"),
@@ -120,6 +125,7 @@ fn test_get_platform_stats_returns_aggregates() {
     token_admin.mint(&contributor2, &2_000);
 
     let c1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Stats 1"),
         String::from_str(&env, "s1"),
@@ -131,6 +137,7 @@ fn test_get_platform_stats_returns_aggregates() {
         0i128,
     ));
     let c2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Stats 2"),
         String::from_str(&env, "s2"),
@@ -161,6 +168,7 @@ fn test_get_campaign_stats_empty_before_any_contribution() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Stats Empty"),
         String::from_str(&env, "No contributions yet"),
@@ -188,6 +196,7 @@ fn test_get_campaign_stats_after_contributions() {
     token_admin.mint(&contributor2, &2_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Stats After"),
         String::from_str(&env, "Contribute then query"),
@@ -238,6 +247,7 @@ fn test_get_campaign_stats_top_contributor_does_not_regress_on_smaller_contribut
     token_admin.mint(&contributor2, &2_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Stats Top Sticky"),
         String::from_str(&env, "Top contributor should not flip on a smaller add"),
@@ -268,6 +278,7 @@ fn test_get_creator_stats_returns_aggregates() {
     token_admin.mint(&contributor2, &2_000);
 
     let c1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Creator Stats 1"),
         String::from_str(&env, "s1"),
@@ -279,6 +290,7 @@ fn test_get_creator_stats_returns_aggregates() {
         0i128,
     ));
     let c2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Creator Stats 2"),
         String::from_str(&env, "s2"),
@@ -335,6 +347,7 @@ fn test_total_raised_global_tracking() {
     token_admin.mint(&contributor2, &5000);
 
     let c1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "First"),
@@ -348,6 +361,7 @@ fn test_total_raised_global_tracking() {
     client.verify_campaign(&c1);
 
     let c2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Second"),
@@ -385,6 +399,7 @@ fn test_creator_campaigns_listing_and_transfer() {
     let creator2 = Address::generate(&env);
 
     let id1 = client.create_campaign(&make_params(
+        &env,
         creator1.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "First"),
@@ -397,6 +412,7 @@ fn test_creator_campaigns_listing_and_transfer() {
     ));
 
     let id2 = client.create_campaign(&make_params(
+        &env,
         creator1.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Second"),
@@ -445,6 +461,7 @@ fn test_platform_stats_after_withdrawal() {
 
     // Campaign 1: fund and withdraw
     let c1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdrawn"),
         String::from_str(&env, "w"),
@@ -461,6 +478,7 @@ fn test_platform_stats_after_withdrawal() {
 
     // Campaign 2: still active, funded
     let c2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Active"),
         String::from_str(&env, "a"),
@@ -485,6 +503,7 @@ fn list_campaigns_boundary_cases() {
 
     for idx in 0..3 {
         let id = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Pagination test"),
@@ -520,6 +539,7 @@ fn list_active_campaigns_boundary_cases_and_sparse_results() {
 
     for idx in 0..5 {
         let _ = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Pagination test"),
@@ -642,6 +662,7 @@ fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
 
     for _ in 0..5 {
         client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),

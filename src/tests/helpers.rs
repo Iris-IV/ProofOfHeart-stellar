@@ -4,11 +4,12 @@ pub use soroban_sdk::token::Client as TokenClient;
 pub use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 pub use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String,
+    Address, Env, IntoVal, String, Vec,
 };
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn make_params(
+    env: &Env,
     creator: Address,
     title: String,
     description: String,
@@ -29,6 +30,7 @@ pub(crate) fn make_params(
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
+        tags: Vec::new(&env),
     }
 }
 

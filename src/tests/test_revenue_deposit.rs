@@ -10,6 +10,7 @@ fn test_deposit_revenue_negative_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -36,6 +37,7 @@ fn test_deposit_revenue_zero_amount() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -62,6 +64,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Educator Campaign"),
         String::from_str(&env, "No revenue sharing"),
@@ -88,6 +91,7 @@ fn test_deposit_revenue_when_paused() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -134,6 +138,7 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -156,6 +161,7 @@ fn test_deposit_revenue_requires_funds_withdrawn() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue pre-withdraw blocked"),
         String::from_str(&env, "Deposit requires successful withdrawal"),
@@ -181,6 +187,7 @@ fn test_deposit_revenue_cancelled_campaign() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Revenue sharing startup"),
@@ -218,6 +225,7 @@ fn test_deposit_revenue_event_includes_creator() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);

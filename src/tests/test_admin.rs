@@ -163,6 +163,7 @@ fn test_pause_blocks_state_changing_operations() {
     token_admin.mint(&creator, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Paused Test"),
         String::from_str(&env, "Testing pause functionality"),
@@ -179,6 +180,7 @@ fn test_pause_blocks_state_changing_operations() {
     assert!(client.is_paused());
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "New Campaign"),
         String::from_str(&env, "Testing pause functionality"),
@@ -231,6 +233,7 @@ fn test_token_swap_blocked_with_active_campaign() {
     let (env, admin, creator, _, _, _, token_admin, client) = setup_env();
 
     let _campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Active Campaign"),
         String::from_str(&env, "Token swap must be blocked"),
@@ -267,6 +270,7 @@ fn test_token_swap_succeeds_after_all_campaigns_terminal() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Terminal Campaign"),
         String::from_str(&env, "Withdraw before swap"),
@@ -300,6 +304,7 @@ fn test_token_swap_succeeds_after_campaign_cancelled() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancellable"),
         String::from_str(&env, "Cancel then swap"),
@@ -334,6 +339,7 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancel With Funds"),
         String::from_str(&env, "Refund pending after cancel"),
@@ -380,6 +386,7 @@ fn test_token_swap_blocked_after_partial_refund() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Partial Refund"),
         String::from_str(&env, "Partial refund blocks swap"),
@@ -519,6 +526,7 @@ fn test_init_cannot_overwrite_after_campaign_created() {
     let (env, admin, creator, _c1, _c2, token, _token_admin, client) = setup_env();
 
     let _ = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Test Campaign"),
         String::from_str(&env, "Testing init idempotency after state change"),
@@ -555,6 +563,7 @@ fn test_min_campaign_funding_goal_boundary_and_admin_update() {
 
     let below_min = CAMPAIGN_FUNDING_GOAL_MIN - 1;
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -568,6 +577,7 @@ fn test_min_campaign_funding_goal_boundary_and_admin_update() {
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalTooLow);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -584,6 +594,7 @@ fn test_min_campaign_funding_goal_boundary_and_admin_update() {
     assert_eq!(client.get_min_campaign_funding_goal(), 500);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -612,6 +623,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
 
     // Exactly at the cap must succeed.
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -626,6 +638,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
 
     // One above the cap must fail.
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -645,6 +658,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
 
     // Previously-rejected goal now succeeds.
     let campaign_id2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -666,6 +680,7 @@ fn test_campaign_fee_override_zero_percent() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Charity"),
         String::from_str(&env, "0% fee campaign"),
@@ -691,6 +706,7 @@ fn test_campaign_fee_override_custom_percent() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Reduced Fee"),
         String::from_str(&env, "1% fee"),
@@ -716,6 +732,7 @@ fn test_campaign_fee_override_default_unchanged() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Default Fee"),
         String::from_str(&env, "Global fee applies"),
@@ -738,6 +755,7 @@ fn test_campaign_fee_override_default_unchanged() {
 fn test_campaign_fee_override_above_max_rejected() {
     let (env, admin2, creator2, _c1, _c2, _token2, _token_admin2, client2) = setup_env();
     let id = client2.create_campaign(&make_params(
+        &env,
         creator2.clone(),
         String::from_str(&env, "X"),
         String::from_str(&env, "X"),
@@ -759,6 +777,7 @@ fn test_campaign_fee_override_non_admin_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "X"),
         String::from_str(&env, "X"),
@@ -784,6 +803,7 @@ fn test_category_duration_cap_enforced() {
     client.set_category_duration_cap(&admin, &Category::EducationalStartup, &60);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup"),
         String::from_str(&env, "Startup desc"),
@@ -797,6 +817,7 @@ fn test_category_duration_cap_enforced() {
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Startup OK"),
         String::from_str(&env, "Startup desc"),
@@ -817,6 +838,7 @@ fn test_category_duration_cap_other_categories_unaffected() {
     client.set_category_duration_cap(&admin, &Category::Learner, &10);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Educator"),
         String::from_str(&env, "Full duration"),
@@ -830,6 +852,7 @@ fn test_category_duration_cap_other_categories_unaffected() {
     assert_eq!(id, 1);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Learner"),
         String::from_str(&env, "Too long"),
@@ -848,6 +871,7 @@ fn test_category_duration_cap_default_unchanged() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Default"),
         String::from_str(&env, "Default cap"),

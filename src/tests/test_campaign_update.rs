@@ -2,7 +2,7 @@ use super::helpers::*;
 use crate::{AdminKey, Category, CreateCampaignParams, Error, MaybePendingCreator};
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
-    Address, IntoVal, String, Symbol,
+    Address, IntoVal, String, Symbol, Vec,
 };
 
 #[test]
@@ -12,6 +12,7 @@ fn test_update_campaign_blocks_after_admin_verification() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -44,6 +45,7 @@ fn test_update_campaign_emits_title_and_description() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -79,6 +81,7 @@ fn test_update_campaign_event_tracks_latest_description() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -121,6 +124,7 @@ fn test_update_campaign_blocks_after_community_verification() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -156,6 +160,7 @@ fn test_update_campaign_description_success() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Original Title"),
         String::from_str(&env, "Original description"),
@@ -183,6 +188,7 @@ fn test_update_campaign_description_rejects_cancelled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -206,6 +212,7 @@ fn test_update_campaign_description_rejects_empty() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -235,6 +242,7 @@ fn test_campaign_ownership_transfer_flow() {
     let new_creator = contributor1;
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer Test"),
         String::from_str(&env, "Desc"),
@@ -279,6 +287,7 @@ fn test_campaign_ownership_transfer_flow() {
     );
 
     let campaign_id_2 = client.create_campaign(&make_params(
+        &env,
         new_creator.clone(),
         String::from_str(&env, "Cancel Test"),
         String::from_str(&env, "Desc"),
@@ -301,6 +310,7 @@ fn test_campaign_transfer_validations() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer Guardrails"),
         String::from_str(&env, "Desc"),
@@ -338,6 +348,7 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
 
     let cancelled_campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancelled Transfer"),
         String::from_str(&env, "Paused forever"),
@@ -356,6 +367,7 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     token_admin.mint(&contributor1, &2000);
 
     let withdrawn_campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdrawn Transfer"),
         String::from_str(&env, "Already settled"),
@@ -379,6 +391,7 @@ fn test_cancel_campaign_already_cancelled_is_terminal() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Terminal Test"),
         String::from_str(&env, "Already cancelled"),
@@ -406,6 +419,7 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdrawal Terminal"),
         String::from_str(&env, "Funds already out"),
@@ -434,6 +448,7 @@ fn test_update_description_after_contribution() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Old Description"),
@@ -460,6 +475,7 @@ fn test_update_campaign_with_contributions_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Old Description"),
@@ -498,6 +514,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -518,6 +535,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 
@@ -548,6 +566,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     assert!(new_id > 1);
 }
@@ -558,6 +577,7 @@ fn campaign_transfer_reinitiate_rejects_silent_overwrite() {
     let pending_one = Address::generate(&env);
     let pending_two = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Re-initiate transfer"),
         String::from_str(&env, "Campaign transfer test"),
@@ -598,6 +618,7 @@ fn campaign_transfer_cancel_then_reinitiate_succeeds() {
     let pending_one = Address::generate(&env);
     let pending_two = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancel and retry"),
         String::from_str(&env, "Campaign transfer test"),
@@ -629,6 +650,7 @@ fn original_creator_can_contribute_after_campaign_transfer() {
     let (env, _admin, creator, _, _, _, token_admin, client) = setup_env();
     let new_creator = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer contribution guard"),
         String::from_str(&env, "Campaign transfer test"),

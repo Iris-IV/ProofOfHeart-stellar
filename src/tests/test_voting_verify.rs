@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::storage::{set_approve_votes, set_approve_weight, set_reject_votes, set_reject_weight};
 use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 #[test]
 fn test_vote_on_cancelled_campaign_fails() {
@@ -9,6 +9,7 @@ fn test_vote_on_cancelled_campaign_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancelled Campaign"),
         String::from_str(&env, "Test voting on cancelled campaign"),
@@ -31,6 +32,7 @@ fn test_admin_verify_cancelled_campaign_fails() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancelled Admin Verify"),
         String::from_str(&env, "Test admin verification on cancelled campaign"),
@@ -60,6 +62,7 @@ fn test_verify_campaign_with_votes_cancelled_campaign_fails() {
     client.set_voting_params(&admin, &3, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancelled Vote Verify"),
         String::from_str(&env, "Test vote-based verification on cancelled campaign"),
@@ -96,6 +99,7 @@ fn test_vote_on_campaign_past_deadline_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
 
     let deadline = client.get_campaign(&campaign_id).deadline;
@@ -129,6 +133,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -147,6 +152,7 @@ fn test_vote_on_campaign_token_weighted() {
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Weighted Vote Test"),
         String::from_str(&env, "Test token-weighted voting"),
@@ -173,6 +179,7 @@ fn test_verify_campaign_with_votes_quorum_not_met() {
     client.set_voting_params(&admin, &5, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Quorum Test"),
         String::from_str(&env, "Test quorum requirement"),
@@ -203,6 +210,7 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
     client.set_voting_params(&admin, &3, &8000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Threshold Test"),
         String::from_str(&env, "Test approval threshold"),
@@ -228,6 +236,7 @@ fn test_verify_with_votes_weight_overflow_returns_overflow() {
     client.set_voting_params(&admin, &1, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Weight Overflow Verify"),
         String::from_str(&env, "Weight overflow guard"),
@@ -257,6 +266,7 @@ fn test_verify_with_votes_count_overflow_returns_overflow() {
     client.set_voting_params(&admin, &3, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Vote Count Overflow Verify"),
         String::from_str(&env, "Vote count overflow guard"),
@@ -291,6 +301,7 @@ fn test_verify_campaign_with_votes_success() {
     client.set_voting_params(&admin, &3, &6000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Success Verify Test"),
         String::from_str(&env, "Test successful verification"),
@@ -329,6 +340,7 @@ fn test_min_voting_balance_threshold_enforcement() {
     token_admin.mint(&contributor2, &200);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Min Balance Vote Test"),
         String::from_str(&env, "Testing minimum voting balance"),

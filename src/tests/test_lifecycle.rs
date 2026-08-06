@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{lifecycle::calculate_deadline, Category, Error, VotingKey, SECONDS_PER_DAY};
-use soroban_sdk::{FromVal, String, TryFromVal};
+use soroban_sdk::{FromVal, String, TryFromVal, Vec};
 
 // ── lifecycle events ────────────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ fn test_full_lifecycle_event_sequence() {
         has_revenue_sharing: true,
         revenue_share_percentage: 1000,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     assert!(
@@ -101,6 +102,7 @@ fn test_cancel_lifecycle_event_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     client.verify_campaign(&id);
@@ -136,6 +138,7 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     client.verify_campaign(&id);
@@ -172,6 +175,7 @@ fn test_campaign_created_event_includes_category() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     let events = env.events().all();
@@ -201,6 +205,7 @@ fn test_storage_ttl_persistence_365_days() {
 
     // 1. Create a campaign with 365 days duration
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Long Campaign"),
         String::from_str(&env, "Testing TTL"),
@@ -254,6 +259,7 @@ fn test_storage_state_after_withdraw_funds() {
     token_admin.mint(&contributor1, &10_000);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdraw State"),
         String::from_str(&env, "Test state after withdraw"),
@@ -282,6 +288,7 @@ fn test_voting_keys_absent_after_cancel() {
         setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Voting Keys Cancel"),
         String::from_str(&env, "Test voting key cleanup"),
@@ -313,6 +320,7 @@ fn test_voting_keys_purged_after_cancel_with_prior_votes() {
     token_admin.mint(&voter, &500);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Voting Keys Purge"),
         String::from_str(&env, "Test voting key purge"),
@@ -357,6 +365,7 @@ fn test_verify_campaigns_extends_ttl_on_failure() {
 
     // 1. Create a campaign
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Failure TTL Campaign"),
         String::from_str(&env, "Failure TTL Test"),
@@ -428,6 +437,7 @@ fn test_multi_step_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
 
     let id = client.create_campaign(&params);

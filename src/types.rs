@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String};
+use soroban_sdk::{contracttype, Address, String, Vec};
 
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because

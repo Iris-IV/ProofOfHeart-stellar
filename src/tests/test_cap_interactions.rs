@@ -139,6 +139,7 @@ proptest! {
             has_revenue_sharing: false,
             revenue_share_percentage: 0,
             max_contribution_per_user: campaign_max,
+        tags: Vec::new(&env),
         });
 
         let res = client.try_set_personal_cap(&campaign_id, &contributor1, &requested);
@@ -172,6 +173,7 @@ proptest! {
             has_revenue_sharing: false,
             revenue_share_percentage: 0,
             max_contribution_per_user: campaign_max,
+        tags: Vec::new(&env),
         });
         client.verify_campaign(&campaign_id);
         client.set_personal_cap(&campaign_id, &contributor1, &personal_cap);
@@ -213,6 +215,7 @@ proptest! {
             has_revenue_sharing: false,
             revenue_share_percentage: 0,
             max_contribution_per_user: campaign_max,
+        tags: Vec::new(&env),
         });
         client.verify_campaign(&campaign_id);
         client.contribute(&campaign_id, &contributor1, &amount);
@@ -250,6 +253,7 @@ fn test_remove_personal_cap_restores_no_cap_state() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
@@ -292,6 +296,7 @@ fn test_remove_personal_cap_inactive_campaign_returns_error() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.set_personal_cap(&campaign_id, &contributor1, &500);
 
@@ -317,6 +322,7 @@ fn test_remove_personal_cap_nonexistent_returns_error() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     let res = client.try_remove_personal_cap(&campaign_id, &contributor1);
@@ -350,6 +356,7 @@ fn test_remove_personal_cap_requires_contributor_auth() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.set_personal_cap(&campaign_id, &contributor1, &500);
 

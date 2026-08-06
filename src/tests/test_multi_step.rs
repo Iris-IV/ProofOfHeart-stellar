@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use crate::tests::helpers::{setup_contract, setup_token};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 #[test]
 fn test_multi_step_sequence() {
@@ -23,6 +23,7 @@ fn test_multi_step_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
 
     let id = client.create_campaign(&params);

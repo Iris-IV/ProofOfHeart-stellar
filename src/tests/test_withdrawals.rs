@@ -3,7 +3,7 @@ use crate::{
     storage, Category, ContributionKey, Error, BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY,
 };
 use soroban_sdk::testutils::{Events, Ledger};
-use soroban_sdk::{Address, String, TryFromVal};
+use soroban_sdk::{Address, String, TryFromVal, Vec};
 
 // ── withdraw_funds ──────────────────────────────────────────────────────────────
 
@@ -13,6 +13,7 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Early Withdraw"),
         String::from_str(&env, "Desc"),
@@ -36,6 +37,7 @@ fn test_withdraw_after_deadline_goal_not_met_returns_typed_error() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Late Withdraw"),
         String::from_str(&env, "Desc"),
@@ -70,6 +72,7 @@ fn test_withdraw_funds_requires_verified_campaign() {
     let (env, _admin, creator, _contributor1, _, _token, token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Unverified Campaign"),
         String::from_str(&env, "Description"),
@@ -99,6 +102,7 @@ fn test_withdraw_funds_succeeds_when_verified() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Verified Campaign"),
         String::from_str(&env, "Description"),
@@ -121,6 +125,7 @@ fn test_claim_refund_removes_contribution_storage_key() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Refund storage cleanup"),
         String::from_str(&env, "Contribution key should be removed"),
@@ -176,6 +181,7 @@ fn test_withdraw_funds_overflow_returns_error_not_panic() {
     client.update_platform_fee(&1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdraw Overflow"),
         String::from_str(&env, "amount_raised * fee must not panic"),
@@ -218,6 +224,7 @@ fn test_withdrawal_vesting_full_flow() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -265,6 +272,7 @@ fn test_get_campaign_reserve_view_function() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -317,6 +325,7 @@ fn test_withdraw_reserve_when_paused_fails() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -375,6 +384,7 @@ fn test_vesting_snapshot_not_affected_by_later_changes() {
 
     // No vesting set yet — default is (0, 0).
     let campaign_id_1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign Before Vesting"),
         String::from_str(&env, "Created before vesting was enabled"),
@@ -398,6 +408,7 @@ fn test_vesting_snapshot_not_affected_by_later_changes() {
 
     // Create campaign #2 after vesting was enabled.
     let campaign_id_2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign After Vesting"),
         String::from_str(&env, "Created after vesting was enabled"),
@@ -466,6 +477,7 @@ fn test_withdraw_event_payload_tuple() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     };
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -526,6 +538,7 @@ fn test_withdraw_reserve_rejects_reserve_on_non_withdrawn_campaign() {
     client.set_vesting_params(&admin, &7, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Plant Reserve No Withdraw"),
         String::from_str(

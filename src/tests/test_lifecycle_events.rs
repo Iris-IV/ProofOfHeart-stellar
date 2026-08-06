@@ -1,5 +1,5 @@
 use super::helpers::*;
-use soroban_sdk::{FromVal, String, TryFromVal};
+use soroban_sdk::{FromVal, String, TryFromVal, Vec};
 
 fn has_event(env: &soroban_sdk::Env, topic: &str) -> bool {
     let expected = String::from_str(env, topic);
@@ -30,6 +30,7 @@ fn test_full_lifecycle_event_sequence() {
         has_revenue_sharing: true,
         revenue_share_percentage: 1000,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     assert!(
@@ -98,6 +99,7 @@ fn test_cancel_lifecycle_event_sequence() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     client.verify_campaign(&id);
@@ -133,6 +135,7 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     client.verify_campaign(&id);
@@ -169,6 +172,7 @@ fn test_campaign_created_event_includes_category() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
 
     let events = env.events().all();

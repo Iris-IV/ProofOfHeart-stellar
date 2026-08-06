@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 /// Test that reproduces the orphaned revenue pool bug:
 /// When revenue is deposited into a campaign and the campaign is then cancelled,
@@ -22,6 +22,7 @@ fn test_cancel_campaign_refunds_revenue_pool() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000, // 20% to contributors
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -89,6 +90,7 @@ fn test_cannot_claim_revenue_after_cancel() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -142,6 +144,7 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
         has_revenue_sharing: true,
         revenue_share_percentage: 3000, // 30% to contributors
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -208,6 +211,7 @@ fn test_cancel_campaign_emits_revenue_refund_event() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -250,6 +254,7 @@ fn test_cancel_campaign_with_no_revenue() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 

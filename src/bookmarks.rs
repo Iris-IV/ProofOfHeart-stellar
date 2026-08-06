@@ -97,6 +97,7 @@ mod tests {
         let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
 
         let id = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),
@@ -143,6 +144,7 @@ mod tests {
         let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
 
         let id = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),

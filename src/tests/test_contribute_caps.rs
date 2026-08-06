@@ -1,13 +1,13 @@
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 #[test]
 fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);
 
-    let campaign_id = client.create_campaign(&make_params(
+    let campaign_id = client.create_campaign(&make_params(&env,
         creator.clone(),
         String::from_str(&env, "Cap persistence"),
         String::from_str(&env, "lifetime cap test"),
@@ -35,7 +35,7 @@ fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);
 
-    let campaign_id = client.create_campaign(&make_params(
+    let campaign_id = client.create_campaign(&make_params(&env,
         creator.clone(),
         String::from_str(&env, "Multi tx cap"),
         String::from_str(&env, "lifetime cap across txs"),
@@ -63,7 +63,7 @@ fn test_personal_cap_enforcement() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
 
-    let campaign_id = client.create_campaign(&make_params(
+    let campaign_id = client.create_campaign(&make_params(&env,
         creator.clone(),
         String::from_str(&env, "Cap Test"),
         String::from_str(&env, "Testing caps"),
@@ -97,7 +97,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
-    let campaign_id = client.create_campaign(&make_params(
+    let campaign_id = client.create_campaign(&make_params(&env,
         creator.clone(),
         String::from_str(&env, "Science Book"),
         String::from_str(&env, "Teaching science to kids"),
@@ -128,7 +128,7 @@ fn test_anomaly_auto_pause_burst() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
-    let campaign_id = client.create_campaign(&make_params(
+    let campaign_id = client.create_campaign(&make_params(&env,
         creator.clone(),
         String::from_str(&env, "Burst Test"),
         String::from_str(&env, "Testing burst"),
@@ -185,6 +185,7 @@ fn test_huge_contribution_triggers_auto_pause() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 

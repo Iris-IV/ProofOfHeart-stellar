@@ -1,12 +1,13 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 #[test]
 fn test_save_and_get_saved_campaigns() {
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
     let id1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "Desc"),
@@ -18,6 +19,7 @@ fn test_save_and_get_saved_campaigns() {
         0i128,
     ));
     let id2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Desc"),
@@ -56,6 +58,7 @@ fn test_save_campaign_duplicate_fails() {
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign"),
         String::from_str(&env, "Desc"),
@@ -77,6 +80,7 @@ fn test_remove_saved_campaign() {
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
     let id1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "Desc"),
@@ -88,6 +92,7 @@ fn test_remove_saved_campaign() {
         0i128,
     ));
     let id2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Desc"),
@@ -123,6 +128,7 @@ fn test_saved_campaigns_are_per_wallet() {
         setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign"),
         String::from_str(&env, "Desc"),
@@ -146,6 +152,7 @@ fn test_remove_saved_campaign_requires_auth_for_the_requested_user() {
         setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign"),
         String::from_str(&env, "Desc"),
@@ -188,6 +195,7 @@ fn test_save_campaign_then_cancel() {
     let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign"),
         String::from_str(&env, "Desc"),
@@ -229,6 +237,7 @@ fn test_get_saved_returns_insertion_order_after_interleaved_add_remove_add() {
 
     // Create three campaigns
     let id1 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 1"),
         String::from_str(&env, "Desc"),
@@ -240,6 +249,7 @@ fn test_get_saved_returns_insertion_order_after_interleaved_add_remove_add() {
         0i128,
     ));
     let id2 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 2"),
         String::from_str(&env, "Desc"),
@@ -251,6 +261,7 @@ fn test_get_saved_returns_insertion_order_after_interleaved_add_remove_add() {
         0i128,
     ));
     let id3 = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Campaign 3"),
         String::from_str(&env, "Desc"),

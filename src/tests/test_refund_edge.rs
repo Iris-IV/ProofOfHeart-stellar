@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::storage;
 use crate::{Category, ContributionKey, Error, RevenueKey, SECONDS_PER_DAY};
-use soroban_sdk::String;
+use soroban_sdk::{String, Vec};
 
 #[test]
 fn test_claim_refund_state_mutation_order() {
@@ -10,6 +10,7 @@ fn test_claim_refund_state_mutation_order() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Refund Order Test"),
         String::from_str(&env, "Testing state mutation order"),
@@ -47,6 +48,7 @@ fn test_claim_refund_multiple_contributors_isolation() {
     token_admin.mint(&contributor2, &3000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Multi Refund Test"),
         String::from_str(&env, "Testing multiple refunds"),
@@ -82,6 +84,7 @@ fn test_claim_refund_expired_campaign() {
 
     let duration_days = 2;
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Expired Campaign"),
         String::from_str(&env, "Will expire"),
@@ -128,6 +131,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
         has_revenue_sharing: true,
         revenue_share_percentage: 2000,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -173,6 +177,7 @@ fn test_claim_revenue_after_single_refund_uses_live_raised() {
     token_admin.mint(&creator, &10_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Revenue Refund Denominator"),
         String::from_str(
@@ -229,6 +234,7 @@ fn test_storage_cleaned_after_claim_refund_on_cancel() {
     token_admin.mint(&contributor1, &5000);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cleanup Cancel Refund"),
         String::from_str(&env, "Storage cleanup test"),
@@ -271,6 +277,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
     token_admin.mint(&contributor1, &5000);
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cleanup Failed"),
         String::from_str(&env, "Failed campaign refund"),
@@ -312,6 +319,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Zero Raised Guard"),
         String::from_str(&env, "Directly test AmountRaisedIsZero guard"),
@@ -348,6 +356,7 @@ fn test_claim_refund_preserves_lifetime_contribution() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "LT Cleanup"),
         String::from_str(&env, "Test lifetime cleanup"),

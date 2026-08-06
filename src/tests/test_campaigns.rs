@@ -8,7 +8,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
-    Address, IntoVal, String, Symbol,
+    Address, IntoVal, String, Symbol, Vec,
 };
 
 // ── campaign creation & validation ──────────────────────────────────────────────
@@ -21,6 +21,7 @@ fn test_create_and_validation() {
     let desc = String::from_str(&env, "Teaching science to kids");
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -34,6 +35,7 @@ fn test_create_and_validation() {
     assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalMustBePositive);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -47,6 +49,7 @@ fn test_create_and_validation() {
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -60,6 +63,7 @@ fn test_create_and_validation() {
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidDuration);
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -73,6 +77,7 @@ fn test_create_and_validation() {
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueShareOnlyForStartup);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         desc.clone(),
@@ -109,6 +114,7 @@ fn test_admin_verify_campaign_success() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Admin Verification"),
         String::from_str(&env, "Admin verifies campaign"),
@@ -128,6 +134,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Duplicate Verification"),
         String::from_str(&env, "Cannot verify twice"),
@@ -150,6 +157,7 @@ fn test_description_length_boundaries() {
     let title = String::from_str(&env, "Title");
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         String::from_str(&env, ""),
@@ -164,6 +172,7 @@ fn test_description_length_boundaries() {
 
     assert!(client
         .try_create_campaign(&make_params(
+            &env,
             creator.clone(),
             title.clone(),
             String::from_str(&env, "a"),
@@ -179,6 +188,7 @@ fn test_description_length_boundaries() {
     let desc_1000 = "a".repeat(1000);
     assert!(client
         .try_create_campaign(&make_params(
+            &env,
             creator.clone(),
             title.clone(),
             String::from_str(&env, &desc_1000),
@@ -193,6 +203,7 @@ fn test_description_length_boundaries() {
 
     let desc_1001 = "a".repeat(1001);
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         String::from_str(&env, &desc_1001),
@@ -213,6 +224,7 @@ fn test_title_length_boundaries() {
     let desc = String::from_str(&env, "Description");
 
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, ""),
         desc.clone(),
@@ -227,6 +239,7 @@ fn test_title_length_boundaries() {
 
     assert!(client
         .try_create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "a"),
             desc.clone(),
@@ -242,6 +255,7 @@ fn test_title_length_boundaries() {
     let title_100 = "a".repeat(100);
     assert!(client
         .try_create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, &title_100),
             desc.clone(),
@@ -256,6 +270,7 @@ fn test_title_length_boundaries() {
 
     let title_101 = "a".repeat(101);
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, &title_101),
         desc.clone(),
@@ -273,6 +288,7 @@ fn test_title_length_boundaries() {
 fn test_revenue_share_percentage_normalised_to_zero_when_disabled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "No Revenue"),
         String::from_str(&env, "Desc"),
@@ -292,6 +308,7 @@ fn test_revenue_share_percentage_normalised_to_zero_when_disabled() {
 fn test_revenue_share_above_max_rejected_even_without_flag() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Bad Revenue"),
         String::from_str(&env, "Desc"),
@@ -309,6 +326,7 @@ fn test_revenue_share_above_max_rejected_even_without_flag() {
 fn test_revenue_share_with_flag_true_above_max_rejected() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let res = client.try_create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Too High"),
         String::from_str(&env, "Desc"),
@@ -329,6 +347,7 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     assert_eq!(client.get_campaign_count(), 0);
     for i in 1u32..=3 {
         let id = client.create_campaign(&make_params(
+            &env,
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),
@@ -368,6 +387,7 @@ fn test_create_campaign_validation_independence() {
     // 1. FundingGoalTooHigh should trigger even if duration is invalid
     // Provide duration = 11 (invalid for Educator) and goal > max
     let params = make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -410,6 +430,7 @@ fn test_create_campaign_validation_independence() {
 
     // 2. High goal with valid duration should trigger FundingGoalTooHigh
     let params_valid_dur = make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -679,6 +700,7 @@ fn test_update_campaign_blocks_after_admin_verification() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -711,6 +733,7 @@ fn test_update_campaign_emits_old_and_new_title_and_description() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -742,6 +765,7 @@ fn test_update_campaign_event_old_values_track_previous_call_not_creation() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Original Title"),
         String::from_str(&env, "Original Description"),
@@ -789,6 +813,7 @@ fn test_update_campaign_blocks_after_community_verification() {
     let orig_title = String::from_str(&env, "Original Title");
     let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         orig_title.clone(),
         orig_desc.clone(),
@@ -824,6 +849,7 @@ fn test_update_campaign_description_success() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Original Title"),
         String::from_str(&env, "Original description"),
@@ -853,6 +879,7 @@ fn test_update_campaign_description_emits_metadata_updated_with_unchanged_title(
     let title = String::from_str(&env, "Original Title");
     let old_desc = String::from_str(&env, "Original description");
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         title.clone(),
         old_desc.clone(),
@@ -885,6 +912,7 @@ fn test_update_campaign_description_rejects_cancelled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -908,6 +936,7 @@ fn test_update_campaign_description_rejects_empty() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Desc"),
@@ -937,6 +966,7 @@ fn test_campaign_ownership_transfer_flow() {
     let new_creator = contributor1;
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer Test"),
         String::from_str(&env, "Desc"),
@@ -981,6 +1011,7 @@ fn test_campaign_ownership_transfer_flow() {
     );
 
     let campaign_id_2 = client.create_campaign(&make_params(
+        &env,
         new_creator.clone(),
         String::from_str(&env, "Cancel Test"),
         String::from_str(&env, "Desc"),
@@ -1003,6 +1034,7 @@ fn test_campaign_transfer_validations() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer Guardrails"),
         String::from_str(&env, "Desc"),
@@ -1040,6 +1072,7 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
 
     let cancelled_campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancelled Transfer"),
         String::from_str(&env, "Paused forever"),
@@ -1058,6 +1091,7 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     token_admin.mint(&contributor1, &2000);
 
     let withdrawn_campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdrawn Transfer"),
         String::from_str(&env, "Already settled"),
@@ -1081,6 +1115,7 @@ fn test_cancel_campaign_already_cancelled_is_terminal() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Terminal Test"),
         String::from_str(&env, "Already cancelled"),
@@ -1108,6 +1143,7 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Withdrawal Terminal"),
         String::from_str(&env, "Funds already out"),
@@ -1136,6 +1172,7 @@ fn test_update_description_after_contribution() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Old Description"),
@@ -1162,6 +1199,7 @@ fn test_update_campaign_with_contributions_fails() {
     token_admin.mint(&contributor1, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Title"),
         String::from_str(&env, "Old Description"),
@@ -1200,6 +1238,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -1220,6 +1259,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 
@@ -1250,6 +1290,7 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0,
+        tags: Vec::new(&env),
     });
     assert!(new_id > 1);
 }
@@ -1260,6 +1301,7 @@ fn campaign_transfer_reinitiate_rejects_silent_overwrite() {
     let pending_one = Address::generate(&env);
     let pending_two = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Re-initiate transfer"),
         String::from_str(&env, "Campaign transfer test"),
@@ -1300,6 +1342,7 @@ fn campaign_transfer_cancel_then_reinitiate_succeeds() {
     let pending_one = Address::generate(&env);
     let pending_two = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cancel and retry"),
         String::from_str(&env, "Campaign transfer test"),
@@ -1331,6 +1374,7 @@ fn original_creator_can_contribute_after_campaign_transfer() {
     let (env, _admin, creator, _, _, _, token_admin, client) = setup_env();
     let new_creator = Address::generate(&env);
     let campaign_id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Transfer contribution guard"),
         String::from_str(&env, "Campaign transfer test"),
@@ -1359,6 +1403,7 @@ fn test_extend_campaign_deadline_happy_path() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Extend Me"),
         String::from_str(&env, "Will be extended"),
@@ -1383,6 +1428,7 @@ fn test_extend_deadline_emits_event() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Event Extension"),
         String::from_str(&env, "Check event"),
@@ -1411,6 +1457,7 @@ fn test_extend_deadline_double_extension_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Double Extension"),
         String::from_str(&env, "Only one extension"),
@@ -1433,6 +1480,7 @@ fn test_extend_deadline_post_deadline_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Expired"),
         String::from_str(&env, "Past deadline"),
@@ -1465,6 +1513,7 @@ fn test_extend_deadline_too_many_days_rejected() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Too Long"),
         String::from_str(&env, "Extension too long"),
@@ -1488,6 +1537,7 @@ fn test_extend_deadline_max_30_days_allowed() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Max Extension"),
         String::from_str(&env, "Exactly 30 days"),
@@ -1515,6 +1565,7 @@ fn test_extend_deadline_beyond_category_cap_rejected() {
 
     // 2. Creator creates a Learner campaign with 30 days
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Cap Test"),
         String::from_str(&env, "Duration cap test"),
@@ -1544,6 +1595,7 @@ fn test_extend_deadline_without_start_time_rejected() {
     let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Old Campaign"),
         String::from_str(&env, "Legacy test"),
@@ -1573,6 +1625,7 @@ fn test_extend_deadline_without_start_time_keeps_deadline_unchanged() {
     let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Old Campaign Immutable"),
         String::from_str(&env, "Legacy no-start-time"),
@@ -1605,6 +1658,7 @@ fn test_extend_deadline_absolute_max_cap_enforced() {
 
     // Create a campaign with 350 days duration (within 365-day absolute cap)
     let id = client.create_campaign(&make_params(
+        &env,
         creator.clone(),
         String::from_str(&env, "Absolute Cap"),
         String::from_str(&env, "Absolute cap test"),
@@ -1649,6 +1703,7 @@ fn test_cancel_campaign_blocked_after_goal_met() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -1680,6 +1735,7 @@ fn test_cancel_campaign_allowed_when_goal_not_met() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
@@ -1710,6 +1766,7 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
+        tags: Vec::new(&env),
     });
     client.verify_campaign(&campaign_id);
 
