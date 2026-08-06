@@ -346,6 +346,10 @@ pub(crate) fn set_personal_cap_fn(
     if amount < 0 {
         return Err(Error::ValidationFailed);
     }
+    let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+    if amount < lifetime {
+        return Err(Error::ValidationFailed);
+    }
     let campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
     if campaign.max_contribution_per_user > 0 && amount > campaign.max_contribution_per_user {
