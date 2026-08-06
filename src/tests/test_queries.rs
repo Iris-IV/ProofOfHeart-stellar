@@ -157,6 +157,110 @@ fn test_get_platform_stats_returns_aggregates() {
 }
 
 #[test]
+fn test_get_campaign_stats_empty_before_any_contribution() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats Empty"),
+        String::from_str(&env, "No contributions yet"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 0);
+    assert!(stats.top_contributor.is_none());
+    assert_eq!(stats.avg_contribution, 0);
+    assert_eq!(stats.last_contribution_time, 0);
+}
+
+#[test]
+fn test_get_campaign_stats_after_contributions() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats After"),
+        String::from_str(&env, "Contribute then query"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let first_contribution_time = env.ledger().timestamp();
+    client.contribute(&campaign_id, &contributor1, &400);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 1);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
+    assert_eq!(stats.avg_contribution, 400);
+    assert_eq!(stats.last_contribution_time, first_contribution_time);
+
+    // contributor2 contributes more and should become the new top contributor
+    env.ledger().with_mut(|li| {
+        li.timestamp += 1;
+    });
+    let second_contribution_time = env.ledger().timestamp();
+    client.contribute(&campaign_id, &contributor2, &900);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 2);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor2.clone())
+    );
+    // avg_contribution = amount_raised / contributor_count = 1300 / 2 = 650
+    assert_eq!(stats.avg_contribution, 650);
+    assert_eq!(stats.last_contribution_time, second_contribution_time);
+}
+
+#[test]
+fn test_get_campaign_stats_top_contributor_does_not_regress_on_smaller_contribution() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats Top Sticky"),
+        String::from_str(&env, "Top contributor should not flip on a smaller add"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &900);
+    client.contribute(&campaign_id, &contributor2, &100);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
+}
+
+#[test]
 fn test_get_creator_stats_returns_aggregates() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
