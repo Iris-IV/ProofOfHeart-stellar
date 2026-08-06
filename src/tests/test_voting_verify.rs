@@ -139,17 +139,18 @@ fn test_vote_on_campaign_after_withdraw_fails() {
 }
 
 #[test]
-fn test_vote_on_campaign_token_weighted() {
+fn test_vote_on_campaign_one_address_one_vote() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
+    // contributor1 has 5000 tokens, contributor2 has only 1000 — both get 1 vote (#469).
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Weighted Vote Test"),
-        String::from_str(&env, "Test token-weighted voting"),
+        String::from_str(&env, "1-Address-1-Vote Test"),
+        String::from_str(&env, "Test 1-address-1-vote model"),
         1000,
         30,
         Category::Learner,
@@ -161,6 +162,7 @@ fn test_vote_on_campaign_token_weighted() {
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &false);
 
+    // Each voter contributes exactly 1 to the count regardless of balance.
     assert_eq!(client.get_approve_votes(&campaign_id), 1);
     assert_eq!(client.get_reject_votes(&campaign_id), 1);
 }
@@ -223,7 +225,7 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
 }
 
 #[test]
-fn test_verify_with_votes_weight_overflow_returns_overflow() {
+fn test_verify_with_votes_weight_does_not_overflow_with_1_address_1_vote() {
     let (env, admin, creator, _, _, _token, _token_admin, client) = setup_env();
     client.set_voting_params(&admin, &1, &6000);
 
@@ -239,16 +241,18 @@ fn test_verify_with_votes_weight_overflow_returns_overflow() {
         0i128,
     ));
 
-    // Satisfy quorum, then make approve_weight + reject_weight exceed i128::MAX.
+    // 1-address-1-vote (#469): verify_with_votes tallies vote counts and never
+    // sums weights, so even adversarial i128::MAX weight storage cannot
+    // overflow. The count-based bps (2/3 = 6666 >= 6000) decides the outcome.
     env.as_contract(&client.address, || {
         set_approve_votes(&env, campaign_id, 2);
         set_reject_votes(&env, campaign_id, 1);
         set_approve_weight(&env, campaign_id, i128::MAX);
-        set_reject_weight(&env, campaign_id, 1);
+        set_reject_weight(&env, campaign_id, i128::MAX);
     });
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+    assert_eq!(res, Ok(Ok(())));
 }
 
 #[test]
