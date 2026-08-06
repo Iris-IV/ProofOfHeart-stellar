@@ -46,7 +46,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY,
+    TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
@@ -222,7 +223,24 @@ impl ProofOfHeart {
         voting::admin_verify(&env, campaign_id)
     }
 
-    pub fn verify_campaigns(env: Env, campaign_ids: soroban_sdk::Vec<u32>) -> Result<u32, Error> {
+    /// Batch-verifies up to 50 campaigns in one admin call (#442).
+    ///
+    /// Returns `Ok((verified_ids, failed_ids))` covering every id it
+    /// processed. Successful verifications are committed even when other ids
+    /// fail, so callers can distinguish partial success from total failure and
+    /// retry only the failed ids — the previous behaviour collapsed the whole
+    /// batch to `Err(first_error)`. Per-campaign failures are collected in
+    /// `failed_ids` and never abort the batch; only hard errors (not admin,
+    /// paused) return `Err`. The voting-state TTL is extended for every
+    /// processed id, success or failure.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
+    /// * `ContractPaused` — The contract is paused.
+    pub fn verify_campaigns(
+        env: Env,
+        campaign_ids: soroban_sdk::Vec<u32>,
+    ) -> Result<(soroban_sdk::Vec<u32>, soroban_sdk::Vec<u32>), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
         lifecycle::require_not_paused(&env)?;
@@ -230,8 +248,8 @@ impl ProofOfHeart {
         const MAX_BATCH_SIZE: u32 = 50;
         let batch_size = campaign_ids.len().min(MAX_BATCH_SIZE);
 
-        let mut verified_count = 0u32;
-        let mut first_error: Option<Error> = None;
+        let mut verified_ids: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
+        let mut failed_ids: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
 
         bump_instance_ttl(&env);
 
@@ -239,28 +257,18 @@ impl ProofOfHeart {
             if let Some(campaign_id) = campaign_ids.get(idx) {
                 storage::extend_voting_state_ttl(&env, campaign_id);
                 match voting::admin_verify(&env, campaign_id) {
-                    Ok(()) => {
-                        verified_count += 1;
-                    }
-                    Err(e) => {
-                        if first_error.is_none() {
-                            first_error = Some(e);
-                        }
-                    }
+                    Ok(()) => verified_ids.push_back(campaign_id),
+                    Err(_) => failed_ids.push_back(campaign_id),
                 }
             }
         }
 
         env.events().publish(
             ("campaigns_bulk_verified",),
-            (verified_count, campaign_ids.len()),
+            (verified_ids.len(), failed_ids.clone()),
         );
 
-        if let Some(err) = first_error {
-            Err(err)
-        } else {
-            Ok(verified_count)
-        }
+        Ok((verified_ids, failed_ids))
     }
 
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
@@ -417,6 +425,18 @@ impl ProofOfHeart {
         admin::cancel_token_update(&env, admin)
     }
 
+    /// Overrides the timelock delay `propose_token_update` enforces before a
+    /// pending token update can be accepted (default: 7 days), so platforms
+    /// that want a longer or shorter timelock don't need a code change and
+    /// redeploy (#650). Must be in `(0, 365 days]`.
+    pub fn set_token_update_delay_secs(
+        env: Env,
+        admin: Address,
+        delay_secs: u64,
+    ) -> Result<(), Error> {
+        admin::set_token_update_delay_secs_fn(&env, admin, delay_secs)
+    }
+
     // ── Admin: admin transfer ─────────────────────────────────────────────────
 
     pub fn initiate_admin_transfer(
@@ -455,6 +475,17 @@ impl ProofOfHeart {
         amount: i128,
     ) -> Result<(), Error> {
         contributions::set_personal_cap_fn(&env, campaign_id, contributor, amount)
+    }
+
+    /// Removes the contributor's personal contribution cap for a campaign,
+    /// restoring the campaign-wide `max_contribution_per_user` as the only
+    /// bound on their contributions (#503). Requires `contributor`'s auth.
+    pub fn remove_personal_cap(
+        env: Env,
+        campaign_id: u32,
+        contributor: Address,
+    ) -> Result<(), Error> {
+        contributions::remove_personal_cap_fn(&env, campaign_id, contributor)
     }
 
     // ── Read-only queries ─────────────────────────────────────────────────────
@@ -521,6 +552,21 @@ impl ProofOfHeart {
 
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
+    }
+
+    /// Returns the basis-point denominator (10_000 == 100%) that fee and
+    /// threshold values are expressed against, so off-chain code can read it
+    /// from the deployed contract instead of hardcoding it (#652).
+    pub fn get_bps_denominator(_env: Env) -> u32 {
+        BPS_DENOMINATOR
+    }
+
+    /// Returns the timelock delay (seconds) currently enforced by
+    /// `propose_token_update`: the admin override if one has been set via
+    /// `set_token_update_delay_secs`, otherwise the compiled-in
+    /// `TOKEN_UPDATE_DELAY_SECS` default (#650, #652).
+    pub fn get_token_update_delay_secs(env: Env) -> u64 {
+        get_token_update_delay_secs(&env, TOKEN_UPDATE_DELAY_SECS)
     }
 
     pub fn get_min_campaign_funding_goal(env: Env) -> i128 {
@@ -615,6 +661,10 @@ impl ProofOfHeart {
 
     pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
         queries::get_creator_stats(&env, creator)
+    }
+
+    pub fn get_campaign_stats(env: Env, campaign_id: u32) -> CampaignStats {
+        queries::get_campaign_stats(&env, campaign_id)
     }
 
     pub fn get_contributor_portfolio(

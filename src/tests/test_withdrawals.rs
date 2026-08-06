@@ -1,5 +1,7 @@
 use super::helpers::*;
-use crate::{storage, Category, ContributionKey, Error, SECONDS_PER_DAY};
+use crate::{
+    storage, Category, ContributionKey, Error, BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY,
+};
 use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{Address, String, TryFromVal};
 
@@ -362,8 +364,89 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
     assert_eq!(admin_in_topics, admin);
 
-    let data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(data, ());
+    let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+}
+
+/// Regression test for issue #466: vesting params set AFTER campaign creation
+/// must NOT retroactively affect campaigns already created.
+#[test]
+fn test_vesting_snapshot_not_affected_by_later_changes() {
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+
+    // No vesting set yet — default is (0, 0).
+    let campaign_id_1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign Before Vesting"),
+        String::from_str(&env, "Created before vesting was enabled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id_1);
+
+    // Verify campaign 1 has (0, 0) vesting snapshotted
+    env.as_contract(&client.address, || {
+        let vesting = storage::get_campaign_vesting(&env, campaign_id_1);
+        assert_eq!(vesting, Some((0, 0)));
+    });
+
+    // Now enable vesting: 7 days delay, 20% reserve.
+    client.set_vesting_params(&admin, &7, &2000);
+
+    // Create campaign #2 after vesting was enabled.
+    let campaign_id_2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign After Vesting"),
+        String::from_str(&env, "Created after vesting was enabled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id_2);
+
+    // Verify campaign 2 has (7, 2000) vesting snapshotted
+    env.as_contract(&client.address, || {
+        let vesting_2 = storage::get_campaign_vesting(&env, campaign_id_2);
+        assert_eq!(vesting_2, Some((7, 2000)));
+    });
+
+    // Fund both campaigns
+    token_admin.mint(&contributor, &2000);
+    client.contribute(&campaign_id_1, &contributor, &1000);
+    client.contribute(&campaign_id_2, &contributor, &1000);
+
+    // Fast forward past deadline
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
+    });
+
+    // Withdraw campaign #1 — should have NO vesting (0% reserve).
+    // Goal: 1000. Fee (300 bps): 30. Remaining: 970. Reserve (0%): 0.
+    // Creator gets full 970 immediately.
+    client.withdraw_funds(&campaign_id_1);
+    assert_eq!(token.balance(&creator), 970);
+
+    // Withdraw campaign #2 — should have 20% vesting.
+    // Goal: 1000. Fee (300 bps): 30. Remaining: 970. Reserve (20%): 194.
+    // Creator gets 776 immediately, 194 later.
+    client.withdraw_funds(&campaign_id_2);
+    assert_eq!(token.balance(&creator), 970 + 776);
+
+    // Campaign 1's reserve should be None (no reserve was withheld)
+    assert_eq!(client.get_campaign_reserve(&campaign_id_1), None);
+
+    // Campaign 2 should have a reserve
+    let reserve_2 = client
+        .get_campaign_reserve(&campaign_id_2)
+        .expect("campaign 2 should have reserve");
+    assert_eq!(reserve_2.amount, 194);
 }
 
 #[test]
@@ -419,4 +502,91 @@ fn test_withdraw_event_payload_tuple() {
     // Reserve (20% of 970): 194. Immediate: 776.
     let data: (u32, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
     assert_eq!(data, (300, 776, 194));
+}
+
+// ── BPS_CEIL_OFFSET ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_bps_ceil_offset_value() {
+    assert_eq!(BPS_CEIL_OFFSET, 9_999);
+    // Ceiling division property: (a + BPS_CEIL_OFFSET) / BPS_DENOMINATOR == ceil(a / BPS_DENOMINATOR)
+    assert_eq!(BPS_CEIL_OFFSET / BPS_DENOMINATOR as i128, 0); // ceil(0/10000) = 0
+    assert_eq!((1 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(1/10000) = 1
+    assert_eq!((9999 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(9999/10000) = 1
+    assert_eq!((10000 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(10000/10000) = 1
+    assert_eq!((10001 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 2); // ceil(10001/10000) = 2
+}
+/// Regression test for #459: a migration-planted CampaignReserve on a campaign
+/// with `funds_withdrawn == false` must NOT be drainable.
+#[test]
+fn test_withdraw_reserve_rejects_reserve_on_non_withdrawn_campaign() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    // Enable vesting so we can create a legitimate reserve later.
+    client.set_vesting_params(&admin, &7, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Plant Reserve No Withdraw"),
+        String::from_str(
+            &env,
+            "Reserve planted before withdraw leaves funds_unwithdrawn==true",
+        ),
+        1000,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Fund the campaign so it can be withdrawn.
+    token_admin.mint(&contributor, &1000);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    // Fast-forward past deadline so withdraw_funds would succeed.
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 31 * SECONDS_PER_DAY;
+    });
+
+    // ── Part 1: Plant a CampaignReserve on a campaign that has NOT yet
+    // ── withdrawn funds, simulating a migration artefact or bug.
+    let future_release = env.ledger().timestamp() + 7 * SECONDS_PER_DAY;
+    let planted_reserve = crate::types::CampaignReserve {
+        amount: 194,
+        release_timestamp: future_release,
+        released: false,
+    };
+    env.as_contract(&client.address, || {
+        storage::set_campaign_reserve(&env, campaign_id, &planted_reserve);
+    });
+
+    // Verify the planted reserve exists.
+    assert_eq!(
+        client.get_campaign_reserve(&campaign_id),
+        Some(planted_reserve.clone())
+    );
+
+    // Attempting to withdraw the reserve should fail because funds_withdrawn is false.
+    let res = client.try_withdraw_reserve(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // ── Part 2: The normal withdraw → reserve flow must still work.
+    client.withdraw_funds(&campaign_id);
+
+    // Now the campaign has funds_withdrawn == true and a legitimate reserve.
+    // Fast-forward past the reserve release delay.
+    let current_ts = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = current_ts + 8 * SECONDS_PER_DAY;
+    });
+
+    // Withdraw reserve should now succeed.
+    client.withdraw_reserve(&campaign_id);
+    let reserve = client
+        .get_campaign_reserve(&campaign_id)
+        .expect("reserve should exist after withdraw_reserve");
+    assert!(reserve.released);
 }
