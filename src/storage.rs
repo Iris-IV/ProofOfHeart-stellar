@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Address, Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -110,6 +110,15 @@ pub enum CampaignKey {
     /// Reverse mapping from campaign ID to its current creator, keyed by campaign ID.
     /// Enables O(1) ownership verification without scanning a creator's campaign bucket.
     CampaignCreatorIndex(u32),
+    /// Tags attached to a specific campaign, keyed by campaign ID.
+    /// Kept separate from the Campaign struct to avoid on-chain layout migrations.
+    CampaignTags(u32),
+    /// Campaign ids grouped by tag as append-only creation index.
+    TagCampaigns(String),
+    /// Bucket of campaign IDs for a tag (<= TAG_CAMPAIGNS_BUCKET_SIZE per bucket).
+    TagCampaignsBucket(String, u32),
+    /// Total number of campaigns with a given tag.
+    TagCampaignCount(String),
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -767,6 +776,79 @@ pub fn set_creator_campaign_bucket(
     persistent_set!(
         env,
         CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index),
+        ids
+    );
+}
+
+// ── Campaign tags ─────────────────────────────────────────────────────────────
+
+/// Returns the tags attached to a campaign, keyed by campaign ID.
+pub fn get_campaign_tags(env: &Env, campaign_id: u32) -> soroban_sdk::Vec<String> {
+    let key = CampaignKey::CampaignTags(campaign_id);
+    let val: Option<soroban_sdk::Vec<String>> = env.storage().persistent().get(&key);
+    if let Some(tags) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        tags
+    } else {
+        soroban_sdk::Vec::new(env)
+    }
+}
+
+/// Stores the tags attached to a campaign, keyed by campaign ID.
+pub fn set_campaign_tags(env: &Env, campaign_id: u32, tags: &soroban_sdk::Vec<String>) {
+    persistent_set!(env, CampaignKey::CampaignTags(campaign_id), tags);
+}
+
+// ── Tag campaigns (bucketed) ──────────────────────────────────────────────────
+
+/// Maximum number of campaign IDs stored in a single bucket for a tag.
+pub const TAG_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
+
+/// Returns the total number of campaigns with a given tag.
+pub fn get_tag_campaign_count(env: &Env, tag: String) -> u32 {
+    let key = CampaignKey::TagCampaignCount(tag.clone());
+    let val: Option<u32> = env.storage().persistent().get(&key);
+    if let Some(count) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        count
+    } else {
+        0
+    }
+}
+
+/// Stores the total number of campaigns with a given tag.
+pub fn set_tag_campaign_count(env: &Env, tag: String, count: u32) {
+    persistent_set!(env, CampaignKey::TagCampaignCount(tag), &count);
+}
+
+/// Returns the campaign IDs in a specific bucket for a tag.
+pub fn get_tag_campaign_bucket(env: &Env, tag: String, bucket_index: u32) -> soroban_sdk::Vec<u32> {
+    let key = CampaignKey::TagCampaignsBucket(tag.clone(), bucket_index);
+    let val: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&key);
+    if let Some(ids) = val {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        ids
+    } else {
+        soroban_sdk::Vec::new(env)
+    }
+}
+
+/// Stores a bucket of campaign IDs for a tag.
+pub fn set_tag_campaign_bucket(
+    env: &Env,
+    tag: String,
+    bucket_index: u32,
+    ids: &soroban_sdk::Vec<u32>,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::TagCampaignsBucket(tag, bucket_index),
         ids
     );
 }

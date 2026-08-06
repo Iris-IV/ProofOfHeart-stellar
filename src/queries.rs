@@ -4,8 +4,9 @@ use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
-    get_platform_fee, get_token, get_total_raised_global, get_verified_campaign_count,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_platform_fee, get_tag_campaign_bucket, get_tag_campaign_count, get_token,
+    get_total_raised_global, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE, TAG_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
 
@@ -316,4 +317,57 @@ pub(crate) fn get_contributor_portfolio(
     }
 
     portfolio
+}
+
+/// Lists campaigns by tag for efficient tag-based discovery (#540).
+///
+/// **Performance benefit:** Uses the tag index (`TagCampaigns`) instead of scanning all
+/// campaigns. A `limit == 0` short-circuits to an empty result; callers that only need
+/// the count should use `get_tag_campaign_count` directly.
+pub(crate) fn get_campaigns_by_tag(
+    env: &Env,
+    tag: String,
+    offset: u32,
+    limit: u32,
+) -> soroban_sdk::Vec<Campaign> {
+    let mut campaigns = soroban_sdk::Vec::new(env);
+    if limit == 0 {
+        return campaigns;
+    }
+
+    let total = get_tag_campaign_count(env, tag.clone());
+    if offset >= total {
+        return campaigns;
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let end = offset.saturating_add(capped_limit).min(total);
+
+    let mut position = offset;
+    while position < end {
+        let bucket_idx = position / TAG_CAMPAIGNS_BUCKET_SIZE;
+        let bucket = get_tag_campaign_bucket(env, tag.clone(), bucket_idx);
+        let bucket_start = bucket_idx * TAG_CAMPAIGNS_BUCKET_SIZE;
+        let mut idx_in_bucket = position - bucket_start;
+
+        let bucket_len = bucket.len();
+        while idx_in_bucket < bucket_len && position < end {
+            let campaign_id = bucket.get(idx_in_bucket).unwrap();
+            if let Some(campaign) = get_campaign(env, campaign_id) {
+                campaigns.push_back(campaign);
+            }
+            idx_in_bucket += 1;
+            position += 1;
+        }
+
+        if idx_in_bucket >= bucket_len {
+            position = if bucket_len == 0 {
+                bucket_start + TAG_CAMPAIGNS_BUCKET_SIZE
+            } else {
+                bucket_start + bucket_len
+            };
+        }
+    }
+
+    campaigns
 }

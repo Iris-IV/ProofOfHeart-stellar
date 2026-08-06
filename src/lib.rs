@@ -596,6 +596,16 @@ impl ProofOfHeart {
         queries::get_campaigns_by_category(&env, category, offset, limit)
     }
 
+    /// Gets all campaigns matching a tag, using an index for efficient lookup (#540).
+    pub fn get_campaigns_by_tag(
+        env: Env,
+        tag: String,
+        offset: u32,
+        limit: u32,
+    ) -> soroban_sdk::Vec<Campaign> {
+        queries::get_campaigns_by_tag(&env, tag, offset, limit)
+    }
+
     pub fn get_creator_campaigns(
         env: Env,
         creator: Address,

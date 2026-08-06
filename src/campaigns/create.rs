@@ -30,6 +30,7 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
         has_revenue_sharing,
         revenue_share_percentage,
         max_contribution_per_user,
+        tags,
     } = params;
 
     if funding_goal <= 0 {
@@ -112,6 +113,7 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     set_campaign_start_time(env, count, env.ledger().timestamp());
     set_campaign_count(env, count);
     set_revenue_pool(env, count, 0);
+    set_campaign_tags(env, count, &tags);
     let category_count = get_category_campaign_count(env, category);
     let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_category_campaign_bucket(env, category, bucket_idx);
@@ -126,6 +128,17 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     set_creator_campaign_bucket(env, &creator, bucket_idx, &bucket);
     set_creator_campaign_count(env, &creator, creator_count + 1);
     set_campaign_creator_index(env, count, &creator);
+    set_campaign_tags(env, count, &tags);
+
+    // Index campaign by each tag for efficient tag-based discovery (#540).
+    for tag in tags.iter() {
+        let tag_count = get_tag_campaign_count(env, tag.clone());
+        let bucket_idx = tag_count / TAG_CAMPAIGNS_BUCKET_SIZE;
+        let mut bucket = get_tag_campaign_bucket(env, tag.clone(), bucket_idx);
+        bucket.push_back(count);
+        set_tag_campaign_bucket(env, tag.clone(), bucket_idx, &bucket);
+        set_tag_campaign_count(env, tag.clone(), tag_count + 1);
+    }
 
     env.events().publish(
         ("campaign_created", count, creator),

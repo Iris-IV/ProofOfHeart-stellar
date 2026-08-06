@@ -185,6 +185,9 @@ pub struct CreateCampaignParams {
     /// This is intentional, not a placeholder for "disabled" — negative
     /// values are the only rejected input.
     pub max_contribution_per_user: i128,
+    /// Tags for categorizing and searching campaigns. Stored separately from
+    /// the Campaign struct to avoid on-chain layout migrations.
+    pub tags: Vec<String>,
 }
 
 /// Stores details about withheld funds for a campaign.
