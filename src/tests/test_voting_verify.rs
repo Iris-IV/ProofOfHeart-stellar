@@ -225,7 +225,7 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
 }
 
 #[test]
-fn test_verify_with_votes_weight_overflow_returns_overflow() {
+fn test_verify_with_votes_weight_does_not_overflow_with_1_address_1_vote() {
     let (env, admin, creator, _, _, _token, _token_admin, client) = setup_env();
     client.set_voting_params(&admin, &1, &6000);
 
@@ -241,16 +241,18 @@ fn test_verify_with_votes_weight_overflow_returns_overflow() {
         0i128,
     ));
 
-    // Satisfy quorum, then make approve_weight + reject_weight exceed i128::MAX.
+    // 1-address-1-vote (#469): verify_with_votes tallies vote counts and never
+    // sums weights, so even adversarial i128::MAX weight storage cannot
+    // overflow. The count-based bps (2/3 = 6666 >= 6000) decides the outcome.
     env.as_contract(&client.address, || {
         set_approve_votes(&env, campaign_id, 2);
         set_reject_votes(&env, campaign_id, 1);
         set_approve_weight(&env, campaign_id, i128::MAX);
-        set_reject_weight(&env, campaign_id, 1);
+        set_reject_weight(&env, campaign_id, i128::MAX);
     });
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+    assert_eq!(res, Ok(Ok(())));
 }
 
 #[test]
