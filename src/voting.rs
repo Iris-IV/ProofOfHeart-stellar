@@ -96,6 +96,12 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
     // regardless of token balance (#469).
+    //
+    // ApproveWeight/RejectWeight are deliberately kept as a mirror of the vote
+    // counts (unit weight per vote) so the legacy storage layout and the
+    // get_approve_weight/get_reject_weight queries stay consistent for
+    // existing deployments and indexers. verify_with_votes only consults the
+    // counts, so the mirror has no security impact.
     if approve {
         let new_count = get_approve_votes(env, campaign_id)
             .checked_add(1)
@@ -120,7 +126,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
-        (approve, 1i128, 1i128),
+        // Data shape documented in EVENT_PAYLOADS.md as
+        // (approve: bool, balance: i128, weight: i128). Balance is kept for
+        // indexers as informational signal; weight is always the unit 1.
+        (approve, balance, 1i128),
     );
 
     Ok(())
@@ -182,8 +191,10 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     // 1-address-1-vote (#469): threshold is computed from vote counts, not
     // token balances, so flash-loaned tokens cannot inflate the approval
-    // percentage. `total_votes` is guaranteed > 0 because of the quorum
-    // check above, so division by zero is impossible.
+    // percentage. The unwrap_or(0) below guards the division even if
+    // total_votes were 0; with a non-zero quorum (the default, and the only
+    // value set_params allows) the quorum check above already guarantees
+    // total_votes > 0.
     let threshold = effective_approval_threshold_bps(env, campaign.category);
     let approval_bps = ((approve_votes as u64)
         .checked_mul(crate::BPS_DENOMINATOR as u64)

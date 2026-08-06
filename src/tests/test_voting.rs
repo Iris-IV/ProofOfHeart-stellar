@@ -972,12 +972,15 @@ proptest! {
 
     #[test]
     fn prop_half_approval_gives_half_bps(votes in 10u32..=1_000_000u32) {
+        // Use an even vote count so the 50/50 split is exact: doubling the
+        // generated value guarantees half == votes / 2 exactly, so the
+        // computed bps is exactly 5000 with no rounding error.
+        let votes = votes * 2;
         let half = votes / 2;
         let approval_bps = calculate_approval_bps(half, votes);
-        // Allow for rounding error of 1 bps
-        prop_assert!(
-            (4_900..=5_000).contains(&approval_bps),
-            "50% approval should give ~5000 bps, got {}",
+        prop_assert_eq!(
+            approval_bps, 5_000,
+            "50% approval should give 5000 bps, got {}",
             approval_bps
         );
     }
