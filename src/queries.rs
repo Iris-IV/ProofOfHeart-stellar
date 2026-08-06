@@ -4,11 +4,39 @@ use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
-    get_platform_fee, get_token, get_total_raised_global, get_verified_campaign_count,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_last_contribution_time, get_platform_fee, get_token, get_top_contributor,
+    get_total_raised_global, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
+use crate::types::{
+    Campaign, CampaignStats, Category, CreatorStats, MaybePendingCreator, PlatformReport,
+    PlatformStats,
+};
 
+/// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
+/// in ascending order.
+///
+/// # Pagination
+///
+/// The `start` parameter is an **exclusive cursor** — pass the last campaign ID
+/// from the previous page to begin the next page. Begin with `start = 0`.
+///
+/// After each request, set `start` to the ID of the last campaign received.
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.list_campaigns(&start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start = page.get(page.len() - 1).unwrap().id;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
     let mut campaigns = soroban_sdk::Vec::new(env);
@@ -89,6 +117,18 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
+/// Shared bucket-pagination helper used by both `get_campaigns_by_category`
+/// and `get_creator_campaigns`. The two query functions differ only in how
+/// they derive the total count and how they load a bucket — this helper
+/// captures the identical traversal algorithm so there is one canonical
+/// implementation.
+///
+/// Algorithm overview:
+///   1. Jump to the bucket containing `start`.
+///   2. Walk entries within that bucket starting at the requested position.
+///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
+///   4. When the bucket is exhausted, advance `position` past the bucket
+///      boundary and repeat from step 1 with the next bucket.
 fn get_campaigns_from_buckets<F>(
     env: &Env,
     start: u32,
@@ -118,6 +158,9 @@ where
 
         let bucket_len = bucket.len();
         while idx_in_bucket < bucket_len && position < end {
+            // `if let Some` rather than `unwrap()` is intentional: a sparse
+            // bucket entry is skipped (not a panic), mirroring the
+            // creator-campaign path's behaviour.
             if let Some(campaign_id) = bucket.get(idx_in_bucket) {
                 if let Some(campaign) = get_campaign(env, campaign_id) {
                     campaigns.push_back(campaign);
@@ -236,6 +279,33 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         total_amount_raised: get_total_raised_global(env),
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
+    }
+}
+
+/// Returns aggregate contribution stats for a single campaign: contributor
+/// count, current top contributor, average contribution size, and the
+/// timestamp of the most recent contribution.
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let amount_raised = get_campaign(env, campaign_id)
+        .map(|c| c.amount_raised)
+        .unwrap_or(0);
+
+    let avg_contribution = if contributor_count > 0 {
+        amount_raised / contributor_count as i128
+    } else {
+        0
+    };
+
+    let top_contributor = get_top_contributor(env, campaign_id)
+        .map(MaybePendingCreator::from)
+        .unwrap_or(MaybePendingCreator::None);
+
+    CampaignStats {
+        contributor_count,
+        top_contributor,
+        avg_contribution,
+        last_contribution_time: get_last_contribution_time(env, campaign_id),
     }
 }
 

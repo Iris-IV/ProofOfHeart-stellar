@@ -62,9 +62,12 @@ fn test_update_campaign_emits_title_and_description() {
     // #349: campaign_metadata_updated emits (old_title, old_desc, new_title, new_desc).
     let events = env.events().all();
     let last_event = events.last().unwrap();
+    // Event payload: (old_title, old_description, title, event_description)
     let payload: (String, String, String, String) =
         soroban_sdk::FromVal::from_val(&env, &last_event.2);
 
+    assert_eq!(payload.0, String::from_str(&env, "Original Title"));
+    assert_eq!(payload.1, String::from_str(&env, "Original Description"));
     assert_eq!(payload.2, new_title);
     assert_eq!(payload.3, new_desc);
 }
@@ -99,6 +102,7 @@ fn test_update_campaign_event_tracks_latest_description() {
     // The second call's "old" is V2, "new" is V3.
     let events = env.events().all();
     let last_event = events.last().unwrap();
+    // Event payload: (old_title, old_description, title, event_description)
     let payload: (String, String, String, String) =
         soroban_sdk::FromVal::from_val(&env, &last_event.2);
     assert_eq!(payload.2, String::from_str(&env, "Title V3"));

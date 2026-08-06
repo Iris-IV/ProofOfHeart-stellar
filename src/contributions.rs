@@ -6,10 +6,11 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
-    set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_lifetime_contribution, set_personal_cap, set_total_raised_global, AdminKey,
+    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
+    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
+    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -187,6 +188,18 @@ pub(crate) fn contribute(
         amount,
     )?;
 
+    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let is_new_top = match get_top_contributor(env, campaign_id) {
+        Some(top_addr) if top_addr != contributor => {
+            new_total > get_contribution(env, campaign_id, &top_addr)
+        }
+        _ => true,
+    };
+    if is_new_top {
+        set_top_contributor(env, campaign_id, &contributor);
+    }
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+
     let client = token_client(env);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
 
@@ -351,6 +364,36 @@ pub(crate) fn set_personal_cap_fn(
     env.events().publish(
         ("personal_cap_set", campaign_id, contributor.clone()),
         amount,
+    );
+    Ok(())
+}
+
+/// Removes the contributor's personal contribution cap for a campaign (#503).
+/// Mirrors `set_personal_cap_fn`'s guards: the caller must authorize and the
+/// campaign must still be active. Removing a cap that is not set is an error
+/// rather than a silent no-op, so indexers can rely on `personal_cap_removed`
+/// meaning a cap actually existed.
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - The campaign is cancelled, withdrawn, or otherwise inactive.
+/// * `PersonalCapNotFound` - The contributor has no personal cap set on this campaign.
+pub(crate) fn remove_personal_cap_fn(
+    env: &Env,
+    campaign_id: u32,
+    contributor: Address,
+) -> Result<(), Error> {
+    contributor.require_auth();
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+    if get_personal_cap(env, campaign_id, &contributor).is_none() {
+        return Err(Error::PersonalCapNotFound);
+    }
+    bump_instance_ttl(env);
+    remove_personal_cap(env, campaign_id, &contributor);
+    env.events().publish(
+        ("personal_cap_removed", campaign_id, contributor.clone()),
+        (),
     );
     Ok(())
 }
