@@ -6,10 +6,11 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_total_raised_global,
-    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
-    set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_lifetime_contribution, set_personal_cap, set_total_raised_global, AdminKey,
+    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
+    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
+    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -186,6 +187,18 @@ pub(crate) fn contribute(
         lifetime,
         amount,
     )?;
+
+    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let is_new_top = match get_top_contributor(env, campaign_id) {
+        Some(top_addr) if top_addr != contributor => {
+            new_total > get_contribution(env, campaign_id, &top_addr)
+        }
+        _ => true,
+    };
+    if is_new_top {
+        set_top_contributor(env, campaign_id, &contributor);
+    }
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
     let client = token_client(env);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
