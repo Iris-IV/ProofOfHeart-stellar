@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, VotingKey, SECONDS_PER_DAY};
+use crate::{lifecycle::calculate_deadline, Category, Error, VotingKey, SECONDS_PER_DAY};
 use soroban_sdk::{FromVal, String, TryFromVal};
 
 // ── lifecycle events ────────────────────────────────────────────────────────────
@@ -377,13 +377,16 @@ fn test_verify_campaigns_extends_ttl_on_failure() {
 
     // 3. Verify the campaign successfully first.
     let ids = soroban_sdk::Vec::from_array(&env, [campaign_id]);
-    let first_res = client.verify_campaigns(&ids);
-    assert_eq!(first_res, 1);
+    let (first_verified, first_failed) = client.verify_campaigns(&ids);
+    assert_eq!(first_verified, ids);
+    assert!(first_failed.is_empty());
 
-    // Now try to verify the campaign again.
-    // Since it's already verified, it will fail verification.
-    let second_res = client.try_verify_campaigns(&ids);
-    assert!(second_res.is_err()); // verification failed (AdminVerificationConflict error)
+    // Now try to verify the campaign again. Since it's already verified,
+    // admin_verify fails — but #442 means the failure is reported in
+    // failed_ids instead of collapsing the whole batch to Err(first_error).
+    let (second_verified, second_failed) = client.verify_campaigns(&ids);
+    assert!(second_verified.is_empty());
+    assert_eq!(second_failed, ids);
 
     // 4. Despite the failure, the voting state TTL should have been extended.
     let current_ledger = env.ledger().sequence();
@@ -429,4 +432,32 @@ fn test_multi_step_sequence() {
 
     let id = client.create_campaign(&params);
     client.cancel_campaign(&id);
+}
+
+// ── calculate_deadline ───────────────────────────────────────────────────────────
+
+#[test]
+fn test_calculate_deadline_happy_path() {
+    let current_time = 1_000_000;
+    let duration_days = 30;
+    let expected = current_time + duration_days * SECONDS_PER_DAY;
+    assert_eq!(
+        calculate_deadline(current_time, duration_days).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn test_calculate_deadline_zero_days() {
+    let current_time = 1_000_000;
+    assert_eq!(calculate_deadline(current_time, 0).unwrap(), current_time);
+}
+
+#[test]
+fn test_calculate_deadline_overflow_rejected() {
+    let huge_days = u64::MAX / SECONDS_PER_DAY + 1;
+    assert_eq!(
+        calculate_deadline(0, huge_days),
+        Err(Error::ValidationFailed)
+    );
 }

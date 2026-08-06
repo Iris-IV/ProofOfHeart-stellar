@@ -4,12 +4,41 @@ use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
     get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
-    get_platform_fee, get_tag_campaign_bucket, get_tag_campaign_count, get_token,
-    get_total_raised_global, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE, TAG_CAMPAIGNS_BUCKET_SIZE,
+    get_last_contribution_time, get_platform_fee, get_tag_campaign_bucket,
+    get_tag_campaign_count, get_token, get_top_contributor, get_total_raised_global,
+    get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    TAG_CAMPAIGNS_BUCKET_SIZE,
 };
-use crate::types::{Campaign, Category, CreatorStats, PlatformReport, PlatformStats};
+use crate::types::{
+    Campaign, CampaignStats, Category, CreatorStats, MaybePendingCreator, PlatformReport,
+    PlatformStats,
+};
+};
 
+/// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
+/// in ascending order.
+///
+/// # Pagination
+///
+/// The `start` parameter is an **exclusive cursor** — pass the last campaign ID
+/// from the previous page to begin the next page. Begin with `start = 0`.
+///
+/// After each request, set `start` to the ID of the last campaign received.
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.list_campaigns(&start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start = page.get(page.len() - 1).unwrap().id;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
 pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
     let total_count = get_campaign_count(env);
     let mut campaigns = soroban_sdk::Vec::new(env);
@@ -90,37 +119,54 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
-pub(crate) fn get_campaigns_by_category(
+/// Shared bucket-pagination helper used by both `get_campaigns_by_category`
+/// and `get_creator_campaigns`. The two query functions differ only in how
+/// they derive the total count and how they load a bucket — this helper
+/// captures the identical traversal algorithm so there is one canonical
+/// implementation.
+///
+/// Algorithm overview:
+///   1. Jump to the bucket containing `start`.
+///   2. Walk entries within that bucket starting at the requested position.
+///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
+///   4. When the bucket is exhausted, advance `position` past the bucket
+///      boundary and repeat from step 1 with the next bucket.
+fn get_campaigns_from_buckets<F>(
     env: &Env,
-    category: Category,
-    offset: u32,
+    start: u32,
     limit: u32,
-) -> soroban_sdk::Vec<Campaign> {
+    total: u32,
+    bucket_size: u32,
+    get_bucket: F,
+) -> soroban_sdk::Vec<Campaign>
+where
+    F: Fn(&Env, u32) -> soroban_sdk::Vec<u32>,
+{
     let mut campaigns = soroban_sdk::Vec::new(env);
-    if limit == 0 {
-        return campaigns;
-    }
-
-    let total = get_category_campaign_count(env, category);
-    if offset >= total {
-        return campaigns;
-    }
-
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
-    let end = offset.saturating_add(capped_limit).min(total);
 
-    let mut position = offset;
+    if start >= total || capped_limit == 0 {
+        return campaigns;
+    }
+
+    let end = start.saturating_add(capped_limit).min(total);
+    let mut position = start;
+
     while position < end {
-        let bucket_idx = position / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
-        let bucket = get_category_campaign_bucket(env, category, bucket_idx);
-        let bucket_start = bucket_idx * CATEGORY_CAMPAIGNS_BUCKET_SIZE;
+        let bucket_idx = position / bucket_size;
+        let bucket = get_bucket(env, bucket_idx);
+        let bucket_start = bucket_idx * bucket_size;
         let mut idx_in_bucket = position - bucket_start;
 
         let bucket_len = bucket.len();
         while idx_in_bucket < bucket_len && position < end {
-            let campaign_id = bucket.get(idx_in_bucket).unwrap();
-            if let Some(campaign) = get_campaign(env, campaign_id) {
-                campaigns.push_back(campaign);
+            // `if let Some` rather than `unwrap()` is intentional: a sparse
+            // bucket entry is skipped (not a panic), mirroring the
+            // creator-campaign path's behaviour.
+            if let Some(campaign_id) = bucket.get(idx_in_bucket) {
+                if let Some(campaign) = get_campaign(env, campaign_id) {
+                    campaigns.push_back(campaign);
+                }
             }
             idx_in_bucket += 1;
             position += 1;
@@ -128,7 +174,7 @@ pub(crate) fn get_campaigns_by_category(
 
         if idx_in_bucket >= bucket_len {
             position = if bucket_len == 0 {
-                bucket_start + CATEGORY_CAMPAIGNS_BUCKET_SIZE
+                bucket_start + bucket_size
             } else {
                 bucket_start + bucket_len
             };
@@ -136,6 +182,23 @@ pub(crate) fn get_campaigns_by_category(
     }
 
     campaigns
+}
+
+pub(crate) fn get_campaigns_by_category(
+    env: &Env,
+    category: Category,
+    offset: u32,
+    limit: u32,
+) -> soroban_sdk::Vec<Campaign> {
+    let total = get_category_campaign_count(env, category);
+    get_campaigns_from_buckets(
+        env,
+        offset,
+        limit,
+        total,
+        CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_category_campaign_bucket(e, category, idx),
+    )
 }
 
 /// #534: jumps straight to the bucket containing `start` instead of reading
@@ -148,44 +211,15 @@ pub(crate) fn get_creator_campaigns(
     start: u32,
     limit: u32,
 ) -> soroban_sdk::Vec<Campaign> {
-    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
     let total = get_creator_campaign_count(env, &creator);
-    let mut campaigns = soroban_sdk::Vec::new(env);
-
-    if start >= total || capped_limit == 0 {
-        return campaigns;
-    }
-
-    let end = (start + capped_limit).min(total);
-    let mut position = start;
-
-    while position < end {
-        let bucket_idx = position / CREATOR_CAMPAIGNS_BUCKET_SIZE;
-        let bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
-        let bucket_start = bucket_idx * CREATOR_CAMPAIGNS_BUCKET_SIZE;
-        let mut idx_in_bucket = position - bucket_start;
-
-        let bucket_len = bucket.len();
-        while idx_in_bucket < bucket_len && position < end {
-            if let Some(campaign_id) = bucket.get(idx_in_bucket) {
-                if let Some(campaign) = get_campaign(env, campaign_id) {
-                    campaigns.push_back(campaign);
-                }
-            }
-            idx_in_bucket += 1;
-            position += 1;
-        }
-
-        if idx_in_bucket >= bucket_len {
-            position = if bucket_len == 0 {
-                bucket_start + CREATOR_CAMPAIGNS_BUCKET_SIZE
-            } else {
-                bucket_start + bucket_len
-            };
-        }
-    }
-
-    campaigns
+    get_campaigns_from_buckets(
+        env,
+        start,
+        limit,
+        total,
+        CREATOR_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_creator_campaign_bucket(e, &creator, idx),
+    )
 }
 
 /// Aggregates total raised, active campaign count, and total contributors
@@ -194,6 +228,12 @@ pub(crate) fn get_creator_campaigns(
 /// paginates over) rather than the paginated query, since a creator's own
 /// campaign count is bounded by normal usage and the caller wants a
 /// complete aggregate, not a page.
+///
+/// **Note:** `total_contributors` is a sum of the contributor counts of all
+/// creator's campaigns. Because no registry of unique contributor addresses
+/// is maintained per campaign/creator in storage, this value can double-count
+/// contributors who support multiple campaigns by this creator. It represents
+/// the total contribution events rather than the count of unique wallets.
 pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
     let total = get_creator_campaign_count(env, &creator);
 
@@ -210,7 +250,9 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
                     if campaign.is_active && !campaign.is_cancelled {
                         active_campaigns += 1;
                     }
-                    total_raised += campaign.amount_raised;
+                    if !campaign.is_cancelled {
+                        total_raised += campaign.amount_raised;
+                    }
                     total_contributors += get_contributor_count(env, campaign_id);
                 }
             }
@@ -239,6 +281,33 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         total_amount_raised: get_total_raised_global(env),
         stats_are_partial: false,
         scanned_up_to: total_campaigns,
+    }
+}
+
+/// Returns aggregate contribution stats for a single campaign: contributor
+/// count, current top contributor, average contribution size, and the
+/// timestamp of the most recent contribution.
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let amount_raised = get_campaign(env, campaign_id)
+        .map(|c| c.amount_raised)
+        .unwrap_or(0);
+
+    let avg_contribution = if contributor_count > 0 {
+        amount_raised / contributor_count as i128
+    } else {
+        0
+    };
+
+    let top_contributor = get_top_contributor(env, campaign_id)
+        .map(MaybePendingCreator::from)
+        .unwrap_or(MaybePendingCreator::None);
+
+    CampaignStats {
+        contributor_count,
+        top_contributor,
+        avg_contribution,
+        last_contribution_time: get_last_contribution_time(env, campaign_id),
     }
 }
 
