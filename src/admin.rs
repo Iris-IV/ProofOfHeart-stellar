@@ -185,12 +185,7 @@ pub(crate) fn set_campaign_fee_override(
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
-    // Strong validation: reject any fee override > 100% (10,000 bps)
-    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
-        return Err(Error::InvalidFeeOverride);
-    }
-
-    // Also enforce reasonable upper bound (platform max = 10% = 1000 bps)
+    // Strong validation: reject any fee override > 10% (1000 bps)
     if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidFeeOverride);
     }

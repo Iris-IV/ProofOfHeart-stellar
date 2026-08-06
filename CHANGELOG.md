@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `set_campaign_fee_override` now returns `InvalidFeeOverride` instead of `ValidationFailed` for fee overrides above the platform max (1000 bps / 10%), providing a clearer error code for clients matching on error types (#531).
+
 - `verify_campaigns` (batch admin verification) now returns `(verified_ids, failed_ids)` covering every id it processed, instead of collapsing a partial-success batch into `Err(first_error)`. Callers can now distinguish partial success from total failure and retry only the failed ids, and the successful verifications are committed on-chain instead of being reverted; the `campaigns_bulk_verified` event payload is now `(verified_count, failed_ids)` (#442).
 
 - `resume_campaign` now checks the global `AutoPaused` flag before `require_active_campaign`, returning early with `ValidationFailed` when the contract is not auto-paused instead of failing on an unrelated campaign-state check. The admin recovery path via `unpause()` also clears `AutoPaused` alongside `Paused` so neither flag can permanently lock the contract (#436).

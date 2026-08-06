@@ -754,7 +754,7 @@ fn test_campaign_fee_override_above_max_rejected() {
     // Test 10001 bps (100.01%) - exceeds absolute max (10000 bps = 100%)
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &10001);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidFeeOverride);
-    // Test edge case: exactly 10000 bps (100%) - should be rejected as well
+    // Test edge case: exactly 10000 bps (100%) - also rejected by platform max (1000 bps)
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &10000);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidFeeOverride);
 }
