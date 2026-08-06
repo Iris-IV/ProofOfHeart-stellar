@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{Address, String, Vec};
+use soroban_sdk::{Address, String, TryFromVal, Vec};
 
 // ── community voting ────────────────────────────────────────────────────────────
 
@@ -315,8 +315,13 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
     ));
 
     // Bulk verify the campaign
-    let count = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
-    assert_eq!(count, 1);
+    let (verified_ids, failed_ids) =
+        client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
+    assert_eq!(
+        verified_ids,
+        soroban_sdk::Vec::from_array(&env, [campaign_id])
+    );
+    assert!(failed_ids.is_empty());
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
@@ -353,7 +358,7 @@ fn test_vote_on_campaign_after_deadline_returns_deadline_passed() {
 }
 
 #[test]
-fn test_verify_campaigns_partial_failure_returns_err() {
+fn test_verify_campaigns_partial_failure_reports_failed_ids() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
@@ -368,10 +373,114 @@ fn test_verify_campaigns_partial_failure_returns_err() {
         0i128,
     ));
 
-    // 999 does not exist — will produce CampaignNotFound
+    // 999 does not exist — will produce CampaignNotFound.
     let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
-    let res = client.try_verify_campaigns(&ids);
-    assert!(res.unwrap_err().is_ok()); // Err variant, inner Ok means contract error
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    // #442: partial success is preserved and reported per-id, instead of the
+    // whole batch collapsing to Err(first_error).
+    assert_eq!(
+        verified_ids,
+        soroban_sdk::Vec::from_array(&env, [campaign_id])
+    );
+    assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
+    assert!(
+        client.get_campaign(&campaign_id).is_verified,
+        "the valid campaign must be committed even though the batch also failed"
+    );
+}
+
+#[test]
+fn test_verify_campaigns_all_failed_reports_every_id() {
+    let (env, _admin, _creator, _, _, _, _, client) = setup_env();
+
+    // Both ids are unknown — the batch fails entirely, but every id must be
+    // reported in failed_ids (not just the first error).
+    let ids = soroban_sdk::Vec::from_array(&env, [999u32, 1000u32]);
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    assert!(verified_ids.is_empty());
+    assert_eq!(failed_ids, ids);
+}
+
+#[test]
+fn test_verify_campaigns_cancelled_campaign_in_batch_reported_as_failed() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let valid_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Valid In Batch"),
+        String::from_str(&env, "Survives a failed sibling"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let cancelled_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancelled In Batch"),
+        String::from_str(&env, "Cannot be verified"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.cancel_campaign(&cancelled_id);
+
+    let ids = soroban_sdk::Vec::from_array(&env, [valid_id, cancelled_id]);
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    // Any admin_verify error (here CampaignNotActive for the cancelled
+    // campaign) must route that id to failed_ids without aborting the batch.
+    assert_eq!(verified_ids, soroban_sdk::Vec::from_array(&env, [valid_id]));
+    assert_eq!(
+        failed_ids,
+        soroban_sdk::Vec::from_array(&env, [cancelled_id])
+    );
+    assert!(client.get_campaign(&valid_id).is_verified);
+    assert!(!client.get_campaign(&cancelled_id).is_verified);
+}
+
+#[test]
+fn test_verify_campaigns_emits_bulk_verified_event_with_failed_ids() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Bulk Event"),
+        String::from_str(&env, "Event payload check"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
+    let _ = client.verify_campaigns(&ids);
+
+    let events = env.events().all();
+    let bulk = events
+        .iter()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|s| s == String::from_str(&env, "campaigns_bulk_verified"))
+                .unwrap_or(false)
+        })
+        .expect("campaigns_bulk_verified event must exist");
+
+    // #442: the event now carries the failing ids, not just counts.
+    let (verified_count, failed_ids): (u32, soroban_sdk::Vec<u32>) =
+        soroban_sdk::FromVal::from_val(&env, &bulk.2);
+    assert_eq!(verified_count, 1);
+    assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
 }
 
 // ── verification via votes ──────────────────────────────────────────────────────
