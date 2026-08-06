@@ -138,7 +138,7 @@ jobs:
       # so we use dawidd6/action-download-artifact which searches across runs.
       - name: Download PR artifact
         if: steps.gate.outputs.skip != 'true'
-        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
+        uses: dawidd6/action-download-artifact@b6e2e70617bc3265edd6dab6c906732b2f1ae151 # v21
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name: pr-${{ github.event.pull_request.number }}
