@@ -377,13 +377,16 @@ fn test_verify_campaigns_extends_ttl_on_failure() {
 
     // 3. Verify the campaign successfully first.
     let ids = soroban_sdk::Vec::from_array(&env, [campaign_id]);
-    let first_res = client.verify_campaigns(&ids);
-    assert_eq!(first_res, 1);
+    let (first_verified, first_failed) = client.verify_campaigns(&ids);
+    assert_eq!(first_verified, ids);
+    assert!(first_failed.is_empty());
 
-    // Now try to verify the campaign again.
-    // Since it's already verified, it will fail verification.
-    let second_res = client.try_verify_campaigns(&ids);
-    assert!(second_res.is_err()); // verification failed (AdminVerificationConflict error)
+    // Now try to verify the campaign again. Since it's already verified,
+    // admin_verify fails — but #442 means the failure is reported in
+    // failed_ids instead of collapsing the whole batch to Err(first_error).
+    let (second_verified, second_failed) = client.verify_campaigns(&ids);
+    assert!(second_verified.is_empty());
+    assert_eq!(second_failed, ids);
 
     // 4. Despite the failure, the voting state TTL should have been extended.
     let current_ledger = env.ledger().sequence();
