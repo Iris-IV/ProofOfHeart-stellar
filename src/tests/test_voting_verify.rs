@@ -1,4 +1,5 @@
 use super::helpers::*;
+use crate::storage::{set_approve_votes, set_approve_weight, set_reject_votes, set_reject_weight};
 use crate::{Category, CreateCampaignParams, Error};
 use soroban_sdk::String;
 
@@ -219,6 +220,62 @@ fn test_verify_campaign_with_votes_threshold_not_met() {
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::VotingThresholdNotMet);
+}
+
+#[test]
+fn test_verify_with_votes_weight_overflow_returns_overflow() {
+    let (env, admin, creator, _, _, _token, _token_admin, client) = setup_env();
+    client.set_voting_params(&admin, &1, &6000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Weight Overflow Verify"),
+        String::from_str(&env, "Weight overflow guard"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Satisfy quorum, then make approve_weight + reject_weight exceed i128::MAX.
+    env.as_contract(&client.address, || {
+        set_approve_votes(&env, campaign_id, 2);
+        set_reject_votes(&env, campaign_id, 1);
+        set_approve_weight(&env, campaign_id, i128::MAX);
+        set_reject_weight(&env, campaign_id, 1);
+    });
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+}
+
+#[test]
+fn test_verify_with_votes_count_overflow_returns_overflow() {
+    let (env, admin, creator, _, _, _token, _token_admin, client) = setup_env();
+    client.set_voting_params(&admin, &3, &6000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Vote Count Overflow Verify"),
+        String::from_str(&env, "Vote count overflow guard"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Make approve_votes + reject_votes exceed u32::MAX.
+    env.as_contract(&client.address, || {
+        set_approve_votes(&env, campaign_id, u32::MAX);
+        set_reject_votes(&env, campaign_id, 1);
+    });
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }
 
 #[test]
