@@ -310,6 +310,14 @@ mod tests {
             Error::CampaignNotBookmarked.to_string(),
             "CampaignNotBookmarked"
         );
+        assert_eq!(
+            Error::InvalidFeeOverride.to_string(),
+            "InvalidFeeOverride"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.to_string(),
+            "PersonalCapNotFound"
+        );
     }
 
     #[test]
@@ -331,6 +339,14 @@ mod tests {
             Error::CampaignNotBookmarked.name(),
             Error::CampaignNotBookmarked.to_string()
         );
+        assert_eq!(
+            Error::InvalidFeeOverride.name(),
+            Error::InvalidFeeOverride.to_string()
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.name(),
+            Error::PersonalCapNotFound.to_string()
+        );
         assert_eq!(Error::Overflow.name(), Error::Overflow.to_string());
     }
 
@@ -345,6 +361,14 @@ mod tests {
             "CampaignAlreadyBookmarked"
         );
         assert_eq!(Error::CampaignNotBookmarked.name(), "CampaignNotBookmarked");
+        assert_eq!(
+            Error::InvalidFeeOverride.name(),
+            "InvalidFeeOverride"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.name(),
+            "PersonalCapNotFound"
+        );
         assert_eq!(
             Error::InvalidStateTransition.name(),
             "InvalidStateTransition"
