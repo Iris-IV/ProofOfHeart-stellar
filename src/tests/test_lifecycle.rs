@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, VotingKey, SECONDS_PER_DAY};
+use crate::{lifecycle::calculate_deadline, Category, Error, VotingKey, SECONDS_PER_DAY};
 use soroban_sdk::{FromVal, String, TryFromVal};
 
 // ── lifecycle events ────────────────────────────────────────────────────────────
@@ -432,4 +432,32 @@ fn test_multi_step_sequence() {
 
     let id = client.create_campaign(&params);
     client.cancel_campaign(&id);
+}
+
+// ── calculate_deadline ───────────────────────────────────────────────────────────
+
+#[test]
+fn test_calculate_deadline_happy_path() {
+    let current_time = 1_000_000;
+    let duration_days = 30;
+    let expected = current_time + duration_days * SECONDS_PER_DAY;
+    assert_eq!(
+        calculate_deadline(current_time, duration_days).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn test_calculate_deadline_zero_days() {
+    let current_time = 1_000_000;
+    assert_eq!(calculate_deadline(current_time, 0).unwrap(), current_time);
+}
+
+#[test]
+fn test_calculate_deadline_overflow_rejected() {
+    let huge_days = u64::MAX / SECONDS_PER_DAY + 1;
+    assert_eq!(
+        calculate_deadline(0, huge_days),
+        Err(Error::ValidationFailed)
+    );
 }

@@ -110,8 +110,9 @@ test: deadline boundary coverage
 
 1. Reference the issue: `Closes #28`
 2. Fill out the PR template (auto-applied from `.github/PULL_REQUEST_TEMPLATE.md`)
-3. Ensure CI is green — all four checks in the Code Style section must pass
-4. One issue per PR
+3. Update `EVENT_PAYLOADS.md` if your PR adds, modifies, or removes any `env.events().publish(...)` call — keep topics, data shape, and source location in sync
+4. Ensure CI is green — all four checks in the Code Style section must pass
+5. One issue per PR
 
 ## Changelog
 

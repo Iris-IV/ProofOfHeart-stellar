@@ -117,6 +117,18 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
+/// Shared bucket-pagination helper used by both `get_campaigns_by_category`
+/// and `get_creator_campaigns`. The two query functions differ only in how
+/// they derive the total count and how they load a bucket — this helper
+/// captures the identical traversal algorithm so there is one canonical
+/// implementation.
+///
+/// Algorithm overview:
+///   1. Jump to the bucket containing `start`.
+///   2. Walk entries within that bucket starting at the requested position.
+///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
+///   4. When the bucket is exhausted, advance `position` past the bucket
+///      boundary and repeat from step 1 with the next bucket.
 fn get_campaigns_from_buckets<F>(
     env: &Env,
     start: u32,
@@ -146,6 +158,9 @@ where
 
         let bucket_len = bucket.len();
         while idx_in_bucket < bucket_len && position < end {
+            // `if let Some` rather than `unwrap()` is intentional: a sparse
+            // bucket entry is skipped (not a panic), mirroring the
+            // creator-campaign path's behaviour.
             if let Some(campaign_id) = bucket.get(idx_in_bucket) {
                 if let Some(campaign) = get_campaign(env, campaign_id) {
                     campaigns.push_back(campaign);
