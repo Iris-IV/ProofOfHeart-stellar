@@ -452,6 +452,65 @@ fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
 }
 
 #[test]
+fn test_max_tx_contribution_enforced_per_transaction() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    // Default: no per-transaction cap.
+    assert_eq!(client.get_max_tx_contribution(), 0);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Per tx cap"),
+        String::from_str(&env, "global per-tx limit"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        5_000i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Admin sets a global per-transaction cap of 500.
+    client.set_max_tx_contribution(&admin, &500);
+    assert_eq!(client.get_max_tx_contribution(), 500);
+
+    // A single contribution below the cap succeeds.
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    // A single contribution above the cap is rejected without moving funds.
+    let res = client.try_contribute(&campaign_id, &contributor1, &600);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::ExceedsMaxContributionPerTransaction
+    );
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    // Cap applies per transaction, not per lifetime: splitting the same total
+    // across multiple transactions is still allowed.
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_000);
+}
+
+#[test]
+fn test_set_max_tx_contribution_validation() {
+    let (_env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    // Negative values are rejected.
+    let res = client.try_set_max_tx_contribution(&admin, &-1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    // Zero disables the cap.
+    client.set_max_tx_contribution(&admin, &0);
+    assert_eq!(client.get_max_tx_contribution(), 0);
+
+    // Non-admin cannot change the cap.
+    let res = client.try_set_max_tx_contribution(&creator.clone(), &100);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
 fn test_personal_cap_enforcement() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);

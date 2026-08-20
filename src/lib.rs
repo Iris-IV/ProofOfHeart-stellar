@@ -46,8 +46,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY,
-    TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION,
+    MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
@@ -368,6 +368,12 @@ impl ProofOfHeart {
         admin::set_max_campaign_funding_goal_fn(&env, admin, max_goal)
     }
 
+    /// Sets the global maximum contribution allowed in a single `contribute`
+    /// call. `0` disables the limit. Only the admin may change it.
+    pub fn set_max_tx_contribution(env: Env, admin: Address, amount: i128) -> Result<(), Error> {
+        admin::set_max_tx_contribution_fn(&env, admin, amount)
+    }
+
     // ── Admin: voting params ──────────────────────────────────────────────────
 
     pub fn set_voting_params(
@@ -575,6 +581,10 @@ impl ProofOfHeart {
 
     pub fn get_max_campaign_funding_goal(env: Env) -> i128 {
         get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX)
+    }
+
+    pub fn get_max_tx_contribution(env: Env) -> i128 {
+        get_max_tx_contribution(&env)
     }
 
     pub fn get_min_voting_balance(env: Env) -> i128 {

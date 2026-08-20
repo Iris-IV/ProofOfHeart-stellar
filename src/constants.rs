@@ -30,3 +30,11 @@ pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// admin-configurable range stays sane while still covering any realistic
 /// timelock policy (#650).
 pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
+
+/// Default maximum contribution allowed in a single `contribute` call.
+///
+/// `0` is the explicit "no limit" sentinel, mirroring
+/// `Campaign::max_contribution_per_user` (#530). Only non-negative values are
+/// accepted by `set_max_tx_contribution`; the effective limit is read from
+/// storage and falls back to this constant.
+pub(crate) const DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION: i128 = 0;

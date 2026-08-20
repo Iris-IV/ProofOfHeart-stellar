@@ -79,6 +79,8 @@ pub enum AdminKey {
     /// Admin-configured delay (seconds) before a proposed token update can be
     /// accepted, overriding the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
     TokenUpdateDelaySecs,
+    /// Maximum contribution allowed in a single `contribute` call (0 = unlimited).
+    MaxContributionPerTransaction,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -324,6 +326,25 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
     env.storage()
         .instance()
         .set(&AdminKey::MaxCampaignFundingGoal, &max_goal);
+}
+
+// ── Per-transaction contribution cap ─────────────────────────────────────────
+
+/// Returns the maximum contribution allowed in a single `contribute` call,
+/// falling back to the compiled-in default (`0` = unlimited) if unset.
+pub fn get_max_tx_contribution(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::MaxContributionPerTransaction)
+        .unwrap_or(crate::DEFAULT_MAX_CONTRIBUTION_PER_TRANSACTION)
+}
+
+/// Stores the maximum contribution allowed in a single `contribute` call.
+/// `0` means unlimited.
+pub fn set_max_tx_contribution(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::MaxContributionPerTransaction, &amount);
 }
 
 // ── Contributions ─────────────────────────────────────────────────────────────

@@ -6,11 +6,12 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
-    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
-    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global, AdminKey,
+    get_contribution, get_lifetime_contribution, get_max_tx_contribution, get_personal_cap,
+    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
+    remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
+    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
+    AdminKey,
 };
 use crate::types::Campaign;
 
@@ -176,6 +177,11 @@ pub(crate) fn contribute(
     }
 
     check_burst_guard(env, campaign_id, &campaign, amount)?;
+
+    let max_per_tx = get_max_tx_contribution(env);
+    if max_per_tx > 0 && amount > max_per_tx {
+        return Err(Error::ExceedsMaxContributionPerTransaction);
+    }
 
     bump_instance_ttl(env);
     update_contribution_accounting(

@@ -4,14 +4,15 @@ use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
-    get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
-    get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
-    get_token_update_delay_secs, get_total_raised_global, get_version, is_initialized,
-    remove_has_voted, remove_pending_admin, remove_pending_token, remove_voting_state, set_admin,
-    set_approval_threshold_bps, set_campaign_count, set_creation_disabled, set_initialized,
-    set_max_campaign_funding_goal, set_min_campaign_funding_goal, set_min_votes_quorum,
-    set_min_voting_balance, set_pending_admin, set_pending_token, set_pending_token_release,
-    set_platform_fee, set_token, set_token_update_delay_secs, set_total_raised_global, set_version,
+    get_max_campaign_funding_goal, get_max_tx_contribution, get_min_campaign_funding_goal,
+    get_min_votes_quorum, get_pending_admin, get_pending_token, get_pending_token_release,
+    get_platform_fee, get_token, get_token_update_delay_secs, get_total_raised_global, get_version,
+    is_initialized, remove_has_voted, remove_pending_admin, remove_pending_token,
+    remove_voting_state, set_admin, set_approval_threshold_bps, set_campaign_count,
+    set_creation_disabled, set_initialized, set_max_campaign_funding_goal, set_max_tx_contribution,
+    set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
+    set_pending_token, set_pending_token_release, set_platform_fee, set_token,
+    set_token_update_delay_secs, set_total_raised_global, set_version,
     set_withdraw_release_delay_days, set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
@@ -301,6 +302,28 @@ pub(crate) fn set_max_campaign_funding_goal_fn(
         ("max_campaign_funding_goal_updated",),
         (old_max_goal, max_goal),
     );
+    Ok(())
+}
+
+/// Sets the global maximum contribution allowed in a single `contribute` call.
+/// `0` disables the limit. Negative values are rejected; a value of `0` is an
+/// explicit, documented sentinel meaning "no per-transaction cap" (#530
+/// semantics reused for the global cap).
+pub(crate) fn set_max_tx_contribution_fn(
+    env: &Env,
+    admin: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    // No require_not_paused: the cap is admin governance, like funding-goal limits (#388).
+    if amount < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    let old_amount = get_max_tx_contribution(env);
+    bump_instance_ttl(env);
+    set_max_tx_contribution(env, amount);
+    env.events()
+        .publish(("max_tx_contribution_updated",), (old_amount, amount));
     Ok(())
 }
 

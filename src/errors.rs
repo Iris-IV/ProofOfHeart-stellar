@@ -97,6 +97,8 @@ pub enum Error {
     CampaignNotBookmarked = 45,
     /// The contributor has no personal cap set on this campaign.
     PersonalCapNotFound = 46,
+    /// The contribution amount exceeds the global per-transaction limit.
+    ExceedsMaxContributionPerTransaction = 49,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -169,6 +171,7 @@ impl Error {
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
                 PersonalCapNotFound,
+                ExceedsMaxContributionPerTransaction,
             ]
         )
     }
