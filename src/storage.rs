@@ -115,6 +115,9 @@ pub enum CampaignKey {
     /// Reverse mapping from campaign ID to its current creator, keyed by campaign ID.
     /// Enables O(1) ownership verification without scanning a creator's campaign bucket.
     CampaignCreatorIndex(u32),
+    /// Reverse index from `(creator, sha256(title))` to existence, so titles
+    /// are unique per creator (#527).
+    CreatorCampaignTitleIndex(Address, soroban_sdk::BytesN<32>),
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -1094,6 +1097,30 @@ pub fn get_campaign_creator_index(env: &Env, campaign_id: u32) -> Option<Address
 pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address) {
     let key = CampaignKey::CampaignCreatorIndex(campaign_id);
     env.storage().persistent().set(&key, creator);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Returns `true` if `creator` already has a campaign with the given title hash,
+/// enforcing title uniqueness per creator (#527).
+pub fn has_campaign_title(
+    env: &Env,
+    creator: &Address,
+    title_hash: &soroban_sdk::BytesN<32>,
+) -> bool {
+    let key = CampaignKey::CreatorCampaignTitleIndex(creator.clone(), title_hash.clone());
+    env.storage().persistent().has(&key)
+}
+
+/// Records that `creator` has a campaign with the given title hash (#527).
+pub fn set_campaign_title_index(
+    env: &Env,
+    creator: &Address,
+    title_hash: &soroban_sdk::BytesN<32>,
+) {
+    let key = CampaignKey::CreatorCampaignTitleIndex(creator.clone(), title_hash.clone());
+    env.storage().persistent().set(&key, &true);
     env.storage()
         .persistent()
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);

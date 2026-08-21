@@ -7,6 +7,21 @@ pub use soroban_sdk::{
     Address, Env, IntoVal, String,
 };
 
+static TITLE_COUNTER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Returns a globally-unique campaign title so tests that create multiple
+/// campaigns from the same creator do not trip the title-uniqueness check
+/// (#527).
+pub(crate) fn unique_title(env: &Env) -> String {
+    let n = TITLE_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let lo = (n % 26) as u8;
+    let hi = ((n / 26) % 26) as u8;
+    String::from_bytes(
+        env,
+        &[b'A' + lo, b'A' + hi, b'x', b'y', b'z', b'q', b'r', b's'],
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn make_params(
     creator: Address,

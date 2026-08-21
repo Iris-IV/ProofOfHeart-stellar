@@ -1,4 +1,4 @@
-use soroban_sdk::Env;
+use soroban_sdk::{Bytes, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{calculate_deadline, require_not_paused};
@@ -7,10 +7,11 @@ use crate::storage::{
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
     get_min_campaign_funding_goal, get_withdraw_release_delay_days,
-    get_withdraw_reserve_percentage, set_campaign, set_campaign_count, set_campaign_creator_index,
-    set_campaign_start_time, set_campaign_vesting, set_category_campaign_bucket,
-    set_category_campaign_count, set_creator_campaign_bucket, set_creator_campaign_count,
-    set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_withdraw_reserve_percentage, has_campaign_title, set_campaign, set_campaign_count,
+    set_campaign_creator_index, set_campaign_start_time, set_campaign_title_index,
+    set_campaign_vesting, set_category_campaign_bucket, set_category_campaign_count,
+    set_creator_campaign_bucket, set_creator_campaign_count, set_revenue_pool,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
@@ -49,6 +50,20 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     }
     if title.len() < crate::CAMPAIGN_TITLE_MIN_LEN || title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
         return Err(Error::ValidationFailed);
+    }
+
+    // Enforce unique titles per creator (#527). The hash is computed over the
+    // exact bytes of the validated title. `copy_into_slice` panics if the
+    // destination slice length differs from the string length, and the earlier
+    // length validation bounds `title.len()` by `CAMPAIGN_TITLE_MAX_LEN`, so
+    // sizing the buffer to that bound keeps the slice in range by construction.
+    let mut title_buf = [0u8; crate::CAMPAIGN_TITLE_MAX_LEN as usize];
+    let title_len = title.len() as usize;
+    title.copy_into_slice(&mut title_buf[..title_len]);
+    let title_bytes = Bytes::from_slice(env, &title_buf[..title_len]);
+    let title_hash = env.crypto().sha256(&title_bytes);
+    if has_campaign_title(env, &creator, &title_hash) {
+        return Err(Error::DuplicateCampaignTitle);
     }
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
         || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
@@ -134,6 +149,10 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
     set_creator_campaign_bucket(env, &creator, bucket_idx, &bucket);
     set_creator_campaign_count(env, &creator, creator_count + 1);
     set_campaign_creator_index(env, count, &creator);
+
+    // Register the title under this creator so a later campaign with the same
+    // title is rejected (#527). The hash was computed above.
+    set_campaign_title_index(env, &creator, &title_hash);
 
     env.events().publish(
         ("campaign_created", count, creator),

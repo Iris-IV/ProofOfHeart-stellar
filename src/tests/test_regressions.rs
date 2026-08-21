@@ -110,7 +110,7 @@ fn test_propose_token_update_non_admin_fails() {
 fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
     CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "T"),
+        title: unique_title(env),
         description: String::from_str(env, "D"),
         funding_goal: 1,
         duration_days: 30,
@@ -176,7 +176,10 @@ fn test_platform_stats_after_withdraw() {
 fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
 
-    for _ in 0..60 {
+    // 52 campaigns (above LIST_MAX_LIMIT=50) but low enough that the per-campaign
+    // vesting (#466) and title-index (#527) storage entries stay under the
+    // testutils host's externalization ceiling (~62 campaign entries).
+    for _ in 0..52 {
         client.create_campaign(&make_campaign_params_simple(&env, &creator));
     }
 
@@ -889,27 +892,32 @@ fn test_bookmark_error_discriminants_are_locked() {
 }
 
 // ── #475 list_active_campaigns scan window ────────────────────────────────────
-
+//
+// Each campaign now writes a per-creator title-index entry (#527) in addition to
+// the vesting snapshot (#466). The testutils host cannot externalize envs with
+// more than ~62 campaigns worth of storage entries (panics in Env::drop with
+// UnexpectedType). 28 campaigns (cancel 23, leave 5 active) stays under the
+// ceiling while still exercising the scan window.
 #[test]
 fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
 
-    // Create 40 campaigns and cancel the first 35, leaving 5 active campaigns
+    // Create 28 campaigns and cancel the first 23, leaving 5 active campaigns
     // clustered at the tail. The window this exercises (MAX_SCAN_WINDOW = 1000)
     // is far larger than the old 200-id window; this asserts the tail campaigns
     // remain reachable in a single page rather than proving the exact 1000 bound
     // (proving that directly would itself blow the per-invocation test budget).
     let mut last_id = 0u32;
-    for _ in 0..40 {
+    for _ in 0..28 {
         last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
     }
-    for id in 1..=35 {
+    for id in 1..=23 {
         client.cancel_campaign(&id);
     }
 
     let (active, next_cursor) = client.list_active_campaigns(&0, &50);
     assert_eq!(active.len(), 5);
-    assert_eq!(active.get(0).unwrap().id, 36);
+    assert_eq!(active.get(0).unwrap().id, 24);
     assert_eq!(active.get(4).unwrap().id, last_id);
     assert_eq!(next_cursor, 0);
 }

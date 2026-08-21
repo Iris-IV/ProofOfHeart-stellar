@@ -97,6 +97,8 @@ pub enum Error {
     CampaignNotBookmarked = 45,
     /// The contributor has no personal cap set on this campaign.
     PersonalCapNotFound = 46,
+    /// A campaign with the same title already exists for this creator (#527).
+    DuplicateCampaignTitle = 50,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -169,6 +171,7 @@ impl Error {
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
                 PersonalCapNotFound,
+                DuplicateCampaignTitle,
             ]
         )
     }

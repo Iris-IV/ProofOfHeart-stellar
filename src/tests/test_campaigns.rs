@@ -147,11 +147,10 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 fn test_description_length_boundaries() {
     extern crate std;
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let title = String::from_str(&env, "Title");
 
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        unique_title(&env),
         String::from_str(&env, ""),
         1000,
         30,
@@ -165,7 +164,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            unique_title(&env),
             String::from_str(&env, "a"),
             1000,
             30,
@@ -180,7 +179,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            unique_title(&env),
             String::from_str(&env, &desc_1000),
             1000,
             30,
@@ -194,7 +193,7 @@ fn test_description_length_boundaries() {
     let desc_1001 = "a".repeat(1001);
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        unique_title(&env),
         String::from_str(&env, &desc_1001),
         1000,
         30,
@@ -270,6 +269,41 @@ fn test_title_length_boundaries() {
 }
 
 #[test]
+fn test_duplicate_campaign_title_rejected() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let desc = String::from_str(&env, "Description");
+    let title = String::from_str(&env, "Duplicate Title");
+
+    // First create succeeds
+    let res1 = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert!(res1.is_ok());
+
+    // Second create with same title from same creator fails
+    let res2 = client.try_create_campaign(&make_params(
+        creator.clone(),
+        title,
+        desc,
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res2.unwrap_err().unwrap(), Error::DuplicateCampaignTitle);
+}
+
+#[test]
 fn test_revenue_share_percentage_normalised_to_zero_when_disabled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let id = client.create_campaign(&make_params(
@@ -330,7 +364,7 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     for i in 1u32..=3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            unique_title(&env),
             String::from_str(&env, "Desc"),
             1000,
             30,
