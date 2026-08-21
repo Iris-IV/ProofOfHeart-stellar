@@ -30,3 +30,6 @@ pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// admin-configurable range stays sane while still covering any realistic
 /// timelock policy (#650).
 pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
+
+/// Default timelock for emergency withdrawal proposal (7 days).
+pub(crate) const EMERGENCY_WITHDRAW_TIMELOCK_SECS: u64 = 7 * SECONDS_PER_DAY;

@@ -97,6 +97,10 @@ pub enum Error {
     CampaignNotBookmarked = 45,
     /// The contributor has no personal cap set on this campaign.
     PersonalCapNotFound = 46,
+    /// Emergency withdrawal proposal not found for the campaign.
+    EmergencyWithdrawalNotProposed = 51,
+    /// Emergency withdrawal timelock has not yet elapsed.
+    EmergencyWithdrawalTimelockNotMet = 52,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -169,6 +173,8 @@ impl Error {
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
                 PersonalCapNotFound,
+                EmergencyWithdrawalNotProposed,
+                EmergencyWithdrawalTimelockNotMet,
             ]
         )
     }

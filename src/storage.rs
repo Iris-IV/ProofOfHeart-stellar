@@ -79,6 +79,8 @@ pub enum AdminKey {
     /// Admin-configured delay (seconds) before a proposed token update can be
     /// accepted, overriding the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
     TokenUpdateDelaySecs,
+    /// Emergency withdrawal proposal: (campaign_id, creator, amount, release_timestamp).
+    EmergencyWithdrawalProposal,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -997,6 +999,35 @@ pub fn set_token_update_delay_secs(env: &Env, delay_secs: u64) {
     env.storage()
         .instance()
         .set(&AdminKey::TokenUpdateDelaySecs, &delay_secs);
+}
+
+/// Returns the emergency withdrawal proposal for a campaign, if one exists.
+/// The proposal stores (campaign_id, creator, amount, release_timestamp).
+pub fn get_emergency_withdrawal_proposal(env: &Env) -> Option<(u32, Address, i128, u64)> {
+    env.storage()
+        .instance()
+        .get(&AdminKey::EmergencyWithdrawalProposal)
+}
+
+/// Stores an emergency withdrawal proposal.
+pub fn set_emergency_withdrawal_proposal(
+    env: &Env,
+    campaign_id: u32,
+    creator: &Address,
+    amount: i128,
+    release_timestamp: u64,
+) {
+    env.storage().instance().set(
+        &AdminKey::EmergencyWithdrawalProposal,
+        &(campaign_id, creator, amount, release_timestamp),
+    );
+}
+
+/// Removes the emergency withdrawal proposal.
+pub fn remove_emergency_withdrawal_proposal(env: &Env) {
+    env.storage()
+        .instance()
+        .remove(&AdminKey::EmergencyWithdrawalProposal);
 }
 
 // ── O(1) platform stat counters ───────────────────────────────────────────────

@@ -3,17 +3,22 @@ use soroban_sdk::{Address, Env, Vec};
 use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
-    self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
+    self, bump_instance_ttl, decrement_active_campaign_count, get_active_campaign_count, get_admin,
+    get_approval_threshold_bps, get_campaign_vesting, get_emergency_withdrawal_proposal,
     get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
     get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
-    get_token_update_delay_secs, get_total_raised_global, get_version, is_initialized,
-    remove_has_voted, remove_pending_admin, remove_pending_token, remove_voting_state, set_admin,
-    set_approval_threshold_bps, set_campaign_count, set_creation_disabled, set_initialized,
-    set_max_campaign_funding_goal, set_min_campaign_funding_goal, set_min_votes_quorum,
-    set_min_voting_balance, set_pending_admin, set_pending_token, set_pending_token_release,
-    set_platform_fee, set_token, set_token_update_delay_secs, set_total_raised_global, set_version,
+    get_token_update_delay_secs, get_total_raised_global, get_version,
+    get_withdraw_release_delay_days, get_withdraw_reserve_percentage, is_initialized,
+    remove_emergency_withdrawal_proposal, remove_has_voted, remove_pending_admin,
+    remove_pending_token, remove_voting_state, set_admin, set_approval_threshold_bps, set_campaign,
+    set_campaign_count, set_campaign_reserve, set_creation_disabled,
+    set_emergency_withdrawal_proposal, set_initialized, set_max_campaign_funding_goal,
+    set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
+    set_pending_token, set_pending_token_release, set_platform_fee, set_token,
+    set_token_update_delay_secs, set_total_raised_global, set_version,
     set_withdraw_release_delay_days, set_withdraw_reserve_percentage, AdminKey,
 };
+use crate::types::CampaignReserve;
 use crate::voting;
 
 pub(crate) fn init(
@@ -387,6 +392,197 @@ pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error
     bump_instance_ttl(env);
     remove_pending_token(env);
     env.events().publish(("token_update_cancelled",), ());
+    Ok(())
+}
+
+/// Propose an emergency withdrawal for a campaign. The admin can trigger
+/// a withdrawal that bypasses the normal goal/deadline requirements, but
+/// must wait for the timelock (EMERGENCY_WITHDRAW_TIMELOCK_SECS) before
+/// execution. This provides a recovery path for campaigns where the creator
+/// is unresponsive or funds are at risk, while giving contributors a window
+/// to challenge the withdrawal.
+pub(crate) fn propose_emergency_withdrawal(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    // No require_not_paused: emergency withdrawal is a critical recovery path.
+
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+
+    // Cannot propose if already proposed
+    if get_emergency_withdrawal_proposal(env).is_some() {
+        return Err(Error::ValidationFailed);
+    }
+
+    // Must have funds to withdraw
+    if campaign.amount_raised == 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
+    // Must be in an active state (not already withdrawn or cancelled)
+    if campaign.funds_withdrawn || campaign.is_cancelled {
+        return Err(Error::CampaignNotActive);
+    }
+
+    // Must be verified
+    if !campaign.is_verified {
+        return Err(Error::CampaignNotVerified);
+    }
+
+    // Use effective_amount_raised for consistency with normal withdraw
+    // (which deducts fee/reserve from effective_amount_raised, not amount_raised).
+    // The emergency withdrawal computes fee + reserve and transfers the rest.
+    let amount = campaign.effective_amount_raised;
+
+    let release_after = env
+        .ledger()
+        .timestamp()
+        .checked_add(crate::EMERGENCY_WITHDRAW_TIMELOCK_SECS)
+        .ok_or(Error::Overflow)?;
+
+    bump_instance_ttl(env);
+    set_emergency_withdrawal_proposal(env, campaign_id, &campaign.creator, amount, release_after);
+    env.events().publish(
+        ("emergency_withdrawal_proposed", admin),
+        (campaign_id, campaign.creator.clone(), amount, release_after),
+    );
+
+    Ok(())
+}
+
+/// Execute an emergency withdrawal after the timelock has elapsed.
+/// The withdrawal computes fee + reserve from effective_amount_raised
+/// and transfers the remainder to the creator. The reserve is set with
+/// the campaign's vesting params (or global defaults). Decrements the
+/// active campaign count if the campaign was active.
+pub(crate) fn execute_emergency_withdrawal(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+
+    let proposal =
+        get_emergency_withdrawal_proposal(env).ok_or(Error::EmergencyWithdrawalNotProposed)?;
+    let (prop_campaign_id, creator, _amount, release_after) = proposal;
+
+    if prop_campaign_id != campaign_id {
+        return Err(Error::EmergencyWithdrawalNotProposed);
+    }
+
+    if env.ledger().timestamp() < release_after {
+        return Err(Error::EmergencyWithdrawalTimelockNotMet);
+    }
+
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+
+    // Re-validate state
+    if campaign.funds_withdrawn || campaign.is_cancelled {
+        return Err(Error::CampaignNotActive);
+    }
+    if !campaign.is_verified {
+        return Err(Error::CampaignNotVerified);
+    }
+    if campaign.effective_amount_raised == 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
+    // Compute fee and reserve using effective_amount_raised (consistent with withdraw_funds)
+    let platform_fee = campaign
+        .fee_override
+        .unwrap_or_else(|| get_platform_fee(env));
+    let fee_amount = campaign
+        .effective_amount_raised
+        .checked_mul(platform_fee as i128)
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
+        .ok_or(Error::Overflow)?
+        / crate::BPS_DENOMINATOR as i128;
+    let total_after_fee = campaign.effective_amount_raised - fee_amount;
+
+    let (delay_days, reserve_bps) = get_campaign_vesting(env, campaign_id).unwrap_or_else(|| {
+        (
+            get_withdraw_release_delay_days(env),
+            get_withdraw_reserve_percentage(env),
+        )
+    });
+    let reserve_amount = total_after_fee
+        .checked_mul(reserve_bps as i128)
+        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
+        .ok_or(Error::Overflow)?
+        / crate::BPS_DENOMINATOR as i128;
+    let creator_amount = total_after_fee - reserve_amount;
+
+    // Transition state (CEI pattern)
+    let was_active = campaign.is_active;
+    campaign.funds_withdrawn = true;
+    campaign.is_active = false;
+    set_campaign(env, campaign_id, &campaign);
+
+    if was_active {
+        decrement_active_campaign_count(env);
+    }
+
+    if reserve_amount > 0 {
+        let release_timestamp = env
+            .ledger()
+            .timestamp()
+            .checked_add(delay_days * crate::SECONDS_PER_DAY)
+            .ok_or(Error::Overflow)?;
+
+        let reserve = CampaignReserve {
+            amount: reserve_amount,
+            release_timestamp,
+            released: false,
+        };
+        set_campaign_reserve(env, campaign_id, &reserve);
+    }
+
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised
+            .checked_sub(campaign.effective_amount_raised - reserve_amount)
+            .ok_or(Error::Overflow)?,
+    );
+
+    // Token transfers after state updates (CEI pattern)
+    let admin_addr = get_admin(env);
+    let client = crate::lifecycle::token_client(env);
+
+    client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
+    client.transfer(&env.current_contract_address(), &creator, &creator_amount);
+
+    bump_instance_ttl(env);
+    remove_emergency_withdrawal_proposal(env);
+
+    env.events().publish(
+        ("emergency_withdrawal_executed", admin),
+        (campaign_id, fee_amount, creator_amount, reserve_amount),
+    );
+
+    if reserve_amount > 0 {
+        env.events()
+            .publish(("emergency_reserve_withheld", campaign_id), reserve_amount);
+    }
+
+    Ok(())
+}
+
+/// Cancel a pending emergency withdrawal proposal.
+pub(crate) fn cancel_emergency_withdrawal(env: &Env, admin: Address) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+
+    if get_emergency_withdrawal_proposal(env).is_none() {
+        return Err(Error::EmergencyWithdrawalNotProposed);
+    }
+
+    bump_instance_ttl(env);
+    remove_emergency_withdrawal_proposal(env);
+    env.events()
+        .publish(("emergency_withdrawal_cancelled", admin), ());
+
     Ok(())
 }
 

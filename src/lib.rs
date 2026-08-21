@@ -46,8 +46,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY,
-    TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, EMERGENCY_WITHDRAW_TIMELOCK_SECS,
+    MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
@@ -423,6 +423,38 @@ impl ProofOfHeart {
 
     pub fn cancel_token_update(env: Env, admin: Address) -> Result<(), Error> {
         admin::cancel_token_update(&env, admin)
+    }
+
+    /// Proposes an emergency withdrawal for a campaign. The admin can trigger
+    /// a withdrawal that bypasses normal goal/deadline requirements, but must
+    /// wait for the timelock (default 7 days) before execution. This provides
+    /// a recovery path for campaigns where the creator is unresponsive or funds
+    /// are at risk, while giving contributors a window to challenge the
+    /// withdrawal. Uses `effective_amount_raised` for fee/reserve consistency.
+    pub fn propose_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        admin::propose_emergency_withdrawal(&env, admin, campaign_id)
+    }
+
+    /// Executes a proposed emergency withdrawal after the timelock has elapsed.
+    /// Computes fee + reserve from `effective_amount_raised` (consistent with
+    /// `withdraw_funds`), transfers the remainder to the creator, and sets any
+    /// reserve with the campaign's vesting params. Decrements the active
+    /// campaign count if the campaign was active.
+    pub fn execute_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        admin::execute_emergency_withdrawal(&env, admin, campaign_id)
+    }
+
+    /// Cancels a pending emergency withdrawal proposal.
+    pub fn cancel_emergency_withdrawal(env: Env, admin: Address) -> Result<(), Error> {
+        admin::cancel_emergency_withdrawal(&env, admin)
     }
 
     /// Overrides the timelock delay `propose_token_update` enforces before a
