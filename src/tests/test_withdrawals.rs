@@ -1,5 +1,7 @@
 use super::helpers::*;
-use crate::{storage, Category, ContributionKey, Error, SECONDS_PER_DAY};
+use crate::{
+    storage, Category, ContributionKey, Error, BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY,
+};
 use soroban_sdk::testutils::{Events, Ledger};
 use soroban_sdk::{Address, String, TryFromVal};
 
@@ -502,6 +504,18 @@ fn test_withdraw_event_payload_tuple() {
     assert_eq!(data, (300, 776, 194));
 }
 
+// ── BPS_CEIL_OFFSET ─────────────────────────────────────────────────────────────
+
+#[test]
+fn test_bps_ceil_offset_value() {
+    assert_eq!(BPS_CEIL_OFFSET, 9_999);
+    // Ceiling division property: (a + BPS_CEIL_OFFSET) / BPS_DENOMINATOR == ceil(a / BPS_DENOMINATOR)
+    assert_eq!(BPS_CEIL_OFFSET / BPS_DENOMINATOR as i128, 0); // ceil(0/10000) = 0
+    assert_eq!((1 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(1/10000) = 1
+    assert_eq!((9999 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(9999/10000) = 1
+    assert_eq!((10000 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 1); // ceil(10000/10000) = 1
+    assert_eq!((10001 + BPS_CEIL_OFFSET) / BPS_DENOMINATOR as i128, 2); // ceil(10001/10000) = 2
+}
 /// Regression test for #459: a migration-planted CampaignReserve on a campaign
 /// with `funds_withdrawn == false` must NOT be drainable.
 #[test]

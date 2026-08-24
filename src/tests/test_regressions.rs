@@ -273,9 +273,72 @@ fn test_set_personal_cap_cannot_exceed_max_contribution_per_user() {
     assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
+// ── #441 set_personal_cap below lifetime_contribution rejected ──
+#[test]
+fn test_set_personal_cap_below_lifetime_contribution_rejected() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "T"),
+        description: String::from_str(&env, "D"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    token_admin.mint(&contributor, &10_000);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor, &1000);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor),
+        1000
+    );
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &1000);
+    assert!(res.is_ok());
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &2000);
+    assert!(res.is_ok());
+}
+
+// ── #441 boundary: cap == lifetime blocks future contributions ──
+#[test]
+fn test_set_personal_cap_equal_lifetime_blocks_further_contributions() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "T"),
+        description: String::from_str(&env, "D"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    token_admin.mint(&contributor, &10_000);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor, &1000);
+
+    let res = client.try_set_personal_cap(&campaign_id, &contributor, &1000);
+    assert!(res.is_ok());
+
+    let res = client.try_contribute(&campaign_id, &contributor, &1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+}
+
 // ── #354 vote weight checked addition ──
 #[test]
-fn test_vote_weight_overflow_fails() {
+fn test_vote_weight_does_not_overflow_with_1_address_1_vote() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
 
@@ -289,8 +352,10 @@ fn test_vote_weight_overflow_fails() {
 
     token_admin.mint(&contributor, &501);
 
-    let res = client.try_vote_on_campaign(&campaign_id, &contributor, &true);
-    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+    // With 1-address-1-vote, the weight only increments by 1, so no overflow occurs
+    // even when ApproveWeight is near i128::MAX (#469).
+    client.vote_on_campaign(&campaign_id, &contributor, &true);
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
 }
 
 // ── #360 resume_campaign admin-path coverage ──────────────────────────────────
