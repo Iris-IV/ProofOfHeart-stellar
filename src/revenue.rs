@@ -202,10 +202,41 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-    let claimable = creator_share_total - already_claimed;
+    let mut claimable = creator_share_total - already_claimed;
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
+    }
+
+    // #451: the creator's share is computed with truncating integer division
+    // too, so across deposit rounds cumulative rounding can leave dust in the
+    // pool that the creator — the final revenue claimant — never receives.
+    // Once the contributor side of the *current* pool is fully paid out, let
+    // the creator absorb whatever remains of the pool instead of their
+    // individually-truncated share, so the full allocation is paid out exactly
+    // and no stroops are left stuck in the contract.
+    //
+    // The gate is amount-based: `distributed` is the running sum of what
+    // contributors have actually claimed, and each contributor's claim is
+    // capped at their individually-truncated share, so once `distributed`
+    // reaches floor(total_pool * revenue_share_percentage / BPS) no
+    // contributor can claim anything more. Gating on that amount — rather
+    // than on a lifetime claimant count, which stays permanently true after
+    // the first round of claims — prevents the creator from sweeping a fresh
+    // deposit before contributors claim their share of it.
+    let distributed = get_contributor_revenue_distributed(env, campaign_id);
+    let contributor_share_total = total_pool
+        .checked_mul(campaign.revenue_share_percentage as i128)
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+        .ok_or(Error::Overflow)?;
+    if distributed >= contributor_share_total {
+        let pool_remaining = total_pool
+            .checked_sub(distributed)
+            .and_then(|n| n.checked_sub(already_claimed))
+            .ok_or(Error::Overflow)?;
+        if pool_remaining > claimable {
+            claimable = pool_remaining;
+        }
     }
 
     bump_instance_ttl(env);

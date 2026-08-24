@@ -720,6 +720,123 @@ fn test_last_revenue_claimant_absorbs_rounding_dust() {
     assert_eq!(claimed2, 4);
 }
 
+// ── #451 creator final-claimant revenue dust ──────────────────────────────────
+
+/// Issue #451 — the creator's share is computed with truncating integer
+/// division too, so across deposit rounds cumulative rounding can drain the
+/// pool before the creator (the final revenue claimant) receives their full
+/// share, leaving dust permanently stuck in the contract. Once the
+/// contributor side of the current pool is fully paid out, the creator must
+/// absorb whatever remains of the pool instead of their
+/// individually-truncated share, so the full allocation is paid out exactly.
+#[test]
+fn test_creator_final_claimant_absorbs_rounding_dust() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &10);
+    token_admin.mint(&creator, &100);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Issue 451"),
+        description: String::from_str(&env, "Creator dust regression"),
+        funding_goal: 3,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Sole contributor contributes the full amount, so they are entitled to
+    // exactly the contributor-side pool and the creator to the rest.
+    client.contribute(&campaign_id, &contributor1, &3);
+    client.withdraw_funds(&campaign_id);
+
+    // Round 1: pool = 10. creator_share_total = 5, contributor pool = 5.
+    client.deposit_revenue(&campaign_id, &10);
+    let c1_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1) - c1_before, 5);
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    assert_eq!(token.balance(&creator) - creator_before, 5);
+
+    // Round 2: pool = 13. The contributor's recomputed share truncates
+    // (13/2 = 6.5 -> 6), so after their second claim 1 stroop of dust is left
+    // that the naive per-party math would strand in the pool.
+    client.deposit_revenue(&campaign_id, &3);
+    let c1_before_round2 = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1) - c1_before_round2, 1);
+
+    // The contributor side of the current pool is now fully paid out
+    // (distributed = 6 >= floor(13 * 5000 / 10000) = 6), so the creator — the
+    // final claimant — absorbs the remaining pool (13 - 6 already distributed
+    // to contributor1 - 5 already claimed by the creator = 2) instead of
+    // their truncated share (floor(13 * 5000 / 10000) - 5 = 1). The full pool
+    // is paid out exactly and nothing is left in the contract.
+    let creator_before_round2 = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    assert_eq!(token.balance(&creator) - creator_before_round2, 2);
+
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 6);
+    assert_eq!(token.balance(&client.address), 0);
+}
+
+/// Issue #451 — the creator must not be able to sweep a fresh deposit before
+/// contributors claim their share of it. The dust-absorption gate is
+/// amount-based (contributors fully paid out for the *current* pool), so when
+/// the creator claims immediately after a new deposit the creator gets only
+/// their individually-truncated share and the contributor can still claim
+/// their full entitlement afterwards.
+#[test]
+fn test_creator_cannot_sweep_unclaimed_contributor_share() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &10);
+    token_admin.mint(&creator, &100);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Issue 451 sweep"),
+        description: String::from_str(&env, "Creator sweep regression"),
+        funding_goal: 3,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &3);
+    client.withdraw_funds(&campaign_id);
+
+    // Round 1: contributor and creator each claim their exact 50% share.
+    client.deposit_revenue(&campaign_id, &10);
+    client.claim_revenue(&campaign_id, &contributor1);
+    client.claim_creator_revenue(&campaign_id);
+
+    // Round 2: a fresh deposit arrives and the creator claims FIRST, before
+    // the contributor has claimed their share of it. The creator must only
+    // receive their truncated share of the new pool (floor(13/2) - 5 = 1), not
+    // the naive pool remainder (13 - 5 - 5 = 3) which would include the
+    // contributor's still-unclaimed stroop.
+    client.deposit_revenue(&campaign_id, &3);
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    assert_eq!(token.balance(&creator) - creator_before, 1);
+
+    // The contributor can still claim their full round-2 entitlement (their
+    // recomputed share floor(13/2) = 6 minus the 5 already claimed = 1).
+    let c1_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1) - c1_before, 1);
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 6);
+}
+
 // ── #528 corrupted campaign storage key ────────────────────────────────────────
 
 /// Issue #528 — if a campaign's persistent storage entry can't be
