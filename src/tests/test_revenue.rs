@@ -112,6 +112,89 @@ fn test_revenue_sharing_edge_cases() {
 }
 
 #[test]
+fn test_claim_revenue_at_full_revenue_share_pays_entire_pool_to_contributors() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &1_000);
+    token_admin.mint(&contributor2, &1_000);
+    token_admin.mint(&creator, &1_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Full Revenue Share"),
+        String::from_str(&env, "Contributors receive the full revenue pool"),
+        2_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5_000,
+        0,
+    ));
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        // Creation currently caps revenue sharing at 50%, but claims must
+        // remain correct for an existing campaign stored at the 100% boundary.
+        campaign.revenue_share_percentage = crate::BPS_DENOMINATOR;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+    client.contribute(&campaign_id, &contributor2, &1_000);
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &1_000);
+
+    client.claim_revenue(&campaign_id, &contributor1);
+    client.claim_revenue(&campaign_id, &contributor2);
+
+    assert_eq!(token.balance(&contributor1), 500);
+    assert_eq!(token.balance(&contributor2), 500);
+    let result = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
+#[test]
+fn test_claim_creator_revenue_at_zero_revenue_share_pays_entire_pool_to_creator() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1_000);
+    token_admin.mint(&creator, &1_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Zero Revenue Share"),
+        String::from_str(&env, "Creator receives the full revenue pool"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        5_000,
+        0,
+    ));
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        // Creation rejects 0% for revenue-sharing campaigns, but the claim
+        // arithmetic must handle an existing campaign stored at this boundary.
+        campaign.revenue_share_percentage = 0;
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+    client.withdraw_funds(&campaign_id);
+    client.deposit_revenue(&campaign_id, &1_000);
+
+    let creator_balance_before_claim = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+
+    assert_eq!(
+        token.balance(&creator),
+        creator_balance_before_claim + 1_000
+    );
+    let result = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(result.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
+#[test]
 fn test_claim_revenue_requires_contributor_auth() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 

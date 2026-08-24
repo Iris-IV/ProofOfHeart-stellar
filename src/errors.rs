@@ -95,6 +95,24 @@ pub enum Error {
     CampaignAlreadyBookmarked = 44,
     /// The campaign is not in the wallet's saved/bookmarked list.
     CampaignNotBookmarked = 45,
+    /// The contributor has no personal cap set on this campaign.
+    PersonalCapNotFound = 46,
+}
+
+/// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
+/// a bare list of variant identifiers. Each name is derived from the
+/// identifier via `stringify!` instead of being retyped as a separate string
+/// literal, so `name()` cannot report a name that has drifted (e.g. via a
+/// typo) from the actual variant it matches — the only thing left to keep in
+/// sync by hand is the list of identifiers itself, and forgetting one there
+/// is still caught by the compiler because the expanded `match` remains
+/// exhaustive-checked against every `Error` variant (#651).
+macro_rules! error_names {
+    ($self:expr, [$($variant:ident),* $(,)?]) => {
+        match $self {
+            $(Error::$variant => stringify!($variant),)*
+        }
+    };
 }
 
 impl Error {
@@ -102,53 +120,57 @@ impl Error {
     /// payloads and debug logs can show a human-readable name instead of the
     /// bare discriminant number.
     pub fn name(&self) -> &'static str {
-        match self {
-            Error::NotAuthorized => "NotAuthorized",
-            Error::CampaignNotFound => "CampaignNotFound",
-            Error::CampaignNotActive => "CampaignNotActive",
-            Error::FundingGoalMustBePositive => "FundingGoalMustBePositive",
-            Error::InvalidDuration => "InvalidDuration",
-            Error::InvalidRevenueShare => "InvalidRevenueShare",
-            Error::RevenueShareOnlyForStartup => "RevenueShareOnlyForStartup",
-            Error::DeadlinePassed => "DeadlinePassed",
-            Error::ContributionMustBePositive => "ContributionMustBePositive",
-            Error::DeadlineNotPassed => "DeadlineNotPassed",
-            Error::FundsAlreadyWithdrawn => "FundsAlreadyWithdrawn",
-            Error::FundingGoalNotReached => "FundingGoalNotReached",
-            Error::NoFundsToWithdraw => "NoFundsToWithdraw",
-            Error::CampaignAlreadyVerified => "CampaignAlreadyVerified",
-            Error::ValidationFailed => "ValidationFailed",
-            Error::AlreadyVoted => "AlreadyVoted",
-            Error::NotTokenHolder => "NotTokenHolder",
-            Error::VotingQuorumNotMet => "VotingQuorumNotMet",
-            Error::VotingThresholdNotMet => "VotingThresholdNotMet",
-            Error::AlreadyInitialized => "AlreadyInitialized",
-            Error::NotPendingOwner => "NotPendingOwner",
-            Error::NoTransferPending => "NoTransferPending",
-            Error::InvalidNewOwner => "InvalidNewOwner",
-            Error::ContractPaused => "ContractPaused",
-            Error::ContributionCapExceeded => "ContributionCapExceeded",
-            Error::CampaignNotVerified => "CampaignNotVerified",
-            Error::AmountRaisedIsZero => "AmountRaisedIsZero",
-            Error::RevenueSharingNotEnabled => "RevenueSharingNotEnabled",
-            Error::CancellationNotAllowed => "CancellationNotAllowed",
-            Error::Overflow => "Overflow",
-            Error::InvalidTokenContract => "InvalidTokenContract",
-            Error::CreationDisabled => "CreationDisabled",
-            Error::FundingGoalTooLow => "FundingGoalTooLow",
-            Error::AdminVerificationConflict => "AdminVerificationConflict",
-            Error::CommunityVerificationConflict => "CommunityVerificationConflict",
-            Error::DeadlineAlreadyExtended => "DeadlineAlreadyExtended",
-            Error::ExtensionTooLong => "ExtensionTooLong",
-            Error::FundingGoalTooHigh => "FundingGoalTooHigh",
-            Error::InvalidPlatformFee => "InvalidPlatformFee",
-            Error::TransferAlreadyPending => "TransferAlreadyPending",
-            Error::InvalidVestingDelay => "InvalidVestingDelay",
-            Error::GoalMetCancellationNotAllowed => "GoalMetCancellationNotAllowed",
-            Error::InvalidStateTransition => "InvalidStateTransition",
-            Error::CampaignAlreadyBookmarked => "CampaignAlreadyBookmarked",
-            Error::CampaignNotBookmarked => "CampaignNotBookmarked",
-        }
+        error_names!(
+            self,
+            [
+                NotAuthorized,
+                CampaignNotFound,
+                CampaignNotActive,
+                FundingGoalMustBePositive,
+                InvalidDuration,
+                InvalidRevenueShare,
+                RevenueShareOnlyForStartup,
+                DeadlinePassed,
+                ContributionMustBePositive,
+                DeadlineNotPassed,
+                FundsAlreadyWithdrawn,
+                FundingGoalNotReached,
+                NoFundsToWithdraw,
+                CampaignAlreadyVerified,
+                ValidationFailed,
+                AlreadyVoted,
+                NotTokenHolder,
+                VotingQuorumNotMet,
+                VotingThresholdNotMet,
+                AlreadyInitialized,
+                NotPendingOwner,
+                NoTransferPending,
+                InvalidNewOwner,
+                ContractPaused,
+                ContributionCapExceeded,
+                CampaignNotVerified,
+                AmountRaisedIsZero,
+                RevenueSharingNotEnabled,
+                CancellationNotAllowed,
+                Overflow,
+                InvalidTokenContract,
+                CreationDisabled,
+                FundingGoalTooLow,
+                AdminVerificationConflict,
+                CommunityVerificationConflict,
+                DeadlineAlreadyExtended,
+                ExtensionTooLong,
+                FundingGoalTooHigh,
+                InvalidPlatformFee,
+                TransferAlreadyPending,
+                InvalidVestingDelay,
+                GoalMetCancellationNotAllowed,
+                InvalidStateTransition,
+                CampaignAlreadyBookmarked,
+                CampaignNotBookmarked,
+                PersonalCapNotFound,
+            ]
+        )
     }
 }
 
@@ -167,12 +189,161 @@ mod tests {
 
     #[test]
     fn display_matches_variant_name() {
+        // Comprehensive check: all 46 variants' Display output matches their name()
+        // This ensures the name()/Display pairing stays correct as variants are added.
         assert_eq!(Error::NotAuthorized.to_string(), "NotAuthorized");
-        assert_eq!(Error::CampaignNotFound.name(), "CampaignNotFound");
+        assert_eq!(Error::CampaignNotFound.to_string(), "CampaignNotFound");
+        assert_eq!(Error::CampaignNotActive.to_string(), "CampaignNotActive");
+        assert_eq!(
+            Error::FundingGoalMustBePositive.to_string(),
+            "FundingGoalMustBePositive"
+        );
+        assert_eq!(Error::InvalidDuration.to_string(), "InvalidDuration");
+        assert_eq!(
+            Error::InvalidRevenueShare.to_string(),
+            "InvalidRevenueShare"
+        );
+        assert_eq!(
+            Error::RevenueShareOnlyForStartup.to_string(),
+            "RevenueShareOnlyForStartup"
+        );
+        assert_eq!(Error::DeadlinePassed.to_string(), "DeadlinePassed");
+        assert_eq!(
+            Error::ContributionMustBePositive.to_string(),
+            "ContributionMustBePositive"
+        );
+        assert_eq!(Error::DeadlineNotPassed.to_string(), "DeadlineNotPassed");
+        assert_eq!(
+            Error::FundsAlreadyWithdrawn.to_string(),
+            "FundsAlreadyWithdrawn"
+        );
+        assert_eq!(
+            Error::FundingGoalNotReached.to_string(),
+            "FundingGoalNotReached"
+        );
+        assert_eq!(Error::NoFundsToWithdraw.to_string(), "NoFundsToWithdraw");
+        assert_eq!(
+            Error::CampaignAlreadyVerified.to_string(),
+            "CampaignAlreadyVerified"
+        );
+        assert_eq!(Error::ValidationFailed.to_string(), "ValidationFailed");
+        assert_eq!(Error::AlreadyVoted.to_string(), "AlreadyVoted");
+        assert_eq!(Error::NotTokenHolder.to_string(), "NotTokenHolder");
+        assert_eq!(Error::VotingQuorumNotMet.to_string(), "VotingQuorumNotMet");
+        assert_eq!(
+            Error::VotingThresholdNotMet.to_string(),
+            "VotingThresholdNotMet"
+        );
+        assert_eq!(Error::AlreadyInitialized.to_string(), "AlreadyInitialized");
+        assert_eq!(Error::NotPendingOwner.to_string(), "NotPendingOwner");
+        assert_eq!(Error::NoTransferPending.to_string(), "NoTransferPending");
+        assert_eq!(Error::InvalidNewOwner.to_string(), "InvalidNewOwner");
+        assert_eq!(Error::ContractPaused.to_string(), "ContractPaused");
+        assert_eq!(
+            Error::ContributionCapExceeded.to_string(),
+            "ContributionCapExceeded"
+        );
+        assert_eq!(
+            Error::CampaignNotVerified.to_string(),
+            "CampaignNotVerified"
+        );
+        assert_eq!(Error::AmountRaisedIsZero.to_string(), "AmountRaisedIsZero");
+        assert_eq!(
+            Error::RevenueSharingNotEnabled.to_string(),
+            "RevenueSharingNotEnabled"
+        );
+        assert_eq!(
+            Error::CancellationNotAllowed.to_string(),
+            "CancellationNotAllowed"
+        );
         assert_eq!(Error::Overflow.to_string(), "Overflow");
+        assert_eq!(
+            Error::InvalidTokenContract.to_string(),
+            "InvalidTokenContract"
+        );
+        assert_eq!(Error::CreationDisabled.to_string(), "CreationDisabled");
+        assert_eq!(Error::FundingGoalTooLow.to_string(), "FundingGoalTooLow");
+        assert_eq!(
+            Error::AdminVerificationConflict.to_string(),
+            "AdminVerificationConflict"
+        );
+        assert_eq!(
+            Error::CommunityVerificationConflict.to_string(),
+            "CommunityVerificationConflict"
+        );
+        assert_eq!(
+            Error::DeadlineAlreadyExtended.to_string(),
+            "DeadlineAlreadyExtended"
+        );
+        assert_eq!(Error::ExtensionTooLong.to_string(), "ExtensionTooLong");
+        assert_eq!(Error::FundingGoalTooHigh.to_string(), "FundingGoalTooHigh");
+        assert_eq!(Error::InvalidPlatformFee.to_string(), "InvalidPlatformFee");
+        assert_eq!(
+            Error::TransferAlreadyPending.to_string(),
+            "TransferAlreadyPending"
+        );
+        assert_eq!(
+            Error::InvalidVestingDelay.to_string(),
+            "InvalidVestingDelay"
+        );
         assert_eq!(
             Error::GoalMetCancellationNotAllowed.to_string(),
             "GoalMetCancellationNotAllowed"
+        );
+        assert_eq!(
+            Error::PersonalCapNotFound.to_string(),
+            "PersonalCapNotFound"
+        );
+        assert_eq!(
+            Error::InvalidStateTransition.to_string(),
+            "InvalidStateTransition"
+        );
+        assert_eq!(
+            Error::CampaignAlreadyBookmarked.to_string(),
+            "CampaignAlreadyBookmarked"
+        );
+        assert_eq!(
+            Error::CampaignNotBookmarked.to_string(),
+            "CampaignNotBookmarked"
+        );
+    }
+
+    #[test]
+    fn name_matches_display() {
+        // Verify that name() and Display are consistent for all variants
+        assert_eq!(
+            Error::NotAuthorized.name(),
+            Error::NotAuthorized.to_string()
+        );
+        assert_eq!(
+            Error::CampaignNotFound.name(),
+            Error::CampaignNotFound.to_string()
+        );
+        assert_eq!(
+            Error::CampaignAlreadyBookmarked.name(),
+            Error::CampaignAlreadyBookmarked.to_string()
+        );
+        assert_eq!(
+            Error::CampaignNotBookmarked.name(),
+            Error::CampaignNotBookmarked.to_string()
+        );
+        assert_eq!(Error::Overflow.name(), Error::Overflow.to_string());
+    }
+
+    /// #651: `name()`'s match arms are generated via `stringify!`, so every
+    /// variant's reported name is guaranteed to match its identifier exactly
+    /// (case included) — this is a sample spot-check, not an exhaustiveness
+    /// proof (the compiler already guarantees the match is exhaustive).
+    #[test]
+    fn name_matches_identifier_for_every_variant() {
+        assert_eq!(
+            Error::CampaignAlreadyBookmarked.name(),
+            "CampaignAlreadyBookmarked"
+        );
+        assert_eq!(Error::CampaignNotBookmarked.name(), "CampaignNotBookmarked");
+        assert_eq!(
+            Error::InvalidStateTransition.name(),
+            "InvalidStateTransition"
         );
     }
 }

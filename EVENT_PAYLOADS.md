@@ -2,6 +2,8 @@
 
 Every `publish(...)` call in the contract, with its topics, data shape, and the code that emits it.
 
+> **Keep in sync:** When adding or modifying any `env.events().publish(...)` call, update this file's topics, data shape, and source location to match.
+
 ---
 
 ### `initialized`
@@ -114,6 +116,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_bookmarked`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_bookmarked", user: Address)`                   |
+| Data    | `campaign_id: u32`                                         |
+| Source  | `src/bookmarks.rs:34` — `save_campaign()`                   |
+
+---
+
 ### `campaign_cancelled`
 
 | Field   | Value                                                      |
@@ -137,6 +149,16 @@ one consistent shape regardless of entry point (#510).
 
 ---
 
+### `campaign_unbookmarked`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_unbookmarked", user: Address)`                 |
+| Data    | `campaign_id: u32`                                         |
+| Source  | `src/bookmarks.rs:59` — `remove_saved_campaign()`           |
+
+---
+
 ### `refund_claimed`
 
 | Field   | Value                                                      |
@@ -151,9 +173,9 @@ one consistent shape regardless of entry point (#510).
 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
-| Topics  | `("revenue_deposited", campaign_id: u32)`                  |
+| Topics  | `("revenue_deposited", campaign_id: u32, creator: Address)`|
 | Data    | `amount: i128`                                             |
-| Source  | `lib.rs:842` — `deposit_revenue()`                         |
+| Source  | `src/revenue.rs:44` — `deposit_revenue()`                  |
 
 ---
 
@@ -242,8 +264,13 @@ one consistent shape regardless of entry point (#510).
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaigns_bulk_verified",)`                             |
-| Data    | `(verified_count: u32, total: u32)`                        |
-| Source  | `lib.rs:1175` — `verify_campaigns()`                       |
+| Data    | `(verified_count: u32, failed_ids: Vec<u32>)`              |
+| Source  | `lib.rs:273` — `verify_campaigns()`                        |
+
+> #442: the payload used to be `(verified_count, total)`; it now carries the
+> per-id outcome. `failed_ids` lists every campaign id in the processed batch
+> (up to 50) that could not be verified, so indexers can distinguish partial
+> success from total failure without re-querying the contract.
 
 ---
 
@@ -344,6 +371,16 @@ one consistent shape regardless of entry point (#510).
 | Topics  | `("personal_cap_set", campaign_id: u32, contributor: Address)` |
 | Data    | `amount: i128`                                             |
 | Source  | `lib.rs:1556` — `set_personal_cap()`                       |
+
+---
+
+### `personal_cap_removed`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("personal_cap_removed", campaign_id: u32, contributor: Address)` |
+| Data    | `()`                                                       |
+| Source  | `lib.rs` — `remove_personal_cap()`                         |
 
 ---
 
@@ -477,4 +514,4 @@ one consistent shape regardless of entry point (#510).
 
 ---
 
-> **Total: 48 documented `publish()` call sites**
+> **Total: 51 documented `publish()` call sites**

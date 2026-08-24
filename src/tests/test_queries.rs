@@ -157,6 +157,110 @@ fn test_get_platform_stats_returns_aggregates() {
 }
 
 #[test]
+fn test_get_campaign_stats_empty_before_any_contribution() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats Empty"),
+        String::from_str(&env, "No contributions yet"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 0);
+    assert!(stats.top_contributor.is_none());
+    assert_eq!(stats.avg_contribution, 0);
+    assert_eq!(stats.last_contribution_time, 0);
+}
+
+#[test]
+fn test_get_campaign_stats_after_contributions() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats After"),
+        String::from_str(&env, "Contribute then query"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let first_contribution_time = env.ledger().timestamp();
+    client.contribute(&campaign_id, &contributor1, &400);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 1);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
+    assert_eq!(stats.avg_contribution, 400);
+    assert_eq!(stats.last_contribution_time, first_contribution_time);
+
+    // contributor2 contributes more and should become the new top contributor
+    env.ledger().with_mut(|li| {
+        li.timestamp += 1;
+    });
+    let second_contribution_time = env.ledger().timestamp();
+    client.contribute(&campaign_id, &contributor2, &900);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(stats.contributor_count, 2);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor2.clone())
+    );
+    // avg_contribution = amount_raised / contributor_count = 1300 / 2 = 650
+    assert_eq!(stats.avg_contribution, 650);
+    assert_eq!(stats.last_contribution_time, second_contribution_time);
+}
+
+#[test]
+fn test_get_campaign_stats_top_contributor_does_not_regress_on_smaller_contribution() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &2_000);
+    token_admin.mint(&contributor2, &2_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Stats Top Sticky"),
+        String::from_str(&env, "Top contributor should not flip on a smaller add"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &900);
+    client.contribute(&campaign_id, &contributor2, &100);
+
+    let stats = client.get_campaign_stats(&campaign_id);
+    assert_eq!(
+        stats.top_contributor,
+        MaybePendingCreator::Some(contributor1.clone())
+    );
+}
+
+#[test]
 fn test_get_creator_stats_returns_aggregates() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
@@ -196,7 +300,7 @@ fn test_get_creator_stats_returns_aggregates() {
     let stats = client.get_creator_stats(&creator);
     assert_eq!(stats.total_campaigns, 2);
     assert_eq!(stats.active_campaigns, 1);
-    assert_eq!(stats.total_raised, 700);
+    assert_eq!(stats.total_raised, 400);
     assert_eq!(stats.total_contributors, 3);
 }
 
@@ -530,4 +634,77 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
     assert_eq!(tail.len(), extra);
     assert_eq!(tail.get(0).unwrap().id, bucket_size + 1);
     assert_eq!(tail.get(extra - 1).unwrap().id, total);
+}
+
+#[test]
+fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    for _ in 0..5 {
+        client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    let total = client.get_campaign_count();
+
+    // Both functions should return empty when start == total_count
+    let list_at_boundary = client.list_campaigns(&total, &10);
+    let active_at_boundary = client.list_active_campaigns(&total, &10);
+    assert_eq!(list_at_boundary.len(), 0);
+    assert_eq!(active_at_boundary.0.len(), 0);
+    assert_eq!(active_at_boundary.1, 0);
+
+    // Both should also return empty when start > total_count
+    let list_beyond_boundary = client.list_campaigns(&(total + 1), &10);
+    let active_beyond_boundary = client.list_active_campaigns(&(total + 1), &10);
+    assert_eq!(list_beyond_boundary.len(), 0);
+    assert_eq!(active_beyond_boundary.0.len(), 0);
+    assert_eq!(active_beyond_boundary.1, 0);
+}
+
+#[test]
+fn test_get_creator_stats_zero_campaigns() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let new_creator = Address::generate(&env);
+
+    // Creator with no campaigns should return zeroed stats without panicking
+    let stats = client.get_creator_stats(&new_creator);
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.total_raised, 0);
+    assert_eq!(stats.total_contributors, 0);
+}
+
+#[test]
+fn test_get_platform_stats_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin.clone());
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    client.init(&admin, &token, &200);
+
+    // Immediately after init, all counters should be zero
+    let stats = client.get_platform_stats();
+    assert_eq!(stats.total_campaigns, 0);
+    assert_eq!(stats.active_campaigns, 0);
+    assert_eq!(stats.verified_campaigns, 0);
+    assert_eq!(stats.cancelled_campaigns, 0);
+    assert_eq!(stats.total_amount_raised, 0);
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.scanned_up_to, 0);
 }
