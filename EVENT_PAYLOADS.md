@@ -124,23 +124,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
-### `campaign_updated`
+### `campaign_metadata_updated`
 
-| Field   | Value                                                      |
-|---------|------------------------------------------------------------|
-| Topics  | `("campaign_updated", campaign_id: u32)`                   |
-| Data    | `(title: String, description: String)`                     |
-| Source  | `lib.rs:706` — `update_campaign()`                         |
+Emitted by both `update_campaign` and `update_campaign_description`, with
+one consistent shape regardless of entry point (#510).
 
----
-
-### `campaign_description_updated`
-
-| Field   | Value                                                      |
-|---------|------------------------------------------------------------|
-| Topics  | `("campaign_description_updated", campaign_id: u32)`       |
-| Data    | `new_desc: String`                                         |
-| Source  | `lib.rs:752` — `update_campaign_description()`             |
+| Field   | Value                                                              |
+|---------|--------------------------------------------------------------------|
+| Topics  | `("campaign_metadata_updated", campaign_id: u32)`                   |
+| Data    | `(old_title: String, old_description: String, new_title: String, new_description: String)` |
+| Source  | `src/campaigns/update.rs` — `update_campaign()` / `update_campaign_description()` |
 
 ---
 
