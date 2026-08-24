@@ -6,11 +6,12 @@ use crate::lifecycle::{
     token_client,
 };
 use crate::storage::{
-    bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
-    get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, get_token, set_contributor_revenue_claimants,
-    set_contributor_revenue_distributed, set_creator_revenue_claimed, set_revenue_claimed,
-    set_revenue_pool,
+    bump_instance_ttl, get_contribution, get_contributor_count,
+    get_contributor_revenue_distributed, get_contributor_revenue_round_claimants,
+    get_contributor_revenue_round_pool, get_creator_revenue_claimed, get_revenue_claimed,
+    get_revenue_pool, get_token, set_contributor_revenue_distributed,
+    set_contributor_revenue_round_claimants, set_contributor_revenue_round_pool,
+    set_creator_revenue_claimed, set_revenue_claimed, set_revenue_pool,
 };
 
 pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
@@ -99,24 +100,31 @@ pub(crate) fn claim_revenue(
 
     // #526: integer division truncates each contributor's individual share,
     // so the sum of every contributor's `claimable` can fall short of the
-    // full contributor-side pool, leaving dust in the contract until the
-    // final eligible contributor claims.
-    // Once every contributor entitled to this campaign has claimed at least
-    // once, give the last one to claim whatever remains of the
+    // full contributor-side pool, leaving dust in the contract. The last
+    // contributor to claim within a round absorbs whatever remains of the
     // contributor-side pool instead of their individually-truncated share,
     // so the full allocation is paid out exactly.
     //
-    // #675: a pull-based claim cannot safely infer that a contributor will
-    // never claim: transferring that contributor's entitlement (or the dust)
-    // early would make a later valid claim underfunded. Resolving dust when a
-    // contributor is permanently inactive requires an explicit claim deadline
-    // and finalization flow, neither of which exists in this API.
-    let is_first_claim = already_claimed == 0;
-    let claimants_so_far = get_contributor_revenue_claimants(env, campaign_id);
+    // The pool grows with each deposit, so the "last claimant" rule must
+    // apply to every round, not just the first. `round_pool` records the
+    // pool level the current round refers to and `round_claimants` counts
+    // the contributors who have claimed at that level. A contributor claims
+    // at most once per pool level (a claim always brings them fully up to
+    // date, so a later claim at the same level has nothing to pay), and the
+    // contributor set is fixed once funds are withdrawn, so when the count
+    // reaches `total_contributors` every contributor has claimed at this
+    // pool level and the last one can safely absorb the remainder —
+    // including the dust — without underfunding anyone who may still claim
+    // (#675).
+    let mut round_pool = get_contributor_revenue_round_pool(env, campaign_id);
+    let mut round_claimants = get_contributor_revenue_round_claimants(env, campaign_id);
+    if round_pool != total_pool {
+        round_pool = total_pool;
+        round_claimants = 0;
+    }
     let total_contributors = get_contributor_count(env, campaign_id);
-    let is_last_claimant = is_first_claim
-        && total_contributors > 0
-        && claimants_so_far.checked_add(1).ok_or(Error::Overflow)? >= total_contributors;
+    let is_last_claimant = total_contributors > 0
+        && round_claimants.checked_add(1).ok_or(Error::Overflow)? >= total_contributors;
 
     let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
     if is_last_claimant {
@@ -150,9 +158,9 @@ pub(crate) fn claim_revenue(
             .ok_or(Error::Overflow)?,
     );
 
-    // Track the running sum paid out to contributors, and the count of
-    // distinct contributors who have claimed at least once, so future claims
-    // can detect the last claimant (#526).
+    // Track the running sum paid out to contributors, and advance the
+    // per-round claimant counter so future claims can detect the last
+    // claimant of the current round (#526, #451).
     set_contributor_revenue_distributed(
         env,
         campaign_id,
@@ -160,13 +168,12 @@ pub(crate) fn claim_revenue(
             .checked_add(claimable)
             .ok_or(Error::Overflow)?,
     );
-    if is_first_claim {
-        set_contributor_revenue_claimants(
-            env,
-            campaign_id,
-            claimants_so_far.checked_add(1).ok_or(Error::Overflow)?,
-        );
-    }
+    set_contributor_revenue_round_pool(env, campaign_id, round_pool);
+    set_contributor_revenue_round_claimants(
+        env,
+        campaign_id,
+        round_claimants.checked_add(1).ok_or(Error::Overflow)?,
+    );
 
     // Token transfer happens after all state updates (CEI pattern).
     let client = token_client(env);
@@ -202,11 +209,12 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
+    let distributed = get_contributor_revenue_distributed(env, campaign_id);
+    let pool_remaining = total_pool
+        .checked_sub(distributed)
+        .and_then(|n| n.checked_sub(already_claimed))
+        .ok_or(Error::Overflow)?;
     let mut claimable = creator_share_total - already_claimed;
-
-    if claimable <= 0 {
-        return Err(Error::NoFundsToWithdraw);
-    }
 
     // #451: the creator's share is computed with truncating integer division
     // too, so across deposit rounds cumulative rounding can leave dust in the
@@ -224,19 +232,25 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     // than on a lifetime claimant count, which stays permanently true after
     // the first round of claims — prevents the creator from sweeping a fresh
     // deposit before contributors claim their share of it.
-    let distributed = get_contributor_revenue_distributed(env, campaign_id);
     let contributor_share_total = total_pool
         .checked_mul(campaign.revenue_share_percentage as i128)
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
-    if distributed >= contributor_share_total {
-        let pool_remaining = total_pool
-            .checked_sub(distributed)
-            .and_then(|n| n.checked_sub(already_claimed))
-            .ok_or(Error::Overflow)?;
-        if pool_remaining > claimable {
-            claimable = pool_remaining;
-        }
+    if distributed >= contributor_share_total && pool_remaining > claimable {
+        claimable = pool_remaining;
+    }
+
+    // Safety net: never claim more than the actual residual. If contributors
+    // absorbed rounding dust in an earlier round that a later deposit later
+    // resolved (the dust is not monotonic in the pool size), the creator's
+    // truncated share can exceed what is actually left; claim the residual
+    // instead of aborting on an over-drafting token transfer.
+    if claimable > pool_remaining {
+        claimable = pool_remaining;
+    }
+
+    if claimable <= 0 {
+        return Err(Error::NoFundsToWithdraw);
     }
 
     bump_instance_ttl(env);

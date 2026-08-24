@@ -171,9 +171,14 @@ pub enum RevenueKey {
     /// dust left over from per-contributor integer-division truncation
     /// (#526).
     ContributorRevenueDistributed(u32),
-    /// Number of distinct contributors who have claimed revenue at least
-    /// once for a campaign, keyed by campaign ID (#526).
-    ContributorRevenueClaimants(u32),
+    /// The pool level the current contributor-claim round refers to, keyed by
+    /// campaign ID. A round is the set of claims made against one pool level;
+    /// a new round starts whenever the pool grows. Lets the contract detect
+    /// the last claimant of *every* round, not just the first (#526, #451).
+    ContributorRevenueRoundPool(u32),
+    /// Number of contributors who have claimed at the current round's pool
+    /// level, keyed by campaign ID (#526, #451).
+    ContributorRevenueRoundClaimants(u32),
 }
 
 /// Keys for a wallet's saved/bookmarked campaigns (#507).
@@ -488,19 +493,36 @@ pub fn set_contributor_revenue_distributed(env: &Env, campaign_id: u32, amount: 
     );
 }
 
-/// Returns the number of distinct contributors who have claimed revenue at
-/// least once for a campaign (#526).
-pub fn get_contributor_revenue_claimants(env: &Env, campaign_id: u32) -> u32 {
-    let key = RevenueKey::ContributorRevenueClaimants(campaign_id);
+/// Returns the pool level of the current contributor-claim round for a
+/// campaign (#526, #451).
+pub fn get_contributor_revenue_round_pool(env: &Env, campaign_id: u32) -> i128 {
+    let key = RevenueKey::ContributorRevenueRoundPool(campaign_id);
     env.storage().persistent().get(&key).unwrap_or(0)
 }
 
-/// Stores the number of distinct contributors who have claimed revenue at
-/// least once for a campaign and extends its TTL.
-pub fn set_contributor_revenue_claimants(env: &Env, campaign_id: u32, count: u32) {
+/// Stores the pool level of the current contributor-claim round for a
+/// campaign and extends its TTL.
+pub fn set_contributor_revenue_round_pool(env: &Env, campaign_id: u32, pool: i128) {
     persistent_set!(
         env,
-        RevenueKey::ContributorRevenueClaimants(campaign_id),
+        RevenueKey::ContributorRevenueRoundPool(campaign_id),
+        &pool
+    );
+}
+
+/// Returns the number of contributors who have claimed at the current
+/// round's pool level for a campaign (#526, #451).
+pub fn get_contributor_revenue_round_claimants(env: &Env, campaign_id: u32) -> u32 {
+    let key = RevenueKey::ContributorRevenueRoundClaimants(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the number of contributors who have claimed at the current round's
+/// pool level for a campaign and extends its TTL.
+pub fn set_contributor_revenue_round_claimants(env: &Env, campaign_id: u32, count: u32) {
+    persistent_set!(
+        env,
+        RevenueKey::ContributorRevenueRoundClaimants(campaign_id),
         &count
     );
 }
