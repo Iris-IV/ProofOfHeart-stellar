@@ -1716,3 +1716,42 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
     let result = client.try_cancel_campaign(&campaign_id);
     assert_eq!(result, Err(Ok(Error::GoalMetCancellationNotAllowed)));
 }
+
+/// Issue #438: `cancel_campaign` must zero `effective_amount_raised` so a
+/// dead campaign does not keep reporting a stale live-contributions gauge.
+/// Refunds claimed afterwards must not drive the (already-zeroed) value
+/// negative.
+#[test]
+fn test_cancel_campaign_zeroes_effective_amount_raised() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    let goal = 2000i128;
+    token_admin.mint(&contributor1, &500);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Zero Gauge Cancel"),
+        description: String::from_str(&env, "Cancel must zero effective_amount_raised"),
+        funding_goal: goal,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.effective_amount_raised, 500);
+
+    client.cancel_campaign(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_cancelled);
+    assert_eq!(campaign.effective_amount_raised, 0);
+
+    // Refund on a cancelled campaign must keep the gauge at zero, not negative.
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_campaign(&campaign_id).effective_amount_raised, 0);
+}

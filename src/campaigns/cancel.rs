@@ -45,6 +45,11 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    // #438: zero the live-contributions gauge at cancellation. Refunds are
+    // claimed per-contributor and may never all be claimed, so leaving the
+    // pre-cancel value would let a stale `effective_amount_raised` persist on
+    // a dead campaign, misleading indexers that read it as live contributions.
+    campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     prune_bookmarks_for_campaign(env, campaign_id);
@@ -94,6 +99,9 @@ pub(crate) fn admin_cancel_campaign(
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    // #438: same as `cancel_campaign` — a cancelled campaign must not retain a
+    // stale live-contributions gauge for indexers.
+    campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     prune_bookmarks_for_campaign(env, campaign_id);

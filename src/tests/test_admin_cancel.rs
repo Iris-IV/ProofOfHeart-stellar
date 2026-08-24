@@ -135,6 +135,35 @@ fn test_admin_cancel_campaign_allows_contributor_refund() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 }
 
+/// Issue #438: `admin_cancel_campaign` must zero `effective_amount_raised`
+/// just like the creator cancel path, and subsequent refunds must keep it at
+/// zero rather than driving it negative.
+#[test]
+fn test_admin_cancel_campaign_zeroes_effective_amount_raised() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let goal = 2000i128;
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &600);
+
+    assert_eq!(
+        client.get_campaign(&campaign_id).effective_amount_raised,
+        600
+    );
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_cancelled);
+    assert_eq!(campaign.effective_amount_raised, 0);
+
+    // Refund on the admin-cancelled campaign must keep the gauge at zero.
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_campaign(&campaign_id).effective_amount_raised, 0);
+}
+
 #[test]
 fn test_admin_cancel_campaign_emits_event_with_reason() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();

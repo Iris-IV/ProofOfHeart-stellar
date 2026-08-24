@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `cancel_campaign` and `admin_cancel_campaign` now zero `effective_amount_raised` at cancellation, so cancelled campaigns no longer report a stale live-contributions gauge to indexers; `claim_refund` no longer subtracts from the already-zeroed value (#438).
+
 - `cancel_campaign` now rejects with `GoalMetCancellationNotAllowed` when `amount_raised >= funding_goal` and funds have not yet been withdrawn, preventing rug-pull-adjacent behaviour where a creator could cancel after reaching the goal and force all contributors to self-serve refunds (#164).
 
 - `update_campaign_description` now blocks edits once `amount_raised > 0`, preventing bait-and-switch after contributions (#166).
