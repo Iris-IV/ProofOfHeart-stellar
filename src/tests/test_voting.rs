@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{Address, String, Vec};
+use soroban_sdk::{Address, String, TryFromVal, Vec};
 
 // ── community voting ────────────────────────────────────────────────────────────
 
@@ -315,8 +315,13 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
     ));
 
     // Bulk verify the campaign
-    let count = client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
-    assert_eq!(count, 1);
+    let (verified_ids, failed_ids) =
+        client.verify_campaigns(&soroban_sdk::Vec::from_array(&env, [campaign_id]));
+    assert_eq!(
+        verified_ids,
+        soroban_sdk::Vec::from_array(&env, [campaign_id])
+    );
+    assert!(failed_ids.is_empty());
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
@@ -353,7 +358,7 @@ fn test_vote_on_campaign_after_deadline_returns_deadline_passed() {
 }
 
 #[test]
-fn test_verify_campaigns_partial_failure_returns_err() {
+fn test_verify_campaigns_partial_failure_reports_failed_ids() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
@@ -368,10 +373,114 @@ fn test_verify_campaigns_partial_failure_returns_err() {
         0i128,
     ));
 
-    // 999 does not exist — will produce CampaignNotFound
+    // 999 does not exist — will produce CampaignNotFound.
     let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
-    let res = client.try_verify_campaigns(&ids);
-    assert!(res.unwrap_err().is_ok()); // Err variant, inner Ok means contract error
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    // #442: partial success is preserved and reported per-id, instead of the
+    // whole batch collapsing to Err(first_error).
+    assert_eq!(
+        verified_ids,
+        soroban_sdk::Vec::from_array(&env, [campaign_id])
+    );
+    assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
+    assert!(
+        client.get_campaign(&campaign_id).is_verified,
+        "the valid campaign must be committed even though the batch also failed"
+    );
+}
+
+#[test]
+fn test_verify_campaigns_all_failed_reports_every_id() {
+    let (env, _admin, _creator, _, _, _, _, client) = setup_env();
+
+    // Both ids are unknown — the batch fails entirely, but every id must be
+    // reported in failed_ids (not just the first error).
+    let ids = soroban_sdk::Vec::from_array(&env, [999u32, 1000u32]);
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    assert!(verified_ids.is_empty());
+    assert_eq!(failed_ids, ids);
+}
+
+#[test]
+fn test_verify_campaigns_cancelled_campaign_in_batch_reported_as_failed() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let valid_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Valid In Batch"),
+        String::from_str(&env, "Survives a failed sibling"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let cancelled_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancelled In Batch"),
+        String::from_str(&env, "Cannot be verified"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.cancel_campaign(&cancelled_id);
+
+    let ids = soroban_sdk::Vec::from_array(&env, [valid_id, cancelled_id]);
+    let (verified_ids, failed_ids) = client.verify_campaigns(&ids);
+
+    // Any admin_verify error (here CampaignNotActive for the cancelled
+    // campaign) must route that id to failed_ids without aborting the batch.
+    assert_eq!(verified_ids, soroban_sdk::Vec::from_array(&env, [valid_id]));
+    assert_eq!(
+        failed_ids,
+        soroban_sdk::Vec::from_array(&env, [cancelled_id])
+    );
+    assert!(client.get_campaign(&valid_id).is_verified);
+    assert!(!client.get_campaign(&cancelled_id).is_verified);
+}
+
+#[test]
+fn test_verify_campaigns_emits_bulk_verified_event_with_failed_ids() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Bulk Event"),
+        String::from_str(&env, "Event payload check"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let ids = soroban_sdk::Vec::from_array(&env, [campaign_id, 999u32]);
+    let _ = client.verify_campaigns(&ids);
+
+    let events = env.events().all();
+    let bulk = events
+        .iter()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|s| s == String::from_str(&env, "campaigns_bulk_verified"))
+                .unwrap_or(false)
+        })
+        .expect("campaigns_bulk_verified event must exist");
+
+    // #442: the event now carries the failing ids, not just counts.
+    let (verified_count, failed_ids): (u32, soroban_sdk::Vec<u32>) =
+        soroban_sdk::FromVal::from_val(&env, &bulk.2);
+    assert_eq!(verified_count, 1);
+    assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
 }
 
 // ── verification via votes ──────────────────────────────────────────────────────
@@ -513,16 +622,18 @@ fn test_vote_on_campaign_after_withdraw_fails() {
 
 #[test]
 fn test_vote_on_campaign_count_based() {
+fn test_vote_on_campaign_one_address_one_vote() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
+    // contributor1 has 5000 tokens, contributor2 has only 1000 — both get 1 vote (#469).
     token_admin.mint(&contributor1, &5000);
     token_admin.mint(&contributor2, &1000);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Weighted Vote Test"),
-        String::from_str(&env, "Test token-weighted voting"),
+        String::from_str(&env, "1-Address-1-Vote Test"),
+        String::from_str(&env, "Test 1-address-1-vote model"),
         1000,
         30,
         Category::Learner,
@@ -534,6 +645,7 @@ fn test_vote_on_campaign_count_based() {
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
     client.vote_on_campaign(&campaign_id, &contributor2, &false);
 
+    // Each voter contributes exactly 1 to the count regardless of balance.
     assert_eq!(client.get_approve_votes(&campaign_id), 1);
     assert_eq!(client.get_reject_votes(&campaign_id), 1);
 }
@@ -793,6 +905,8 @@ fn test_min_voting_balance_threshold_enforcement() {
 /// Calculate approval percentage in basis points (0-10000) using count-based voting.
 /// After the #448 fix, voting is count-based (1 address = 1 vote) to prevent
 /// flash-loan attacks on token-weighted voting.
+/// Calculate approval percentage in basis points (0-10000) from vote counts.
+/// Uses u64 to avoid overflow when multiplying by 10_000.
 fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
     if total_votes > 0 {
         ((approve_votes as u64 * 10_000) / total_votes as u64) as u32
@@ -837,6 +951,7 @@ proptest! {
         reject_votes in arb_vote_count(),
     ) {
         let total_votes = approve_votes + reject_votes;
+        let total_votes = approve_votes.saturating_add(reject_votes);
         let approval_bps = calculate_approval_bps(approve_votes, total_votes);
         prop_assert!(
             approval_bps <= 10_000,
@@ -849,6 +964,7 @@ proptest! {
     fn prop_full_approval_gives_max_bps(votes in arb_vote_count()) {
         // Only test with > 0 votes to avoid division by zero
         let votes = votes.max(1);
+    fn prop_full_approval_gives_max_bps(votes in 1u32..=1_000_000u32) {
         let approval_bps = calculate_approval_bps(votes, votes);
         prop_assert_eq!(
             approval_bps, 10_000,
@@ -859,6 +975,7 @@ proptest! {
     #[test]
     fn prop_zero_approval_gives_zero_bps(reject_votes in arb_vote_count()) {
         let reject_votes = reject_votes.max(1);
+    fn prop_zero_approval_gives_zero_bps(reject_votes in 1u32..=1_000_000u32) {
         let approval_bps = calculate_approval_bps(0, reject_votes);
         prop_assert_eq!(approval_bps, 0, "0% approval should give 0 bps");
     }
@@ -872,6 +989,16 @@ proptest! {
         prop_assert!(
             (3333..=5000).contains(&approval_bps),
             "50% approval should give between ~3333 and 5000 bps, got {}",
+    fn prop_half_approval_gives_half_bps(votes in 10u32..=1_000_000u32) {
+        // Use an even vote count so the 50/50 split is exact: doubling the
+        // generated value guarantees half == votes / 2 exactly, so the
+        // computed bps is exactly 5000 with no rounding error.
+        let votes = votes * 2;
+        let half = votes / 2;
+        let approval_bps = calculate_approval_bps(half, votes);
+        prop_assert_eq!(
+            approval_bps, 5_000,
+            "50% approval should give 5000 bps, got {}",
             approval_bps
         );
     }
@@ -915,6 +1042,14 @@ proptest! {
         let bps2 = calculate_approval_bps(
             base_approve + extra_approve,
             base_approve + extra_approve + reject_votes
+        base_approve in 0u32..=500_000u32,
+        extra_approve in 0u32..=500_000u32,
+        reject_votes in 1u32..=500_000u32,
+    ) {
+        let bps1 = calculate_approval_bps(base_approve, base_approve.saturating_add(reject_votes));
+        let bps2 = calculate_approval_bps(
+            base_approve.saturating_add(extra_approve),
+            base_approve.saturating_add(extra_approve).saturating_add(reject_votes),
         );
         prop_assert!(
             bps2 >= bps1,
@@ -942,6 +1077,34 @@ proptest! {
             prop_assert!(!can_verify);
         }
     }
+
+    /// Property test for the 1-address-1-vote model (#469):
+    /// Every voter contributes exactly 1 to the count regardless of token balance.
+    /// This confirms that the vote counts equal the number of voters on each side.
+    #[test]
+    fn prop_one_address_one_vote_invariant(
+        // Generate random numbers of approving and rejecting voters
+        approve_count in 0u32..=10_000u32,
+        reject_count in 0u32..=10_000u32,
+    ) {
+        // In the 1-address-1-vote model:
+        // - Each approving voter adds exactly 1 to approve_count
+        // - Each rejecting voter adds exactly 1 to reject_count
+        // - approval_bps is computed from counts, not balances
+        let total_votes = approve_count.saturating_add(reject_count);
+        let approval_bps = calculate_approval_bps(approve_count, total_votes);
+        prop_assert!(approval_bps <= 10_000);
+
+        // If all votes approve, approval should be 10000 bps
+        if reject_count == 0 && approve_count > 0 {
+            prop_assert_eq!(approval_bps, 10_000);
+        }
+
+        // If all votes reject, approval should be 0 bps
+        if approve_count == 0 && reject_count > 0 {
+            prop_assert_eq!(approval_bps, 0);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -950,14 +1113,14 @@ mod unit_tests {
 
     #[test]
     fn test_approval_bps_calculation() {
-        // 60% approval
-        assert_eq!(calculate_approval_bps(600, 1000), 6000);
+        // 60% approval (3 approve / 5 total)
+        assert_eq!(calculate_approval_bps(3, 5), 6000);
 
         // 100% approval
-        assert_eq!(calculate_approval_bps(1000, 1000), 10000);
+        assert_eq!(calculate_approval_bps(1, 1), 10000);
 
         // 0% approval
-        assert_eq!(calculate_approval_bps(0, 1000), 0);
+        assert_eq!(calculate_approval_bps(0, 1), 0);
 
         // Zero total votes
         assert_eq!(calculate_approval_bps(0, 0), 0);

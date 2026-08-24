@@ -120,18 +120,16 @@ pub enum CampaignKey {
 /// Keys for contributor balances, caps, and contribution tracking.
 #[contracttype]
 pub enum ContributionKey {
-    /// A contributor's total contribution to a campaign, keyed by `(campaign_id, contributor)`.
     Contribution(u32, Address),
-    /// A contributor's lifetime contribution to a campaign, keyed by `(campaign_id, contributor)`.
     LifetimeContribution(u32, Address),
-    /// A contributor's personal contribution cap for a campaign, keyed by `(campaign_id, contributor)`.
     PersonalCap(u32, Address),
-    /// Contributor count for a campaign.
     ContributorCount(u32),
-    /// Total amount raised across all campaigns.
     TotalRaised,
-    /// Per-campaign contributions per block for anomaly detection, keyed by campaign ID.
     BlockCampaignContributionCount(u32),
+    /// The address of the largest contributor to a campaign, keyed by campaign ID.
+    TopContributor(u32),
+    /// Unix timestamp of the most recent contribution to a campaign, keyed by campaign ID.
+    LastContributionTime(u32),
 }
 
 /// Keys for campaign voting state and voting configuration.
@@ -394,6 +392,38 @@ pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
     if count > 0 {
         set_contributor_count(env, campaign_id, count - 1);
     }
+}
+
+pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
+    let key = ContributionKey::TopContributor(campaign_id);
+    let val: Option<Address> = env.storage().persistent().get(&key);
+    if val.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+pub fn set_top_contributor(env: &Env, campaign_id: u32, contributor: &Address) {
+    let key = ContributionKey::TopContributor(campaign_id);
+    env.storage().persistent().set(&key, contributor);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
+    let key = ContributionKey::LastContributionTime(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_last_contribution_time(env: &Env, campaign_id: u32, time: u64) {
+    let key = ContributionKey::LastContributionTime(campaign_id);
+    env.storage().persistent().set(&key, &time);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────

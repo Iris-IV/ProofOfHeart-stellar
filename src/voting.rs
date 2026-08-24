@@ -54,12 +54,17 @@ pub fn set_params(
 
 /// Records a vote (approve or reject) from a token-holding voter.
 ///
+/// Voting uses a 1-address-1-vote model (#469): every eligible token holder
+/// gets exactly one vote, regardless of their token balance. This prevents
+/// flash-loan attacks where an attacker borrows a large balance, votes with
+/// inflated weight, and returns the tokens before verification.
+///
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignAlreadyVerified` - The campaign is already verified.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
 /// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
-/// * `NotTokenHolder` - The voter holds no tokens.
+/// * `NotTokenHolder` - The voter holds no tokens or is below the minimum.
 /// * `AlreadyVoted` - The voter has already cast a vote on this campaign.
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
     voter.require_auth();
@@ -88,16 +93,32 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
         return Err(Error::AlreadyVoted);
     }
 
+    // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
+    // regardless of token balance (#469).
+    //
+    // ApproveWeight/RejectWeight are deliberately kept as a mirror of the vote
+    // counts (unit weight per vote) so the legacy storage layout and the
+    // get_approve_weight/get_reject_weight queries stay consistent for
+    // existing deployments and indexers. verify_with_votes only consults the
+    // counts, so the mirror has no security impact.
     if approve {
         let new_count = get_approve_votes(env, campaign_id)
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         set_approve_votes(env, campaign_id, new_count);
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
     } else {
         let new_count = get_reject_votes(env, campaign_id)
             .checked_add(1)
             .ok_or(Error::Overflow)?;
         set_reject_votes(env, campaign_id, new_count);
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
     }
 
     set_has_voted(env, campaign_id, &voter);
@@ -105,6 +126,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
         (approve, balance),
+        // Data shape documented in EVENT_PAYLOADS.md as
+        // (approve: bool, balance: i128, weight: i128). Balance is kept for
+        // indexers as informational signal; weight is always the unit 1.
+        (approve, balance, 1i128),
     );
 
     Ok(())
@@ -175,6 +200,17 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     } else {
         0
     };
+    // 1-address-1-vote (#469): threshold is computed from vote counts, not
+    // token balances, so flash-loaned tokens cannot inflate the approval
+    // percentage. The unwrap_or(0) below guards the division even if
+    // total_votes were 0; with a non-zero quorum (the default, and the only
+    // value set_params allows) the quorum check above already guarantees
+    // total_votes > 0.
+    let threshold = effective_approval_threshold_bps(env, campaign.category);
+    let approval_bps = ((approve_votes as u64)
+        .checked_mul(crate::BPS_DENOMINATOR as u64)
+        .and_then(|n| n.checked_div(total_votes as u64))
+        .unwrap_or(0)) as u32;
     if approval_bps < threshold {
         return Err(Error::VotingThresholdNotMet);
     }
