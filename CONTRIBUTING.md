@@ -44,7 +44,7 @@ git remote add upstream https://github.com/Iris-IV/ProofOfHeart-stellar.git
 
 ```bash
 # Build WASM (Local development)
-stellar contract build
+cargo build --target wasm32-unknown-unknown --release
 
 # Build reproducible WASM (Required for production deployment)
 make build-docker
@@ -60,14 +60,14 @@ The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatic
 CI runs these checks on every PR. Run locally before pushing:
 
 ```bash
-cargo fmt --check
+cargo fmt --all -- --check
 cargo clippy --all-targets --features testutils -- -D warnings
 cargo test --features testutils
-stellar contract build
+cargo build --target wasm32-unknown-unknown --release
 cargo audit --ignore RUSTSEC-2024-0344 --ignore RUSTSEC-2026-0009
 ```
 
-All five must pass. `cargo audit` (install with `cargo install cargo-audit`) scans the dependency tree for known security advisories and fails if any apply to a locked version. The two `--ignore` flags are required and mirror the CI gate (see `.github/workflows/ci.yml`); both advisories are documented there:
+All five must pass. The `cargo fmt` invocation uses `--all` to cover the vendored `ethnum` crate alongside the main project. `cargo audit` (install with `cargo install cargo-audit`) scans the dependency tree for known security advisories and fails if any apply to a locked version. The two `--ignore` flags are required and mirror the CI gate (see `.github/workflows/ci.yml`); both advisories are documented there:
 
 - `RUSTSEC-2024-0344` (`curve25519-dalek < 4.1.3`): `soroban-env-host 20.1.0` pins this crate to exactly `4.1.1`, which is in turn fixed by the pinned `soroban-sdk =20.1.0`. The patched version is not installable without upgrading the SDK.
 - `RUSTSEC-2026-0009` (`time < 0.3.47`): `time` only enters the graph as an optional dependency of `serde_with` behind its disabled `time_0_3` feature, so the vulnerable code is never compiled.
@@ -111,7 +111,7 @@ test: deadline boundary coverage
 1. Reference the issue: `Closes #28`
 2. Fill out the PR template (auto-applied from `.github/PULL_REQUEST_TEMPLATE.md`)
 3. Update `EVENT_PAYLOADS.md` if your PR adds, modifies, or removes any `env.events().publish(...)` call — keep topics, data shape, and source location in sync
-4. Ensure CI is green — all four checks in the Code Style section must pass
+4. Ensure CI is green — all five checks in the Code Style section must pass
 5. One issue per PR
 
 ## Changelog
