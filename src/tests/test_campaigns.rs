@@ -834,7 +834,6 @@ fn test_update_campaign_description_success() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     assert!(client
@@ -863,7 +862,6 @@ fn test_update_campaign_description_emits_metadata_updated_with_unchanged_title(
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
     client.update_campaign_description(&campaign_id, &new_desc);
@@ -895,7 +893,6 @@ fn test_update_campaign_description_rejects_cancelled() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
     client.cancel_campaign(&campaign_id);
 
     let res =
@@ -918,7 +915,6 @@ fn test_update_campaign_description_rejects_empty() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -947,7 +943,6 @@ fn test_campaign_ownership_transfer_flow() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
@@ -1131,7 +1126,7 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
 }
 
 #[test]
-fn test_update_description_after_contribution() {
+fn test_update_description_blocked_after_contribution() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &1000);
 
@@ -1149,11 +1144,19 @@ fn test_update_description_after_contribution() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    let new_desc = String::from_str(&env, "New Description After Contribution");
-    client.update_campaign_description(&campaign_id, &new_desc);
+    // A real contribution implies the campaign was verified first, so the
+    // verification freeze (#440) is what blocks the edit here.
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "New Description After Contribution"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.description, new_desc);
+    assert_eq!(
+        campaign.description,
+        String::from_str(&env, "Old Description")
+    );
 }
 
 #[test]

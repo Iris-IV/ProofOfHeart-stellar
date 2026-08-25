@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `update_campaign_description` now rejects edits on verified campaigns with `CampaignAlreadyVerified`, matching `update_campaign`'s verification freeze (#416): previously a creator could pass admin/community review with benign copy and swap the description before any contribution arrived, collecting donations under content the reviewers never approved (#440).
+
 - Reverted two accidental merges that shipped a broken duplicate `ProofOfHeartContract` contract (a stray `list_active_campaigns(tag_filter)`, category max-goal cap functions, and a `remove_personal_cap` impl referencing non-existent storage keys), plus orphaned TypeScript SDK files and stray frontend React files with no build setup. The real `ProofOfHeart` contract is now the only contract in the crate.
 ### Removed
 

@@ -64,6 +64,14 @@ pub(crate) fn update_campaign_description(
     require_not_paused(env)?;
 
     require_active_campaign(&campaign)?;
+
+    // Fix #440: verification freezes the description too, matching
+    // `update_campaign` (#416) — otherwise a creator can collect donations
+    // under content the reviewers never approved. Checked after the
+    // active-state guard so terminal campaigns keep reporting
+    // `CampaignNotActive`.
+    require_unverified_campaign(&campaign)?;
+
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
         || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
     {
