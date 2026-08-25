@@ -361,11 +361,13 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
     // Block the swap while any campaign is still active OR any contributor
     // principal/reserve remains escrowed in the old token (issue #407).
     //
-    // The active-campaign count alone is insufficient: `cancel_campaign` drops
-    // that count immediately, but contributor refunds stay escrowed until each
-    // contributor calls `claim_refund` — which pays out in the *current* token.
-    // Gating on the outstanding balance closes that window. Vesting reserves are
-    // likewise tracked in `total_raised_global` until released.
+    // The active-campaign count alone is insufficient: refunds of
+    // deadline-failed campaigns and unreleased vesting reserves stay tracked
+    // in `total_raised_global` until claimed/released — and both pay out in
+    // the *current* token, so swapping first would strand them. Cancelled
+    // campaigns no longer count toward this guard: `cancel_campaign`
+    // decrements `total_raised_global` upfront (#439), so unclaimed refunds
+    // there cannot permanently block migration.
     if get_active_campaign_count(env) > 0 || get_total_raised_global(env) != 0 {
         return Err(Error::ValidationFailed);
     }

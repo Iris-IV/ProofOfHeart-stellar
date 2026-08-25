@@ -8,7 +8,8 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
-    increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
+    get_total_raised_global, increment_cancelled_campaign_count, remove_voting_state, set_campaign,
+    set_revenue_pool, set_total_raised_global,
 };
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -50,6 +51,17 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    // Decrement total_raised_global upfront so platform-wide stats are
+    // accurate immediately after cancellation, without waiting for every
+    // contributor to claim a refund (#439).
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("campaign_cancelled", campaign_id, campaign.creator.clone()),
@@ -99,6 +111,17 @@ pub(crate) fn admin_cancel_campaign(
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    // Decrement total_raised_global upfront so platform-wide stats are
+    // accurate immediately after cancellation, without waiting for every
+    // contributor to claim a refund (#439).
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised
+            .checked_sub(campaign.amount_raised)
+            .ok_or(Error::Overflow)?,
+    );
 
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),

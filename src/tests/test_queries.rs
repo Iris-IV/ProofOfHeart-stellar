@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Campaign, Category, MaybePendingCreator};
+use crate::{Campaign, Category, MaybePendingCreator, SECONDS_PER_DAY};
 use soroban_sdk::{Address, String};
 
 #[test]
@@ -153,7 +153,9 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.total_amount_raised, 700);
+    // total_raised_global is decremented at cancel time (#439),
+    // so total_amount_raised only reflects the active campaign.
+    assert_eq!(stats.total_amount_raised, 400);
 }
 
 #[test]
@@ -369,6 +371,9 @@ fn test_total_raised_global_tracking() {
     assert_eq!(client.get_total_raised_global(), 1500);
 
     client.cancel_campaign(&c2);
+    // total_raised_global must be accurate immediately after cancellation,
+    // without waiting for claim_refund (#439).
+    assert_eq!(client.get_total_raised_global(), 500);
     client.claim_refund(&c2, &contributor2);
     assert_eq!(client.get_total_raised_global(), 500);
 
@@ -376,6 +381,92 @@ fn test_total_raised_global_tracking() {
     assert_eq!(client.get_total_raised_global(), 1000);
 
     client.withdraw_funds(&c1);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_cancel_campaign_decrements_total_raised_global_immediately() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign A"),
+        String::from_str(&env, "Desc A"),
+        10_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&c1);
+
+    let c2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign B"),
+        String::from_str(&env, "Desc B"),
+        10_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&c2);
+
+    // Both campaigns have contributions
+    client.contribute(&c1, &contributor1, &1000);
+    client.contribute(&c2, &contributor2, &2000);
+    assert_eq!(client.get_total_raised_global(), 3000);
+
+    // Cancel campaign B: total_raised_global must drop immediately
+    client.cancel_campaign(&c2);
+    assert_eq!(client.get_total_raised_global(), 1000);
+
+    // Cancel campaign A: total_raised_global must drop to zero
+    client.cancel_campaign(&c1);
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    // Claiming refunds after cancellation should NOT change the global total
+    client.claim_refund(&c1, &contributor1);
+    assert_eq!(client.get_total_raised_global(), 0);
+    client.claim_refund(&c2, &contributor2);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_expired_campaign_refund_still_decrements_total_raised_global() {
+    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    // Deadline-failed campaigns never pass through cancel_campaign (#439),
+    // so their refunds must keep decrementing total_raised_global per claim.
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        10_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&c1);
+    client.contribute(&c1, &contributor1, &500);
+    assert_eq!(client.get_total_raised_global(), 500);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * SECONDS_PER_DAY;
+    });
+
+    client.claim_refund(&c1, &contributor1);
     assert_eq!(client.get_total_raised_global(), 0);
 }
 

@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `cancel_campaign` and `admin_cancel_campaign` now decrement `total_raised_global` by the full `amount_raised` at cancellation time, so platform-wide stats are accurate immediately instead of remaining inflated until every contributor claims a refund, and unclaimed refunds can no longer permanently block `accept_token_update`. `claim_refund` skips the global decrement for cancelled campaigns (already counted at cancel) while keeping it for deadline-failed campaigns (#439).
+
 - Reverted two accidental merges that shipped a broken duplicate `ProofOfHeartContract` contract (a stray `list_active_campaigns(tag_filter)`, category max-goal cap functions, and a `remove_personal_cap` impl referencing non-existent storage keys), plus orphaned TypeScript SDK files and stray frontend React files with no build setup. The real `ProofOfHeart` contract is now the only contract in the crate.
 ### Removed
 

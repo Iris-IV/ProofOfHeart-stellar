@@ -321,11 +321,17 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, &campaign);
 
-    let total_raised = get_total_raised_global(env);
-    set_total_raised_global(
-        env,
-        total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
-    );
+    // #439: cancelled campaigns had their full amount_raised subtracted from
+    // total_raised_global at cancellation time, so decrementing here again
+    // would double-count. Deadline-failed campaigns never pass through
+    // cancel_campaign, so their refunds still come out of the global total.
+    if !campaign.is_cancelled {
+        let total_raised = get_total_raised_global(env);
+        set_total_raised_global(
+            env,
+            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+        );
+    }
 
     let client = token_client(env);
     client.transfer(&env.current_contract_address(), &contributor, &amount);

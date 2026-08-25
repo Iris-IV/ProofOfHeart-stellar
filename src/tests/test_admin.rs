@@ -1,6 +1,7 @@
 use super::helpers::*;
 use crate::{
-    Category, Error, CAMPAIGN_FUNDING_GOAL_MAX, CAMPAIGN_FUNDING_GOAL_MIN, TOKEN_UPDATE_DELAY_SECS,
+    Category, Error, CAMPAIGN_FUNDING_GOAL_MAX, CAMPAIGN_FUNDING_GOAL_MIN, SECONDS_PER_DAY,
+    TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, String};
 
@@ -325,10 +326,10 @@ fn test_token_swap_succeeds_after_campaign_cancelled() {
 }
 
 // ── Issue #407 follow-up: cancelling a campaign drops the active-campaign count
-//    to zero, but contributor refunds remain escrowed in the old token until
-//    claimed. The swap must stay blocked until those funds actually leave. ──────
+//    to zero. #439: total_raised_global is now decremented at cancel time, so
+//    accept_token_update no longer blocks on outstanding refunds. ──────────────
 #[test]
-fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
+fn test_token_swap_succeeds_after_cancel_with_unclaimed_refund() {
     let (env, admin, creator, contributor1, _, _, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &2000);
@@ -347,8 +348,7 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Cancel: ActiveCampaignCount → 0, but the 500 is still escrowed in the
-    // old token pending claim_refund.
+    // Cancel: ActiveCampaignCount → 0 and total_raised_global → 0 (#439).
     client.cancel_campaign(&campaign_id);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -357,22 +357,19 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must still be blocked: outstanding balance remains in the old token.
+    // With #439, total_raised_global is already 0 after cancel, so
+    // accept_token_update no longer blocks (#439).
     let res = client.try_accept_token_update(&admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Once the contributor claims their refund, no old-token escrow remains and
-    // the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor1);
-    let res2 = client.try_accept_token_update(&admin);
-    assert!(res2.is_ok());
+    assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 }
 
-// ── Issue #470: partial refund must still block token swap ──────────
+// ── Issue #470 / #439: partial refund no longer blocks token swap ──────────
+// #439: total_raised_global is decremented at cancel time, so partial
+// refunds do not affect the accept_token_update guard.
 
 #[test]
-fn test_token_swap_blocked_after_partial_refund() {
+fn test_token_swap_succeeds_after_partial_refund() {
     let (env, admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
 
@@ -382,7 +379,7 @@ fn test_token_swap_blocked_after_partial_refund() {
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
         String::from_str(&env, "Partial Refund"),
-        String::from_str(&env, "Partial refund blocks swap"),
+        String::from_str(&env, "Partial refund no longer blocks swap"),
         2000,
         30,
         Category::Educator,
@@ -394,13 +391,11 @@ fn test_token_swap_blocked_after_partial_refund() {
     client.contribute(&campaign_id, &contributor1, &500);
     client.contribute(&campaign_id, &contributor2, &500);
 
-    // Cancel → ActiveCampaignCount → 0, but both contributions remain
-    // escrowed in the old token pending claim_refund.
+    // Cancel → ActiveCampaignCount → 0, total_raised_global → 0 (#439).
     client.cancel_campaign(&campaign_id);
 
     // Only contributor1 claims their refund (partial refund).
-    // contributor2's 500 remains escrowed in the old token, so
-    // total_raised_global is still 500.
+    // total_raised_global is already 0, unaffected by partial refund.
     client.claim_refund(&campaign_id, &contributor1);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -409,13 +404,59 @@ fn test_token_swap_blocked_after_partial_refund() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must be blocked: contributor2's refund is still escrowed in the
-    // old token (total_raised_global = 500 != 0).
+    // With #439, total_raised_global is 0 after cancel, so the swap
+    // succeeds even with only a partial refund claimed.
+    let res = client.try_accept_token_update(&admin);
+    assert!(res.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+}
+
+// ── Issue #439 keeps #407's balance guard for escrow it does not cover ──────
+// Cancelled campaigns leave total_raised_global immediately (tests above), but
+// unreleased vesting reserves are still tracked there until withdrawn, so they
+// must keep blocking the swap.
+#[test]
+fn test_token_swap_blocked_by_unreleased_vesting_reserve() {
+    let (env, admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+
+    // Snapshot a 10% reserve with a 1-day vesting delay for new campaigns.
+    client.set_vesting_params(&admin, &1, &1000);
+
+    token_admin.mint(&contributor1, &2000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Reserve Campaign"),
+        String::from_str(&env, "Reserve blocks swap"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+    // Withdraw: the 10% reserve is withheld and stays counted in
+    // total_raised_global even though no campaign is active anymore.
+    client.withdraw_funds(&campaign_id);
+
+    let new_token_address = env.register_stellar_asset_contract(admin.clone());
+    client.propose_token_update(&admin, &new_token_address);
+    env.ledger().with_mut(|l| {
+        l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+
+    // Must be blocked: the vesting reserve is still escrowed in the old token.
     let res = client.try_accept_token_update(&admin);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_ne!(client.get_token(), new_token_address);
 
-    // Once all refunds are claimed, the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor2);
+    // Once the reserve is released, no escrow remains and the swap proceeds.
+    env.ledger().with_mut(|l| {
+        l.timestamp += SECONDS_PER_DAY;
+    });
+    client.withdraw_reserve(&campaign_id);
     let res2 = client.try_accept_token_update(&admin);
     assert!(res2.is_ok());
     assert_eq!(client.get_token(), new_token_address);

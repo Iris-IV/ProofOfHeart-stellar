@@ -150,3 +150,22 @@ fn test_admin_cancel_campaign_emits_event_with_reason() {
     assert_eq!(payload.0, creator);
     assert_eq!(payload.1, reason);
 }
+
+#[test]
+fn test_admin_cancel_campaign_decrements_total_raised_global() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = make_campaign(&env, &client, &creator, 10_000);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1500);
+    assert_eq!(client.get_total_raised_global(), 1500);
+
+    // Admin cancel must decrement total_raised_global upfront (#439).
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    // Claiming refund should not change the global total further.
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
