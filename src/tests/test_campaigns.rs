@@ -2,7 +2,7 @@ use proptest::prelude::*;
 
 use super::helpers::*;
 use crate::{
-    storage, AdminKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
+    storage, AdminKey, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
     CAMPAIGN_DURATION_MAX_DAYS, CAMPAIGN_DURATION_MIN_DAYS, CAMPAIGN_FUNDING_GOAL_MAX,
     CAMPAIGN_FUNDING_GOAL_MIN, REVENUE_SHARE_MAX_BPS, SECONDS_PER_DAY,
 };
@@ -354,6 +354,32 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     let res = client.try_init(&new_admin, &token.address, &300);
     assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyInitialized);
     assert_eq!(client.get_campaign_count(), 3);
+}
+
+#[test]
+fn test_create_campaign_overflow_returns_error() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    // Fix #444: set campaign_count to u32::MAX so the next increment would wrap.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&CampaignKey::CampaignCount, &u32::MAX);
+    });
+    assert_eq!(client.get_campaign_count(), u32::MAX);
+
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Overflow"),
+        String::from_str(&env, "Should fail"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
 }
 
 #[test]
