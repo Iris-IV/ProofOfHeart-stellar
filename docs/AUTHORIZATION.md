@@ -49,6 +49,7 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `resume_campaign(campaign_id, caller)` | `caller` (must be `campaign.creator` or stored `admin`) |
 | `purge_voting_state(campaign_id, voters, finalize_aggregate)` | stored `admin` (from `get_admin`) |
 | `set_personal_cap(campaign_id, contributor, amount)` | `contributor` |
+| `remove_personal_cap(campaign_id, contributor)` | `contributor` |
 | `extend_campaign_deadline(campaign_id, additional_days)` | `campaign.creator` |
 | `withdraw_reserve(campaign_id)` | `campaign.creator` |
 | `set_vesting_params(admin, delay_days, reserve_bps)` | stored `admin` (and `admin` must match stored admin) |
