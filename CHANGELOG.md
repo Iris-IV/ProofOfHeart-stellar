@@ -34,6 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Infrastructure
 
+- `ci.yml` now caches the cargo registry and `target` directory (`Swatinem/rust-cache`) across the `basic`, `audit`, and `wasm-size` jobs, cutting redundant from-scratch dependency compiles on every run (#762).
+- Restored a `cargo audit` job in `ci.yml`, scanning the dependency tree (including the vendored `ethnum` patch) for known vulnerabilities on every push and PR, with the same `RUSTSEC-2024-0344`/`RUSTSEC-2026-0009` ignores documented in `CONTRIBUTING.md` (#763).
+- Added a `wasm-size` job to `ci.yml` that builds the release WASM target and fails if it grows more than 5% past the recorded baseline in `.github/wasm-size-baseline.txt`, catching unexpected binary bloat before merge (#765).
 - Added a `Makefile` with a `build-docker` target utilizing the `stellar/rs-soroban-sdk` image to guarantee WASM binary reproducibility, allowing anyone to verify that the deployed on-chain bytecode matches the source (#533).
 - Resolved pre-existing CI debt surfaced by the `fmt` and `clippy` gates added in #403: test fixture missing bindings restored in `src/test.rs` and `src/tests/test_init.rs`, `result` double-move fixed in `src/tests/test_admin.rs`, `cargo fmt --all` drift cleared across `src/issues_test.rs` and `src/lib.rs`, and clippy lints addressed (`manual_div_ceil` in `src/lib.rs`; `dead_code` suppressed on deferred storage helpers pending the DataKey audit in #409). All three CI jobs (`test`, `fmt`, `clippy`) now exit 0 on a clean checkout (#418).
 
