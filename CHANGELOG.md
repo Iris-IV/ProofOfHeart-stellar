@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Infrastructure
 
+- Added a `fuzz_voting.rs` fuzz target covering vote-casting and the quorum/approval-threshold arithmetic in `voting.rs` (#771).
 - `ci.yml` now caches the cargo registry and `target` directory (`Swatinem/rust-cache`) across the `basic`, `audit`, and `wasm-size` jobs, cutting redundant from-scratch dependency compiles on every run (#762).
 - Restored a `cargo audit` job in `ci.yml`, scanning the dependency tree (including the vendored `ethnum` patch) for known vulnerabilities on every push and PR, with the same `RUSTSEC-2024-0344`/`RUSTSEC-2026-0009` ignores documented in `CONTRIBUTING.md` (#763).
 - Added a `wasm-size` job to `ci.yml` that builds the release WASM target and fails if it grows more than 5% past the recorded baseline in `.github/wasm-size-baseline.txt`, catching unexpected binary bloat before merge (#765).
