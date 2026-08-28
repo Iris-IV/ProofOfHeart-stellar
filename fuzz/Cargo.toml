@@ -48,3 +48,10 @@ path = "fuzz_targets/fuzz_lifecycle.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_revenue"
+path = "fuzz_targets/fuzz_revenue.rs"
+test = false
+doc = false
+bench = false

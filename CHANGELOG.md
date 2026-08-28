@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Infrastructure
 
+- Added a `fuzz_revenue.rs` fuzz target covering the percentage-based revenue split arithmetic in `revenue.rs`'s deposit/claim paths (#773).
 - Added a `fuzz_lifecycle.rs` fuzz target driving arbitrary sequences of lifecycle-changing calls (contribute, verify, cancel, withdraw) against `lifecycle::transition`'s state-machine guard (#772).
 - Added a `fuzz_voting.rs` fuzz target covering vote-casting and the quorum/approval-threshold arithmetic in `voting.rs` (#771).
 - `ci.yml` now caches the cargo registry and `target` directory (`Swatinem/rust-cache`) across the `basic`, `audit`, and `wasm-size` jobs, cutting redundant from-scratch dependency compiles on every run (#762).
