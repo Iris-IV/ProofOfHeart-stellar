@@ -2,6 +2,10 @@ name: Nightly Fuzz
 
 # Issue #506: `contribute()` moves user funds through several validation
 # paths, so it gets a dedicated fuzzing harness (fuzz/fuzz_targets/fuzz_contribute.rs).
+# Issue #770: run every target under fuzz/fuzz_targets/, discovered via
+# `cargo fuzz list`, instead of hardcoding fuzz_contribute -- new targets
+# (voting, lifecycle, revenue, ...) get picked up automatically without a
+# workflow edit.
 # Runs nightly on a time budget rather than on every push/PR, since fuzzing
 # is open-ended and not meant to gate merges.
 on:
@@ -10,19 +14,25 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  fuzz-contribute:
+  fuzz:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # nightly
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
-      - name: Fuzz contribute() for 60 seconds
-        run: cargo fuzz run fuzz_contribute -- -max_total_time=60
+      - name: Fuzz every target for 60 seconds
+        run: |
+          set -euo pipefail
+          for target in $(cargo fuzz list); do
+            echo "::group::fuzz $target"
+            cargo fuzz run "$target" -- -max_total_time=60
+            echo "::endgroup::"
+          done
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: fuzz-contribute-crashes
-          path: fuzz/artifacts/fuzz_contribute/
+          name: fuzz-crashes
+          path: fuzz/artifacts/
           if-no-files-found: ignore
