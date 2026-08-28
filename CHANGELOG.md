@@ -46,4 +46,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Documentation
 
+- Clarified the `## Changelog` section of `CONTRIBUTING.md`: documented the project-specific categories used alongside Keep a Changelog (`Removed`, `Security`, `Infrastructure`, `Documentation`), and spelled out where and when to add an entry (#764).
 - Added `CHANGELOG.md` and documented the Keep-a-Changelog convention in `CONTRIBUTING.md` (#227).

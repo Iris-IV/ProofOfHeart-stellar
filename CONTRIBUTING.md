@@ -118,22 +118,39 @@ test: deadline boundary coverage
 
 Every PR that changes behaviour (bug fix, feature, refactor, security) **must** add a bullet under the `[Unreleased]` section of `CHANGELOG.md` before merging.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/):
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), with a few project-specific headings added for categories that come up often in this repo:
 
 ```markdown
 ## [Unreleased]
 
-### Fixed
-- Short description of the fix (#issue-number).
-
 ### Added
 - Short description of the new feature (#issue-number).
 
+### Fixed
+- Short description of the fix (#issue-number).
+
 ### Changed / Refactored
 - Short description of the change (#issue-number).
+
+### Removed
+- Short description of what was removed and why (#issue-number).
+
+### Security
+- Short description of the hardening or vulnerability fix (#issue-number).
+
+### Infrastructure
+- Short description of the CI/CD, build, or tooling change (#issue-number).
+
+### Documentation
+- Short description of the docs change (#issue-number).
 ```
 
-Pure documentation or tooling PRs that do not affect contract behaviour may skip the changelog entry.
+Conventions:
+
+- **Where:** add your bullet to the matching category under `[Unreleased]`. Create the category heading if it doesn't exist yet for this release.
+- **When:** new entries go at the top of their category's list, newest first.
+- **What:** one line, written from the user/integrator's point of view (what changed and why it matters), ending with the issue number in parentheses. Match the tone of existing entries in the file.
+- **Skip it for:** pure documentation or tooling PRs that do not affect contract behaviour (an entry under `### Documentation` or `### Infrastructure` is still welcome but not required).
 
 ## Issue Labels
 
