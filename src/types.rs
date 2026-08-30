@@ -187,6 +187,20 @@ pub struct CreateCampaignParams {
     pub max_contribution_per_user: i128,
 }
 
+/// Represents a milestone for milestone-based withdrawals (#783).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Milestone {
+    /// Unique identifier within the campaign (e.g. 0,1,2 ...).
+    pub id: u32,
+    /// Short description of the milestone.
+    pub description: String,
+    /// Payout share in basis points (out of 10_000). Must sum to 10_000 across all milestones.
+    pub payout_bps: u32,
+    /// Whether this milestone has been verified by admin/community.
+    pub verified: bool,
+}
+
 /// Stores details about withheld funds for a campaign.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

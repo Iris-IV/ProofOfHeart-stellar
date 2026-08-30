@@ -97,6 +97,14 @@ pub enum Error {
     CampaignNotBookmarked = 45,
     /// The contributor has no personal cap set on this campaign.
     PersonalCapNotFound = 46,
+    /// The wallet has reached the maximum number of bookmarked campaigns.
+    BookmarkLimitReached = 47,
+    /// Milestone not found for the given campaign.
+    MilestoneNotFound = 48,
+    /// Milestone has not been verified yet.
+    MilestoneNotVerified = 49,
+    /// Milestone has already been claimed.
+    MilestoneAlreadyClaimed = 50,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -169,6 +177,10 @@ impl Error {
                 CampaignAlreadyBookmarked,
                 CampaignNotBookmarked,
                 PersonalCapNotFound,
+                BookmarkLimitReached,
+                MilestoneNotFound,
+                MilestoneNotVerified,
+                MilestoneAlreadyClaimed,
             ]
         )
     }
@@ -305,6 +317,19 @@ mod tests {
         assert_eq!(
             Error::CampaignNotBookmarked.to_string(),
             "CampaignNotBookmarked"
+        );
+        assert_eq!(
+            Error::BookmarkLimitReached.to_string(),
+            "BookmarkLimitReached"
+        );
+        assert_eq!(Error::MilestoneNotFound.to_string(), "MilestoneNotFound");
+        assert_eq!(
+            Error::MilestoneNotVerified.to_string(),
+            "MilestoneNotVerified"
+        );
+        assert_eq!(
+            Error::MilestoneAlreadyClaimed.to_string(),
+            "MilestoneAlreadyClaimed"
         );
     }
 

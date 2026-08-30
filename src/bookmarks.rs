@@ -12,6 +12,10 @@ use crate::errors::Error;
 use crate::lifecycle::get_campaign_or_error;
 use crate::storage::{get_saved_campaigns, set_saved_campaigns};
 
+/// Maximum number of campaigns a wallet may bookmark. Bounds a single
+/// persistent storage entry and keeps read/write costs predictable (#782).
+pub const MAX_BOOKMARKS_PER_WALLET: u32 = 50;
+
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
 /// Requires the wallet's authorization. Fails if the campaign doesn't exist
@@ -25,6 +29,9 @@ pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), E
     let mut saved = get_saved_campaigns(env, &user);
     if saved.iter().any(|id| id == campaign_id) {
         return Err(Error::CampaignAlreadyBookmarked);
+    }
+    if saved.len() >= MAX_BOOKMARKS_PER_WALLET {
+        return Err(Error::BookmarkLimitReached);
     }
 
     saved.push_back(campaign_id);
@@ -88,6 +95,7 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 
 #[cfg(test)]
 mod tests {
+    use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;
     use soroban_sdk::{Address, FromVal, String};
@@ -184,5 +192,51 @@ mod tests {
         // Data: campaign_id as u32
         let payload: u32 = FromVal::from_val(&env, data);
         assert_eq!(payload, id);
+    }
+
+    #[test]
+    fn test_bookmark_limit_reached() {
+        let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+        // Fill up to MAX_BOOKMARKS_PER_WALLET
+        for i in 0..MAX_BOOKMARKS_PER_WALLET {
+            let id = client.create_campaign(&make_params(
+                creator.clone(),
+                String::from_str(&env, "C"),
+                String::from_str(&env, "D"),
+                1000 + i as i128,
+                30,
+                Category::Learner,
+                false,
+                0,
+                0i128,
+            ));
+            client.save_campaign(&user, &id);
+        }
+        assert_eq!(
+            client.get_saved_campaigns(&user).len(),
+            MAX_BOOKMARKS_PER_WALLET
+        );
+        // One more should fail
+        let extra = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Extra"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+        let res = client.try_save_campaign(&user, &extra);
+        assert_eq!(res, Err(Ok(crate::errors::Error::BookmarkLimitReached)));
+        // Removing one frees a slot
+        let saved = client.get_saved_campaigns(&user);
+        client.remove_saved_campaign(&user, &saved.get(0).unwrap());
+        client.save_campaign(&user, &extra);
+        assert_eq!(
+            client.get_saved_campaigns(&user).len(),
+            MAX_BOOKMARKS_PER_WALLET
+        );
     }
 }

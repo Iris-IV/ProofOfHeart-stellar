@@ -73,6 +73,8 @@ pub(crate) fn get_creator_campaign(env: &Env, campaign_id: u32) -> Result<Campai
     Ok(campaign)
 }
 
+/// #787: `Campaign` is a heavy struct (contains Strings, Addresses, 20+ fields)
+/// so validation helpers take `&Campaign` to avoid unnecessary WASM copying.
 pub(crate) fn assert_creator(campaign: &Campaign) -> Result<(), Error> {
     campaign.creator.require_auth();
     Ok(())

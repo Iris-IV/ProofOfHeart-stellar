@@ -13,6 +13,10 @@ use crate::types::{
     PlatformStats,
 };
 
+// #787: read-only query helpers work with `&Campaign` references where they
+// inspect campaign state, avoiding by-value copies of the heavy Campaign
+// struct in the WASM VM.
+
 /// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
 /// in ascending order.
 ///

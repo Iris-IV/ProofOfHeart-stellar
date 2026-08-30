@@ -79,6 +79,8 @@ pub enum AdminKey {
     /// Admin-configured delay (seconds) before a proposed token update can be
     /// accepted, overriding the compiled-in `TOKEN_UPDATE_DELAY_SECS` default (#650).
     TokenUpdateDelaySecs,
+    /// Emergency pause signers that may call `emergency_pause` (#785).
+    EmergencyPauseSigners,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -115,6 +117,10 @@ pub enum CampaignKey {
     /// Reverse mapping from campaign ID to its current creator, keyed by campaign ID.
     /// Enables O(1) ownership verification without scanning a creator's campaign bucket.
     CampaignCreatorIndex(u32),
+    /// Milestones for a campaign, keyed by campaign ID (#783).
+    CampaignMilestones(u32),
+    /// Whether a milestone has been claimed, keyed by (campaign_id, milestone_id).
+    MilestoneClaimed(u32, u32),
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -1082,6 +1088,44 @@ pub fn set_saved_campaigns(env: &Env, user: &Address, ids: &Vec<u32>) {
     persistent_set!(env, BookmarkKey::SavedCampaigns(user.clone()), ids);
 }
 
+// ── Milestones (#783) ───────────────────────────────────────────────────────
+
+pub fn get_campaign_milestones(
+    env: &Env,
+    campaign_id: u32,
+) -> soroban_sdk::Vec<crate::types::Milestone> {
+    let key = CampaignKey::CampaignMilestones(campaign_id);
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(soroban_sdk::Vec::new(env))
+}
+
+pub fn set_campaign_milestones(
+    env: &Env,
+    campaign_id: u32,
+    milestones: &soroban_sdk::Vec<crate::types::Milestone>,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignMilestones(campaign_id),
+        milestones
+    );
+}
+
+pub fn is_milestone_claimed(env: &Env, campaign_id: u32, milestone_id: u32) -> bool {
+    let key = CampaignKey::MilestoneClaimed(campaign_id, milestone_id);
+    env.storage().persistent().get(&key).unwrap_or(false)
+}
+
+pub fn set_milestone_claimed(env: &Env, campaign_id: u32, milestone_id: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::MilestoneClaimed(campaign_id, milestone_id),
+        &true
+    );
+}
+
 // ── Campaign creator reverse index (#478) ─────────────────────────────────────
 
 /// Returns the creator recorded for a campaign via the O(1) reverse index, if any.
@@ -1103,4 +1147,21 @@ pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address
 /// instead of scanning the creator's campaign bucket.
 pub fn is_campaign_creator(env: &Env, campaign_id: u32, creator: &Address) -> bool {
     get_campaign_creator_index(env, campaign_id).is_some_and(|c| &c == creator)
+}
+
+// ── Emergency pause signers (#785) ──────────────────────────────────────────
+
+/// Returns the set of addresses authorized to call `emergency_pause`.
+pub fn get_emergency_pause_signers(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&AdminKey::EmergencyPauseSigners)
+        .unwrap_or(Vec::new(env))
+}
+
+/// Stores the set of emergency pause signers.
+pub fn set_emergency_pause_signers(env: &Env, signers: &Vec<Address>) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::EmergencyPauseSigners, signers);
 }

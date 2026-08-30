@@ -39,6 +39,7 @@ mod constants;
 mod contributions;
 mod errors;
 mod lifecycle;
+mod milestones;
 mod queries;
 mod revenue;
 mod storage;
@@ -124,6 +125,37 @@ impl ProofOfHeart {
         reserve_bps: u32,
     ) -> Result<(), Error> {
         campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps)
+    }
+
+    // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
+
+    pub fn set_milestones(
+        env: Env,
+        campaign_id: u32,
+        milestones: soroban_sdk::Vec<Milestone>,
+    ) -> Result<(), Error> {
+        milestones::set_milestones(&env, campaign_id, milestones)
+    }
+
+    pub fn verify_milestone(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        milestone_id: u32,
+    ) -> Result<(), Error> {
+        milestones::verify_milestone(&env, admin, campaign_id, milestone_id)
+    }
+
+    pub fn claim_milestone(env: Env, campaign_id: u32, milestone_id: u32) -> Result<(), Error> {
+        milestones::claim_milestone(&env, campaign_id, milestone_id)
+    }
+
+    pub fn get_milestones(env: Env, campaign_id: u32) -> soroban_sdk::Vec<Milestone> {
+        storage::get_campaign_milestones(&env, campaign_id)
+    }
+
+    pub fn is_milestone_claimed(env: Env, campaign_id: u32, milestone_id: u32) -> bool {
+        storage::is_milestone_claimed(&env, campaign_id, milestone_id)
     }
 
     // ── Campaign lifecycle ────────────────────────────────────────────────────
@@ -298,6 +330,22 @@ impl ProofOfHeart {
 
     pub fn unpause(env: Env) -> Result<(), Error> {
         admin::unpause(&env)
+    }
+
+    pub fn emergency_pause(env: Env, caller: Address) -> Result<(), Error> {
+        admin::emergency_pause(&env, caller)
+    }
+
+    pub fn set_emergency_pause_signers(
+        env: Env,
+        admin: Address,
+        signers: soroban_sdk::Vec<Address>,
+    ) -> Result<(), Error> {
+        admin::set_emergency_pause_signers(&env, admin, signers)
+    }
+
+    pub fn get_emergency_pause_signers(env: Env) -> soroban_sdk::Vec<Address> {
+        storage::get_emergency_pause_signers(&env)
     }
 
     pub fn is_paused(env: Env) -> bool {
