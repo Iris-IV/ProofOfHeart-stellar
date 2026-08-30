@@ -1,16 +1,17 @@
 //! On-chain campaign bookmark / save list for wallets (#507).
 //!
 //! Lets a wallet track causes it cares about without relying on the
-//! frontend: `save_campaign`, `remove_saved_campaign`, and
-//! `get_saved_campaigns` are plain ledger reads/writes keyed by the wallet
-//! address, so any client can display a user's saved campaigns directly from
-//! chain state.
+//! frontend: `save_campaign`, `remove_saved_campaign`,
+//! `batch_save_campaigns`, `clear_saved_campaigns`, and `get_saved_campaigns`
+//! are keyed by the wallet address, so any client can display a user's saved
+//! campaigns directly from chain state. `get_saved_campaigns` and
+//! `get_saved_campaigns_count` only surface live (non-cancelled) bookmarks.
 
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::get_campaign_or_error;
-use crate::storage::{get_saved_campaigns, set_saved_campaigns};
+use crate::storage::{get_campaign, get_saved_campaigns, set_saved_campaigns};
 
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
@@ -64,11 +65,75 @@ pub fn remove_saved_campaign(env: &Env, user: Address, campaign_id: u32) -> Resu
     }
 }
 
+/// Saves multiple `campaign_ids` to `user`'s saved-campaigns list in a single
+/// transaction instead of one `save_campaign` call per id, reducing the number
+/// of auth checks and storage writes a wallet needs to bookmark several
+/// campaigns at once.
+///
+/// Requires the wallet's authorization (checked once for the whole batch).
+/// The batch is atomic: if any campaign doesn't exist or is already
+/// bookmarked, the entire call reverts. Emits one `campaign_bookmarked` event
+/// per successfully saved id, matching `save_campaign`.
+pub fn batch_save_campaigns(env: &Env, user: Address, campaign_ids: Vec<u32>) -> Result<(), Error> {
+    user.require_auth();
+
+    let mut saved = get_saved_campaigns(env, &user);
+    for campaign_id in campaign_ids.iter() {
+        // Ensure the campaign actually exists before letting it be bookmarked.
+        get_campaign_or_error(env, campaign_id)?;
+        if saved.iter().any(|id| id == campaign_id) {
+            return Err(Error::CampaignAlreadyBookmarked);
+        }
+        saved.push_back(campaign_id);
+    }
+    set_saved_campaigns(env, &user, &saved);
+
+    for campaign_id in campaign_ids.iter() {
+        env.events()
+            .publish(("campaign_bookmarked", user.clone()), campaign_id);
+    }
+
+    Ok(())
+}
+
 /// Returns the list of campaign ids `user` has bookmarked, in the order they
-/// were saved. This is a public, unauthenticated read — any wallet/app can
-/// display another wallet's saved causes.
+/// were saved, excluding any bookmarked campaign that has since been
+/// cancelled (or no longer exists). This is a public, unauthenticated read —
+/// any wallet/app can display another wallet's saved causes, and receives
+/// only live bookmarks without needing a separate lookup per id (#667).
 pub fn get_saved(env: &Env, user: Address) -> Vec<u32> {
-    get_saved_campaigns(env, &user)
+    let saved = get_saved_campaigns(env, &user);
+
+    let mut live = Vec::new(env);
+    for campaign_id in saved.iter() {
+        match get_campaign(env, campaign_id) {
+            Some(campaign) if !campaign.is_cancelled => live.push_back(campaign_id),
+            _ => {}
+        }
+    }
+    live
+}
+
+/// Returns the number of `user`'s live (non-cancelled) bookmarks. This is a
+/// public, unauthenticated read intended for lightweight consumers such as a
+/// UI badge that only needs a counter rather than the full list.
+pub fn get_saved_count(env: &Env, user: Address) -> u32 {
+    get_saved(env, user).len()
+}
+
+/// Removes every bookmark from `user`'s saved-campaigns list in a single
+/// transaction, resetting it to empty. Requires the wallet's authorization.
+/// Succeeds even if the list is already empty.
+pub fn clear_saved_campaigns(env: &Env, user: Address) -> Result<(), Error> {
+    user.require_auth();
+
+    let cleared = get_saved_campaigns(env, &user).len();
+    set_saved_campaigns(env, &user, &Vec::new(env));
+
+    env.events()
+        .publish(("campaign_bookmarks_cleared", user), cleared);
+
+    Ok(())
 }
 
 /// Removes all bookmarks for a cancelled campaign across all users.
@@ -81,8 +146,8 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
     // without a full solution. A future enhancement could maintain a reverse
     // index (campaign_id -> list of bookmarkers) to make this O(bookmarkers)
     // instead of O(all_users), but that adds write overhead to save_campaign.
-    // For now, bookmarks persist after cancellation and clients should filter
-    // cancelled campaigns in their UI.
+    // For now, bookmarks persist in storage after cancellation; `get_saved`
+    // filters cancelled campaigns out so clients get live bookmarks directly.
     let _ = (env, campaign_id);
 }
 

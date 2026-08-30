@@ -682,16 +682,39 @@ impl ProofOfHeart {
         bookmarks::save_campaign(&env, user, campaign_id)
     }
 
+    /// Saves multiple `campaign_ids` to `user`'s on-chain bookmark list in a
+    /// single transaction. Requires `user`'s authorization. The batch is
+    /// atomic — any invalid id reverts the whole call.
+    pub fn batch_save_campaigns(
+        env: Env,
+        user: Address,
+        campaign_ids: soroban_sdk::Vec<u32>,
+    ) -> Result<(), Error> {
+        bookmarks::batch_save_campaigns(&env, user, campaign_ids)
+    }
+
     /// Removes `campaign_id` from `user`'s on-chain bookmark list. Requires
     /// `user`'s authorization.
     pub fn remove_saved_campaign(env: Env, user: Address, campaign_id: u32) -> Result<(), Error> {
         bookmarks::remove_saved_campaign(&env, user, campaign_id)
     }
 
+    /// Removes every bookmark from `user`'s on-chain bookmark list in a single
+    /// transaction. Requires `user`'s authorization.
+    pub fn clear_saved_campaigns(env: Env, user: Address) -> Result<(), Error> {
+        bookmarks::clear_saved_campaigns(&env, user)
+    }
+
     /// Returns the list of campaign ids `user` has bookmarked, in the order
-    /// they were saved.
+    /// they were saved, excluding those bookmarked to campaigns that have
+    /// since been cancelled.
     pub fn get_saved_campaigns(env: Env, user: Address) -> soroban_sdk::Vec<u32> {
         bookmarks::get_saved(&env, user)
+    }
+
+    /// Returns the number of `user`'s live (non-cancelled) bookmarks.
+    pub fn get_saved_campaigns_count(env: Env, user: Address) -> u32 {
+        bookmarks::get_saved_count(&env, user)
     }
 }
 

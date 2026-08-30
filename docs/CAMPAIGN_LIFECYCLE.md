@@ -112,14 +112,14 @@ Using separate flags provides a clearer audit trail — indexers can distinguish
 | Admin pauses manually | `unpause()` |
 ## Bookmarks (Out-of-Lifecycle Wallet Action)
 
-Bookmarks (`save_campaign`, `remove_saved_campaign`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
+Bookmarks (`save_campaign`, `batch_save_campaigns`, `remove_saved_campaign`, `clear_saved_campaigns`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
 
 - **During Active state** — Before verification, after verification, etc.
 - **After Withdrawal** — To track completed causes.
-- **After Cancellation** — Though the campaign will never become active again, the bookmark persists (documented gap #667).
-- **After Expiration** — Similarly, bookmarks persist for expired/failed campaigns.
+- **After Cancellation** — Though the campaign will never become active again, the raw bookmark persists in storage (see #667).
+- **After Expiration** — Similarly, raw bookmarks persist for expired/failed campaigns.
 
-Frontend integrations should filter the bookmark list based on campaign state when displaying "saved causes" to users. The contract does not auto-prune bookmarks for cancelled or expired campaigns; the `prune_bookmarks_for_campaign` helper currently documents this gap without a full solution.
+`get_saved_campaigns` (and `get_saved_campaigns_count`) return only **live** bookmarks: any bookmarked campaign that has since been cancelled (or no longer exists) is filtered out, so clients displaying "saved causes" receive live bookmarks without needing a per-id lookup. The contract does not auto-prune the underlying bookmark list for cancelled or expired campaigns; `prune_bookmarks_for_campaign` documents that gap, and the filtering happens at read time.
 
 ## Token Migration Policy (issue #407)
 

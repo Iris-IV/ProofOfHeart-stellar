@@ -9,6 +9,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - `remove_personal_cap(campaign_id, contributor)` public entrypoint exposing removal of a contributor's personal contribution cap, restoring the campaign-wide `max_contribution_per_user` as the only bound. Emits `personal_cap_removed` and returns `PersonalCapNotFound` when no cap is set (#503).
+- `batch_save_campaigns(user, campaign_ids)` public entrypoint that bookmarks several campaigns for a wallet in a single transaction with one auth check and storage write, reducing overhead for wallets managing multiple bookmarks at once; reverts atomically if any id fails.
+- `clear_saved_campaigns(user)` public entrypoint that resets a wallet's bookmark list in a single transaction, removing the need to call `remove_saved_campaign` once per id. Emits `campaign_bookmarks_cleared`.
+- `get_saved_campaigns_count(user)` public entrypoint returning just the number of a wallet's live bookmarks, so UI badges don't have to fetch and measure the full list.
+- `get_saved_campaigns` now returns only live bookmarks: campaigns that have been cancelled (or no longer exist) are filtered out, so clients no longer need a per-id lookup to tell a live bookmark from a stale one (#667).
 
 ### Fixed
 

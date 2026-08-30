@@ -166,6 +166,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_bookmarks_cleared`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_bookmarks_cleared", user: Address)`            |
+| Data    | `cleared: u32`                                             |
+| Source  | `src/bookmarks.rs:133` — `clear_saved_campaigns()`          |
+
+---
+
 ### `refund_claimed`
 
 | Field   | Value                                                      |

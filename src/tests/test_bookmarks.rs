@@ -208,11 +208,14 @@ fn test_save_campaign_then_cancel() {
     // Creator cancels the campaign
     client.cancel_campaign(&id);
 
-    // Bookmarks still persist after cancellation (documented gap #667)
-    // Frontend/clients should filter cancelled campaigns from the UI
+    // A cancelled campaign is no longer a live bookmark: get_saved_campaigns
+    // filters it out so clients don't need a per-id lookup to tell a stale
+    // bookmark from a live one (#667).
     let saved_after_cancel = client.get_saved_campaigns(&contributor1);
-    assert_eq!(saved_after_cancel.len(), 1);
-    assert_eq!(saved_after_cancel.get(0).unwrap(), id);
+    assert_eq!(saved_after_cancel, soroban_sdk::vec![&env]);
+
+    // The count reflects the filtered (live) list too.
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
 
     // Campaign is cancelled
     let campaign = client.get_campaign(&id);
@@ -290,4 +293,189 @@ fn test_get_saved_returns_insertion_order_after_interleaved_add_remove_add() {
     assert_eq!(saved_after_readd.get(0).unwrap(), id1);
     assert_eq!(saved_after_readd.get(1).unwrap(), id3);
     assert_eq!(saved_after_readd.get(2).unwrap(), id2);
+}
+
+#[test]
+fn test_get_saved_campaigns_count() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Fresh wallet has no live bookmarks.
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
+
+    client.save_campaign(&contributor1, &id1);
+    client.save_campaign(&contributor1, &id2);
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 2);
+
+    // Count stays in sync with get_saved_campaigns.
+    assert_eq!(
+        client.get_saved_campaigns(&contributor1).len(),
+        client.get_saved_campaigns_count(&contributor1)
+    );
+}
+
+#[test]
+fn test_batch_save_campaigns() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.batch_save_campaigns(&contributor1, &soroban_sdk::vec![&env, id1, id2]);
+
+    let saved = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved.len(), 2);
+    assert_eq!(saved.get(0).unwrap(), id1);
+    assert_eq!(saved.get(1).unwrap(), id2);
+}
+
+#[test]
+fn test_batch_save_campaigns_duplicate_fails_atomically() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.save_campaign(&contributor1, &id1);
+
+    // id1 is already bookmarked, so the whole batch must revert atomically
+    // (id2 must not be saved).
+    let result = client.try_batch_save_campaigns(&contributor1, &soroban_sdk::vec![&env, id1, id2]);
+    assert_eq!(result, Err(Ok(Error::CampaignAlreadyBookmarked)));
+
+    let saved = client.get_saved_campaigns(&contributor1);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved.get(0).unwrap(), id1);
+}
+
+#[test]
+fn test_batch_save_campaigns_nonexistent_fails_atomically() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    // A nonexistent id in the batch must revert the whole call.
+    let result = client.try_batch_save_campaigns(&contributor1, &soroban_sdk::vec![&env, 999, id1]);
+    assert_eq!(result, Err(Ok(Error::CampaignNotFound)));
+
+    assert_eq!(
+        client.get_saved_campaigns(&contributor1),
+        soroban_sdk::vec![&env]
+    );
+}
+
+#[test]
+fn test_clear_saved_campaigns() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 1"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    let id2 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign 2"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.save_campaign(&contributor1, &id1);
+    client.save_campaign(&contributor1, &id2);
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 2);
+
+    client.clear_saved_campaigns(&contributor1);
+
+    assert_eq!(
+        client.get_saved_campaigns(&contributor1),
+        soroban_sdk::vec![&env]
+    );
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
+
+    // Clearing an already-empty list succeeds with no error.
+    client.clear_saved_campaigns(&contributor1);
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
 }
