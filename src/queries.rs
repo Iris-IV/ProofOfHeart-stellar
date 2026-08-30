@@ -361,12 +361,20 @@ pub(crate) fn get_contributor_portfolio(
     let mut portfolio = soroban_sdk::Vec::new(env);
 
     for id in 1..=total_campaigns {
-        if let Some(campaign) = get_campaign(env, id) {
-            let amount = get_contribution(env, id, &contributor);
-            if amount == 0 {
-                continue;
-            }
+        // Test the cheap key before loading the heavy value (#792).
+        //
+        // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
+        // deserializes the whole `Campaign` — creator, title, description, and a
+        // dozen more fields. This loop runs over every campaign that has ever
+        // existed, and a contributor is in almost none of them, so loading the
+        // campaign first meant deserializing thousands of structs to discard
+        // all but a handful. The filter now decides before the copy happens.
+        let amount = get_contribution(env, id, &contributor);
+        if amount == 0 {
+            continue;
+        }
 
+        if let Some(campaign) = get_campaign(env, id) {
             let status = if campaign.is_cancelled {
                 "cancelled"
             } else if campaign.funds_withdrawn {

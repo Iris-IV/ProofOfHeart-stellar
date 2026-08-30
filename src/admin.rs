@@ -211,10 +211,22 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let admin = get_admin(env);
     assert_admin(env, &admin)?;
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
-    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
-        return Err(Error::InvalidPlatformFee);
-    }
-    if new_fee > crate::PLATFORM_FEE_MAX_BPS {
+    // Two bounds, deliberately, though only the tighter one can currently
+    // reject (#793):
+    //
+    //   * `PLATFORM_FEE_ABSOLUTE_MAX_BPS` (10000 = 100%) is a correctness
+    //     bound. The basis-point formula in `withdraw_funds` computes
+    //     `amount_raised * fee / 10000`; a fee above the denominator would
+    //     make the platform's cut exceed what was raised and drive
+    //     `total_after_fee` negative.
+    //   * `PLATFORM_FEE_MAX_BPS` (1000 = 10%) is the policy bound — what the
+    //     platform promises creators it will never charge more than.
+    //
+    // Policy is stricter than correctness today, so the absolute check is
+    // unreachable. It is kept and checked first anyway: it is the invariant
+    // the arithmetic depends on, and someone raising the policy ceiling must
+    // not be able to breach it by editing one constant.
+    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || new_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
     let old_fee = get_platform_fee(env);
@@ -233,10 +245,10 @@ pub(crate) fn set_campaign_fee_override(
     assert_admin(env, &admin)?;
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
-        return Err(Error::ValidationFailed);
-    }
-    if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
+    // Same two bounds as `update_platform_fee` (#793). A per-campaign
+    // override is still a platform fee and must not be a way around either
+    // the arithmetic limit or the policy ceiling.
+    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::ValidationFailed);
     }
     bump_instance_ttl(env);
