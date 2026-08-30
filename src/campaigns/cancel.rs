@@ -29,18 +29,17 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
 
     bump_instance_ttl(env);
 
+    // CEI (#795): every state write happens before the token transfer below.
+    //
+    // Previously the revenue-pool refund was transferred first and the pool
+    // zeroed afterwards, with the cancellation flags written after that. A
+    // token contract swapped for a malicious one via `accept_token_update`
+    // could re-enter `cancel_campaign` during that transfer and find the
+    // campaign still active with the pool still non-zero, draining it once
+    // per re-entry.
     let revenue_pool = get_revenue_pool(env, campaign_id);
     if revenue_pool > 0 {
-        let token_addr = get_token(env);
-        let client = token::Client::new(env, &token_addr);
-        client.transfer(
-            &env.current_contract_address(),
-            &campaign.creator,
-            &revenue_pool,
-        );
         set_revenue_pool(env, campaign_id, 0);
-        env.events()
-            .publish(("revenue_pool_refunded", campaign_id), revenue_pool);
     }
 
     campaign.is_cancelled = true;
@@ -50,6 +49,20 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    // Interaction last. A re-entrant call now fails `require_active_campaign`,
+    // and even if it did not, the pool reads as zero.
+    if revenue_pool > 0 {
+        let token_addr = get_token(env);
+        let client = token::Client::new(env, &token_addr);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &revenue_pool,
+        );
+        env.events()
+            .publish(("revenue_pool_refunded", campaign_id), revenue_pool);
+    }
 
     env.events().publish(
         ("campaign_cancelled", campaign_id, campaign.creator.clone()),

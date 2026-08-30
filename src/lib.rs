@@ -35,6 +35,7 @@ pub(crate) const MAX_BATCH_CONTRIBUTE_SIZE: u32 = 20;
 mod admin;
 mod bookmarks;
 mod campaigns;
+mod comments;
 mod constants;
 mod contributions;
 mod errors;
@@ -51,7 +52,7 @@ pub(crate) use constants::{
     TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
 use storage::*;
 pub use storage::{AdminKey, CampaignKey, ContributionKey, RevenueKey, StorageKey, VotingKey};
 pub use types::*;
@@ -763,6 +764,57 @@ impl ProofOfHeart {
     /// Returns the number of `user`'s live (non-cancelled) bookmarks.
     pub fn get_saved_campaigns_count(env: Env, user: Address) -> u32 {
         bookmarks::get_saved_count(&env, user)
+    }
+
+    // ── Comment moderation transparency (#797) ──────────────────────────────
+
+    /// Record that an off-chain comment was removed. Admin only.
+    ///
+    /// Comments themselves stay off-chain; what lands here is the immutable
+    /// evidence that one was suppressed, so moderation cannot be silent.
+    /// Idempotent — re-censuring the same hash is a no-op and emits no second
+    /// event.
+    pub fn censure_comment(
+        env: Env,
+        campaign_id: u32,
+        comment_hash: BytesN<32>,
+        reason: String,
+    ) -> Result<(), Error> {
+        let admin = get_admin(&env);
+        comments::censure_comment(&env, admin, campaign_id, comment_hash, reason)
+    }
+
+    /// Lift a censure, restoring a comment to displayable. Admin only.
+    ///
+    /// Emits its own event so a censure-then-revert cannot be used to hide
+    /// that the suppression ever happened.
+    pub fn uncensure_comment(
+        env: Env,
+        campaign_id: u32,
+        comment_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        let admin = get_admin(&env);
+        comments::uncensure_comment(&env, admin, campaign_id, comment_hash)
+    }
+
+    /// Whether a comment is currently censured — the check a frontend makes
+    /// before rendering. Total: an unknown hash reads as not censured.
+    pub fn is_comment_censured(env: Env, campaign_id: u32, comment_hash: BytesN<32>) -> bool {
+        comments::comment_is_censured(&env, campaign_id, comment_hash)
+    }
+
+    /// The censure record (reason, timestamp, acting admin), or `None`.
+    pub fn get_comment_censure(
+        env: Env,
+        campaign_id: u32,
+        comment_hash: BytesN<32>,
+    ) -> Option<CommentCensure> {
+        comments::comment_censure_record(&env, campaign_id, comment_hash)
+    }
+
+    /// How many comments have been censured on a campaign.
+    pub fn get_censured_comment_count(env: Env, campaign_id: u32) -> u32 {
+        comments::campaign_censured_comment_count(&env, campaign_id)
     }
 }
 

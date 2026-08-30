@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -121,6 +121,26 @@ pub enum CampaignKey {
     CampaignMilestones(u32),
     /// Whether a milestone has been claimed, keyed by (campaign_id, milestone_id).
     MilestoneClaimed(u32, u32),
+    /// Censure record for an off-chain comment, keyed by (campaign_id, comment_hash) (#797).
+    CommentCensured(u32, BytesN<32>),
+    /// Number of censured comments on a campaign, keyed by campaign ID (#797).
+    CampaignCensuredCount(u32),
+}
+
+/// An admin's record of removing an off-chain comment (#797).
+///
+/// Stored rather than only emitted so the current state is queryable: an event
+/// stream tells you a censure happened, this tells you whether it still
+/// stands.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommentCensure {
+    /// Why the comment was removed. Non-empty by construction.
+    pub reason: String,
+    /// Ledger timestamp of the censure.
+    pub censured_at: u64,
+    /// The admin who censured it, so the act is attributable.
+    pub admin: Address,
 }
 
 /// Keys for contributor balances, caps, and contribution tracking.
@@ -1049,6 +1069,16 @@ pub fn increment_verified_campaign_count(env: &Env) {
     set_verified_campaign_count(env, get_verified_campaign_count(env) + 1);
 }
 
+/// Decrement the verified-campaign counter, saturating at zero (#796).
+///
+/// Saturating rather than wrapping: an underflow here would report billions of
+/// verified campaigns, and the counter is a statistic — it must never be the
+/// thing that bricks a description edit.
+pub fn decrement_verified_campaign_count(env: &Env) {
+    let count = get_verified_campaign_count(env);
+    set_verified_campaign_count(env, count.saturating_sub(1));
+}
+
 pub fn get_cancelled_campaign_count(env: &Env) -> u32 {
     env.storage()
         .instance()
@@ -1164,4 +1194,61 @@ pub fn set_emergency_pause_signers(env: &Env, signers: &Vec<Address>) {
     env.storage()
         .instance()
         .set(&AdminKey::EmergencyPauseSigners, signers);
+}
+
+// ── Comment censure (#797) ───────────────────────────────────────────────────
+
+pub fn set_comment_censure(
+    env: &Env,
+    campaign_id: u32,
+    comment_hash: &BytesN<32>,
+    record: &CommentCensure,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::CommentCensured(campaign_id, comment_hash.clone()),
+        record
+    );
+}
+
+pub fn get_comment_censure(
+    env: &Env,
+    campaign_id: u32,
+    comment_hash: &BytesN<32>,
+) -> Option<CommentCensure> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CommentCensured(
+            campaign_id,
+            comment_hash.clone(),
+        ))
+}
+
+pub fn is_comment_censured(env: &Env, campaign_id: u32, comment_hash: &BytesN<32>) -> bool {
+    env.storage()
+        .persistent()
+        .has(&CampaignKey::CommentCensured(
+            campaign_id,
+            comment_hash.clone(),
+        ))
+}
+
+pub fn remove_comment_censure(env: &Env, campaign_id: u32, comment_hash: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::CommentCensured(
+            campaign_id,
+            comment_hash.clone(),
+        ));
+}
+
+pub fn get_campaign_censured_count(env: &Env, campaign_id: u32) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignCensuredCount(campaign_id))
+        .unwrap_or(0)
+}
+
+pub fn set_campaign_censured_count(env: &Env, campaign_id: u32, count: u32) {
+    persistent_set!(env, CampaignKey::CampaignCensuredCount(campaign_id), &count);
 }

@@ -59,6 +59,18 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     };
     pending.require_auth();
 
+    // Defence in depth (#790). `initiate_campaign_transfer` already rejects a
+    // nomination equal to the current creator, and `campaign.creator` has no
+    // other writer, so this is unreachable today. It is checked here anyway
+    // because the bucket rewrite below is not idempotent: removing the
+    // campaign from the creator's bucket and re-adding it to the same bucket
+    // would leave the count decremented and then incremented around a list
+    // that never changed, and any future path that reassigns `creator` would
+    // silently corrupt the index rather than fail.
+    if pending == campaign.creator {
+        return Err(Error::InvalidNewOwner);
+    }
+
     bump_instance_ttl(env);
     let old_creator = campaign.creator.clone();
 

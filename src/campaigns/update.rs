@@ -5,7 +5,9 @@ use crate::lifecycle::{
     campaign_start_time_or_error, get_creator_campaign, require_active_campaign,
     require_not_paused, require_unverified_campaign,
 };
-use crate::storage::{bump_instance_ttl, get_category_duration_cap, set_campaign};
+use crate::storage::{
+    bump_instance_ttl, decrement_verified_campaign_count, get_category_duration_cap, set_campaign,
+};
 
 /// Updates the title and description of a campaign.
 ///
@@ -74,7 +76,35 @@ pub(crate) fn update_campaign_description(
     let old_description = campaign.description.clone();
     let event_desc = description.clone();
     campaign.description = description;
+
+    // Revoke verification on edit (#796).
+    //
+    // `update_campaign` freezes title and description once verified (#416),
+    // but this entry point had no such guard, so a verified campaign's
+    // description could be rewritten while keeping the badge. Verification
+    // attests to the content that was reviewed; once that content changes the
+    // attestation is stale, and contributors read `is_verified` as a signal
+    // about what they are funding.
+    //
+    // Revoking rather than rejecting keeps the edit available — a creator can
+    // still correct their copy — at the cost of re-verification. Note this
+    // also gates `contribute`, `withdraw` and milestone claims until a
+    // re-verification lands, which is the intended consequence rather than a
+    // side effect.
+    let was_verified = campaign.is_verified;
+    if was_verified {
+        campaign.is_verified = false;
+    }
+
     set_campaign(env, campaign_id, &campaign);
+
+    if was_verified {
+        decrement_verified_campaign_count(env);
+        env.events().publish(
+            ("campaign_verification_revoked", campaign_id),
+            campaign.creator.clone(),
+        );
+    }
 
     // Title is unaffected by this function — publish it unchanged in both
     // old/new slots so `campaign_metadata_updated` has one consistent shape
