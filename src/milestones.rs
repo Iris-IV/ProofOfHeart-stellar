@@ -283,7 +283,7 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     }
 
     let admin_addr = get_admin(env);
-    let client = crate::lifecycle::token_client(env);
+    let client = crate::lifecycle::campaign_token_client(env, campaign_id);
     if fee_claim > 0 {
         client.transfer(&env.current_contract_address(), &admin_addr, &fee_claim);
     }

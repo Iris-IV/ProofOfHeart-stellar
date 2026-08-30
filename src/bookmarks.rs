@@ -6,6 +6,23 @@
 //! are keyed by the wallet address, so any client can display a user's saved
 //! campaigns directly from chain state. `get_saved_campaigns` and
 //! `get_saved_campaigns_count` only surface live (non-cancelled) bookmarks.
+//!
+//! # Authorization
+//!
+//! Every mutator — `save_campaign`, `remove_saved_campaign`,
+//! `batch_save_campaigns`, `clear_saved_campaigns` — calls
+//! `user.require_auth()` on the wallet whose list is being edited, not on
+//! whoever submitted the transaction. Without that, any address could add to
+//! or empty another wallet's saved list. The reads are deliberately
+//! unauthenticated: a saved list is public, and requiring a signature to view
+//! one would stop a client from displaying anybody else's.
+//!
+//! `src/tests/test_bookmarks.rs` pins this per entry point via `env.auths()`,
+//! which records an address only because `require_auth` was called for it, so
+//! dropping a guard fails the suite (#786). A direct negative test — invoke
+//! without authorization, expect a rejection — is not expressible: the native
+//! test host escalates a failed `require_auth` to a non-unwinding panic that
+//! aborts the test binary rather than returning an error or unwinding.
 
 use soroban_sdk::{Address, Env, Vec};
 

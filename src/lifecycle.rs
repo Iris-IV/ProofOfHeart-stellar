@@ -1,7 +1,9 @@
 use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
-use crate::storage::{get_admin, get_campaign, get_campaign_start_time, get_token, AdminKey};
+use crate::storage::{
+    get_admin, get_campaign, get_campaign_start_time, get_campaign_token, get_token, AdminKey,
+};
 use crate::types::Campaign;
 
 /// A campaign's position in its lifecycle, derived from its stored flags.
@@ -138,6 +140,17 @@ pub(crate) fn require_not_paused(env: &Env) -> Result<(), Error> {
 
 pub(crate) fn token_client(env: &Env) -> token::Client<'_> {
     token::Client::new(env, &get_token(env))
+}
+
+/// A client for the currency a specific campaign is denominated in (#784).
+///
+/// Every campaign-scoped movement of value — contributions, refunds,
+/// withdrawals, milestone payouts, revenue — must go through this rather than
+/// `token_client`, or a campaign funded in one asset could be paid out in
+/// another. `token_client` remains correct only for platform-wide concerns
+/// that are not tied to a campaign.
+pub(crate) fn campaign_token_client(env: &Env, campaign_id: u32) -> token::Client<'_> {
+    token::Client::new(env, &get_campaign_token(env, campaign_id))
 }
 
 pub(crate) fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Result<u64, Error> {

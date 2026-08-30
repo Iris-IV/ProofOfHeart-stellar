@@ -1,13 +1,13 @@
-use soroban_sdk::{token, Address, Env, String};
+use soroban_sdk::{Address, Env, String};
 
 use crate::bookmarks::prune_bookmarks_for_campaign;
 use crate::errors::Error;
 use crate::lifecycle::{
-    assert_admin, get_campaign_or_error, get_creator_campaign, require_active_campaign,
-    require_not_paused, transition, CampaignState,
+    assert_admin, campaign_token_client, get_campaign_or_error, get_creator_campaign,
+    require_active_campaign, require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_token,
+    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool,
     increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
 };
 
@@ -53,8 +53,7 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     // Interaction last. A re-entrant call now fails `require_active_campaign`,
     // and even if it did not, the pool reads as zero.
     if revenue_pool > 0 {
-        let token_addr = get_token(env);
-        let client = token::Client::new(env, &token_addr);
+        let client = campaign_token_client(env, campaign_id);
         client.transfer(
             &env.current_contract_address(),
             &campaign.creator,

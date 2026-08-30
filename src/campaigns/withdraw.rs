@@ -2,8 +2,8 @@ use soroban_sdk::Env;
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_not_paused, token_client, transition,
-    CampaignState,
+    campaign_token_client, get_campaign_or_error, get_creator_campaign, require_not_paused,
+    transition, CampaignState,
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_milestones,
@@ -107,7 +107,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     // Token transfers happen after all state updates (CEI pattern).
     let admin_addr = get_admin(env);
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
 
     client.transfer(&env.current_contract_address(), &admin_addr, &fee_amount);
     client.transfer(
@@ -170,7 +170,7 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     );
 
     // Token transfer happens after all state updates (CEI pattern).
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(
         &env.current_contract_address(),
         &campaign.creator,

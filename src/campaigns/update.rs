@@ -6,7 +6,8 @@ use crate::lifecycle::{
     require_not_paused, require_unverified_campaign,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_verified_campaign_count, get_category_duration_cap, set_campaign,
+    bump_instance_ttl, decrement_verified_campaign_count, get_category_duration_cap,
+    remove_voting_state, set_campaign,
 };
 
 /// Updates the title and description of a campaign.
@@ -100,6 +101,26 @@ pub(crate) fn update_campaign_description(
 
     if was_verified {
         decrement_verified_campaign_count(env);
+
+        // Reset the community vote tally along with the badge (#789).
+        //
+        // Without this the revocation is cosmetic for community-verified
+        // campaigns: `verify_with_votes` re-reads the stored approve/reject
+        // counts, and those votes were cast on the description that has just
+        // been replaced. A creator could get verified, rewrite the pitch into
+        // something the voters never saw, and immediately call
+        // `verify_campaign_with_votes` to restore the badge on the strength of
+        // votes for the old text.
+        //
+        // Only the aggregate tallies are cleared. The per-voter `HasVoted`
+        // records are keyed by (campaign, voter) with no voter index to
+        // enumerate, so they cannot be cleared in bounded work here; they are
+        // the admin's `purge_voting_state` to sweep. The consequence is that
+        // an address which already voted cannot vote again on the rewritten
+        // description, so community re-verification needs fresh voters —
+        // admin verification is unaffected.
+        remove_voting_state(env, campaign_id);
+
         env.events().publish(
             ("campaign_verification_revoked", campaign_id),
             campaign.creator.clone(),
@@ -137,7 +158,7 @@ pub(crate) fn extend_campaign_deadline(
     if env.ledger().timestamp() >= campaign.deadline {
         return Err(Error::DeadlinePassed);
     }
-    if additional_days == 0 || additional_days > 30 {
+    if additional_days == 0 || additional_days > crate::MAX_EXTENSION_DAYS {
         return Err(Error::ExtensionTooLong);
     }
 

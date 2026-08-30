@@ -134,6 +134,23 @@ pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), 
     Ok(())
 }
 
+/// Add or remove a token from the set creators may denominate campaigns in
+/// (#784).
+///
+/// Admin-gated because the allowlist is the only thing standing between a
+/// contributor and a `transfer` into a contract the platform never reviewed.
+/// Removing a token does not affect campaigns already denominated in it —
+/// their currency is pinned at creation — it only stops new ones.
+pub(crate) fn set_token_allowed_fn(env: &Env, token: Address, allowed: bool) -> Result<(), Error> {
+    let admin = get_admin(env);
+    assert_admin(env, &admin)?;
+    bump_instance_ttl(env);
+    crate::storage::set_token_allowed(env, &token, allowed);
+    env.events()
+        .publish(("campaign_token_allowlisted", admin), (token, allowed));
+    Ok(())
+}
+
 pub(crate) fn set_voting_params(
     env: &Env,
     admin: Address,

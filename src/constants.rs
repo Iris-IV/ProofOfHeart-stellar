@@ -30,3 +30,21 @@ pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// admin-configurable range stays sane while still covering any realistic
 /// timelock policy (#650).
 pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
+
+/// Maximum days a single `extend_campaign_deadline` call may add (#788).
+///
+/// This is the innermost of three bounds on how far a deadline can be pushed,
+/// and the reason funds cannot be locked indefinitely:
+///
+/// 1. **Per call** — this constant caps one extension.
+/// 2. **Per campaign** — `deadline_extended` makes extension one-shot, so a
+///    campaign can never be extended twice.
+/// 3. **Absolute** — the resulting start-to-deadline span must fit inside the
+///    category duration cap and `CAMPAIGN_EXTENSION_MAX_DAYS`, and the
+///    category cap is itself clamped to `CAMPAIGN_DURATION_MAX_DAYS` when an
+///    admin sets it. No campaign can run longer than a year, extension
+///    included.
+///
+/// Named rather than left as a literal so a future edit has to state that it
+/// is changing a security bound.
+pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;

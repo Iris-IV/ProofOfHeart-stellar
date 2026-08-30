@@ -2,15 +2,16 @@ use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, require_active_campaign, require_not_paused, token_client,
+    campaign_token_client, get_campaign_or_error, require_active_campaign, require_not_paused,
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_contribution, get_lifetime_contribution, get_personal_cap, get_top_contributor,
-    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
-    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global, AdminKey,
+    get_campaign_token, get_contribution, get_lifetime_contribution, get_personal_cap,
+    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
+    remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
+    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
+    AdminKey,
 };
 use crate::types::Campaign;
 
@@ -200,7 +201,7 @@ pub(crate) fn contribute(
     }
     set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(&contributor, &env.current_contract_address(), &amount);
 
     env.events()
@@ -230,6 +231,11 @@ pub(crate) fn batch_contribute(
 
     bump_instance_ttl(env);
 
+    // Amount owed per token. A batch may span campaigns denominated in
+    // different currencies (#784), so the aggregate transfer is per token
+    // rather than a single lump sum. Grouping keeps one transfer per distinct
+    // currency instead of one per contribution.
+    let mut owed: soroban_sdk::Map<Address, i128> = soroban_sdk::Map::new(env);
     let mut total: i128 = 0;
     for (campaign_id, amount) in contributions.iter() {
         if amount <= 0 {
@@ -273,14 +279,24 @@ pub(crate) fn batch_contribute(
 
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
+        let token = get_campaign_token(env, campaign_id);
+        let running = owed.get(token.clone()).unwrap_or(0);
+        owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
+
         env.events().publish(
             ("contribution_made", campaign_id, contributor.clone()),
             amount,
         );
     }
 
-    let client = token_client(env);
-    client.transfer(&contributor, &env.current_contract_address(), &total);
+    // Interactions last, after every campaign's accounting is persisted.
+    for (token, amount) in owed.iter() {
+        soroban_sdk::token::Client::new(env, &token).transfer(
+            &contributor,
+            &env.current_contract_address(),
+            &amount,
+        );
+    }
 
     env.events().publish(
         ("batch_contribution_made", contributor),
@@ -327,7 +343,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
     );
 
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
 
     env.events()

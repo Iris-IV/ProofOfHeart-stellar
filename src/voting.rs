@@ -1,11 +1,11 @@
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
     get_approval_threshold_bps, get_approve_votes, get_approve_weight,
     get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum, get_min_voting_balance,
-    get_reject_votes, get_reject_weight, get_token, increment_verified_campaign_count,
+    get_reject_votes, get_reject_weight, increment_verified_campaign_count,
     set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
     set_min_votes_quorum, set_reject_votes, set_reject_weight,
 };
@@ -80,7 +80,11 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
     require_unverified_campaign(&campaign)?;
 
-    let balance = token::Client::new(env, &get_token(env)).balance(&voter);
+    // Deliberately the platform token, not the campaign's own currency (#784).
+    // Voting weight is a platform-wide stake: measuring it in whatever asset a
+    // campaign happens to be denominated in would let a creator pick an
+    // obscure token and hand voting rights to whoever holds it.
+    let balance = crate::lifecycle::token_client(env).balance(&voter);
     if balance <= 0 {
         return Err(Error::NotTokenHolder);
     }

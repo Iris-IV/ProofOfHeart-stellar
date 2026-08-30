@@ -81,6 +81,11 @@ pub enum AdminKey {
     TokenUpdateDelaySecs,
     /// Emergency pause signers that may call `emergency_pause` (#785).
     EmergencyPauseSigners,
+    /// Whether a token address may be chosen as a campaign's currency (#784).
+    ///
+    /// Keyed by the token address so the allowlist grows without rewriting a
+    /// single vector entry, and so a lookup is O(1) at contribution time.
+    AllowedToken(Address),
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -125,6 +130,11 @@ pub enum CampaignKey {
     CommentCensured(u32, BytesN<32>),
     /// Number of censured comments on a campaign, keyed by campaign ID (#797).
     CampaignCensuredCount(u32),
+    /// The token a campaign accepts, keyed by campaign ID (#784).
+    ///
+    /// Absent for campaigns created before per-campaign currencies existed;
+    /// those fall back to the platform token. See `get_campaign_token`.
+    CampaignToken(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -1251,4 +1261,77 @@ pub fn get_campaign_censured_count(env: &Env, campaign_id: u32) -> u32 {
 
 pub fn set_campaign_censured_count(env: &Env, campaign_id: u32, count: u32) {
     persistent_set!(env, CampaignKey::CampaignCensuredCount(campaign_id), &count);
+}
+
+// ── Per-campaign token (#784) ────────────────────────────────────────────────
+
+/// Pin the currency a campaign accepts.
+///
+/// Written once at creation and never updated: a campaign that changed
+/// currency mid-flight would hold contributions in one asset and owe refunds
+/// in another.
+pub fn set_campaign_token(env: &Env, campaign_id: u32, token: &Address) {
+    persistent_set!(env, CampaignKey::CampaignToken(campaign_id), token);
+}
+
+/// The currency a campaign accepts.
+///
+/// Falls back to the platform token for campaigns created before this key
+/// existed. Those campaigns were denominated in whatever `AdminKey::Token`
+/// held, and that is still the only correct answer for them — including after
+/// an `accept_token_update`, which is the behaviour they were created under.
+pub fn get_campaign_token(env: &Env, campaign_id: u32) -> Address {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignToken(campaign_id))
+        .unwrap_or_else(|| get_token(env))
+}
+
+/// Whether a campaign has its own pinned currency, as opposed to inheriting
+/// the platform token.
+///
+/// Only the tests read this: the contract itself never needs to distinguish
+/// "pinned to the platform token" from "inheriting it", since
+/// `get_campaign_token` answers both the same way. The tests do, because the
+/// absence of the key is what keeps the default path free of storage rent.
+#[cfg_attr(not(test), expect(dead_code))]
+pub fn has_campaign_token(env: &Env, campaign_id: u32) -> bool {
+    env.storage()
+        .persistent()
+        .has(&CampaignKey::CampaignToken(campaign_id))
+}
+
+/// Add or remove a token from the set creators may denominate campaigns in.
+pub fn set_token_allowed(env: &Env, token: &Address, allowed: bool) {
+    if allowed {
+        env.storage()
+            .instance()
+            .set(&AdminKey::AllowedToken(token.clone()), &true);
+    } else {
+        env.storage()
+            .instance()
+            .remove(&AdminKey::AllowedToken(token.clone()));
+    }
+}
+
+/// Whether a token may be chosen as a campaign's currency.
+///
+/// The platform token is always allowed without an explicit entry: it is the
+/// currency every campaign used before this feature, and requiring the admin
+/// to allowlist it would make an upgrade silently break `create_campaign`.
+pub fn is_token_allowed(env: &Env, token: &Address) -> bool {
+    *token == get_token(env) || is_token_explicitly_allowed(env, token)
+}
+
+/// Whether a token has an explicit allowlist entry.
+///
+/// Split out from `is_token_allowed` so a caller that already knows the
+/// platform token does not pay to read it again. Campaign creation is on this
+/// path for every campaign ever made, and the redundant instance read was
+/// measurable — enough to exhaust the host budget in tests that create a
+/// hundred campaigns in one invocation.
+pub fn is_token_explicitly_allowed(env: &Env, token: &Address) -> bool {
+    env.storage()
+        .instance()
+        .has(&AdminKey::AllowedToken(token.clone()))
 }

@@ -1,16 +1,15 @@
-use soroban_sdk::{token, Address, Env};
+use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_not_paused, require_revenue_sharing,
-    token_client,
+    campaign_token_client, get_campaign_or_error, get_creator_campaign, require_not_paused,
+    require_revenue_sharing,
 };
 use crate::storage::{
     bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
     get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, get_token, set_contributor_revenue_claimants,
-    set_contributor_revenue_distributed, set_creator_revenue_claimed, set_revenue_claimed,
-    set_revenue_pool,
+    get_revenue_pool, set_contributor_revenue_claimants, set_contributor_revenue_distributed,
+    set_creator_revenue_claimed, set_revenue_claimed, set_revenue_pool,
 };
 
 pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
@@ -41,8 +40,7 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
         current_pool.checked_add(amount).ok_or(Error::Overflow)?,
     );
 
-    let token_addr = get_token(env);
-    let client = token::Client::new(env, &token_addr);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
     env.events()
@@ -169,7 +167,7 @@ pub(crate) fn claim_revenue(
     }
 
     // Token transfer happens after all state updates (CEI pattern).
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(&env.current_contract_address(), &contributor, &claimable);
 
     env.events().publish(
@@ -221,7 +219,7 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     );
 
     // Token transfer happens after all state updates (CEI pattern).
-    let client = token_client(env);
+    let client = campaign_token_client(env, campaign_id);
     client.transfer(
         &env.current_contract_address(),
         &campaign.creator,

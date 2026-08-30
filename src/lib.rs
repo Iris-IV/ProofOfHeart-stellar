@@ -48,8 +48,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY,
-    TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_EXTENSION_DAYS, MAX_TOKEN_UPDATE_DELAY_SECS,
+    SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
@@ -80,6 +80,43 @@ impl ProofOfHeart {
         let id = campaigns::create::create_campaign(&env, params)?;
         increment_active_campaign_count(&env);
         Ok(id)
+    }
+
+    /// Creates a campaign denominated in `token` rather than the platform
+    /// token (#784).
+    ///
+    /// The currency is fixed for the campaign's lifetime — contributions,
+    /// refunds, withdrawals, milestone payouts and revenue all move in it —
+    /// and must be on the admin allowlist. `create_campaign` remains the
+    /// platform-token shorthand.
+    pub fn create_campaign_with_token(
+        env: Env,
+        params: CreateCampaignParams,
+        token: Address,
+    ) -> Result<u32, Error> {
+        let id = campaigns::create::create_campaign_with_token(&env, params, token)?;
+        increment_active_campaign_count(&env);
+        Ok(id)
+    }
+
+    /// The currency a campaign accepts. Falls back to the platform token for
+    /// campaigns created before per-campaign currencies existed.
+    pub fn get_campaign_token(env: Env, campaign_id: u32) -> Address {
+        get_campaign_token(&env, campaign_id)
+    }
+
+    /// Admin: allow or disallow a token as a campaign currency (#784).
+    ///
+    /// Disallowing affects only future campaigns; existing ones keep the
+    /// currency they were created with.
+    pub fn set_token_allowed(env: Env, token: Address, allowed: bool) -> Result<(), Error> {
+        admin::set_token_allowed_fn(&env, token, allowed)
+    }
+
+    /// Whether a token may be chosen as a campaign currency. The platform
+    /// token always is.
+    pub fn is_token_allowed(env: Env, token: Address) -> bool {
+        is_token_allowed(&env, &token)
     }
 
     // ── Contributions ─────────────────────────────────────────────────────────
