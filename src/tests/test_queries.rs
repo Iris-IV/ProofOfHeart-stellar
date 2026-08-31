@@ -563,6 +563,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
         creator: creator.clone(),
         first_creator: creator.clone(),
         pending_creator: MaybePendingCreator::None,
+        pending_creator_expiry: 0,
         title: String::from_str(env, "t"),
         description: String::from_str(env, "d"),
         funding_goal: 1_000,

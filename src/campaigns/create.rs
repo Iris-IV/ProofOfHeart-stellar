@@ -167,6 +167,7 @@ fn create_campaign_inner(
         creator: creator.clone(),
         first_creator: creator.clone(),
         pending_creator: MaybePendingCreator::None,
+        pending_creator_expiry: 0,
         title: title.clone(),
         description,
         funding_goal,

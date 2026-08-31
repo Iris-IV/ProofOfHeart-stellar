@@ -2,7 +2,8 @@ use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    get_campaign_or_error, get_creator_campaign, require_active_campaign, require_not_paused,
+    assert_admin, get_campaign_or_error, get_creator_campaign, require_active_campaign,
+    require_not_paused,
 };
 use crate::storage::{
     bump_instance_ttl, get_creator_campaign_bucket, get_creator_campaign_count,
@@ -52,12 +53,23 @@ pub(crate) fn initiate_campaign_transfer(
         return Err(Error::InvalidNewOwner);
     }
 
-    if campaign.pending_creator.is_some() {
+    let now = env.ledger().timestamp();
+
+    // An expired nomination is not "pending" for the purposes of this check
+    // (#869): otherwise a nominee who never accepts — lost key, abandoned
+    // wallet, typo — would permanently block any future transfer, since
+    // nothing but an explicit `cancel_campaign_transfer` could clear it.
+    if campaign.pending_creator.is_some() && now < campaign.pending_creator_expiry {
         return Err(Error::TransferAlreadyPending);
     }
 
+    let expiry = now
+        .checked_add(crate::TRANSFER_EXPIRY_SECS)
+        .ok_or(Error::Overflow)?;
+
     bump_instance_ttl(env);
     campaign.pending_creator = MaybePendingCreator::from(new_creator.clone());
+    campaign.pending_creator_expiry = expiry;
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
@@ -66,7 +78,7 @@ pub(crate) fn initiate_campaign_transfer(
             campaign_id,
             campaign.creator.clone(),
         ),
-        new_creator,
+        (new_creator, expiry),
     );
 
     Ok(())
@@ -93,6 +105,18 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     // silently corrupt the index rather than fail.
     if pending == campaign.creator {
         return Err(Error::InvalidNewOwner);
+    }
+
+    // An expired nomination is no longer a valid pending transfer to accept
+    // (#869). Reuses `NoTransferPending` rather than a dedicated variant:
+    // `Error` is a `#[contracterror]` enum, and the Soroban 20 XDR spec type
+    // backing it (`ScSpecUdtErrorEnumV0::cases`) is hard-capped at 50 cases
+    // (`VecM<_, 50>`) — this enum is already at that cap, so no new variant
+    // can be added without a breaking renumbering. From the caller's point of
+    // view the two cases are indistinguishable anyway: either way there is no
+    // transfer they can currently accept.
+    if env.ledger().timestamp() >= campaign.pending_creator_expiry {
+        return Err(Error::NoTransferPending);
     }
 
     bump_instance_ttl(env);
@@ -149,6 +173,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
 
     campaign.creator = pending.clone();
     campaign.pending_creator = MaybePendingCreator::None;
+    campaign.pending_creator_expiry = 0;
 
     set_campaign(env, campaign_id, &campaign);
 
@@ -171,10 +196,44 @@ pub(crate) fn cancel_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
 
     bump_instance_ttl(env);
     campaign.pending_creator = MaybePendingCreator::None;
+    campaign.pending_creator_expiry = 0;
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
         ("campaign_transfer_cancelled", campaign_id),
+        pending_address,
+    );
+
+    Ok(())
+}
+
+/// Admin recovery path (#869) for a pending transfer whose nominee is
+/// unreachable — clears `pending_creator` immediately rather than making the
+/// creator wait out `TRANSFER_EXPIRY_SECS`. Does not require the creator's
+/// own signature, so it also covers the case where the creator's own key is
+/// the one that has gone missing.
+pub(crate) fn admin_cancel_campaign_transfer(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    require_not_paused(env)?;
+
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+
+    let pending_address = match campaign.pending_creator.clone() {
+        MaybePendingCreator::Some(addr) => addr,
+        MaybePendingCreator::None => return Err(Error::NoTransferPending),
+    };
+
+    bump_instance_ttl(env);
+    campaign.pending_creator = MaybePendingCreator::None;
+    campaign.pending_creator_expiry = 0;
+    set_campaign(env, campaign_id, &campaign);
+
+    env.events().publish(
+        ("campaign_transfer_admin_cancelled", campaign_id, admin),
         pending_address,
     );
 
