@@ -96,6 +96,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     if get_has_voted(env, campaign_id, &voter) {
+        extend_ttl(env, campaign_id, &voter);
         return Err(Error::AlreadyVoted);
     }
 
