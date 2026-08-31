@@ -716,6 +716,10 @@ impl ProofOfHeart {
         storage::get_campaign_reserve(&env, campaign_id)
     }
 
+    pub fn get_campaign_payout_marker(env: Env, campaign_id: u32) -> Option<u32> {
+        storage::get_campaign_payout_marker(&env, campaign_id)
+    }
+
     pub fn has_pending_campaign_transfer(env: Env, campaign_id: u32) -> bool {
         get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
