@@ -114,7 +114,8 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * 24 * 60 * 60 + 1);
+    env.ledger()
+        .with_mut(|l| l.timestamp += 31 * 24 * 60 * 60 + 1);
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).
