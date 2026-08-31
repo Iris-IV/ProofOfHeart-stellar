@@ -123,7 +123,7 @@ pub(crate) fn list_active_campaigns(
 ///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
 ///   4. When the bucket is exhausted, advance `position` past the bucket
 ///      boundary and repeat from step 1 with the next bucket.
-fn get_campaigns_from_buckets<F>(
+pub(crate) fn get_campaigns_from_buckets<F>(
     env: &Env,
     start: u32,
     limit: u32,
@@ -165,15 +165,85 @@ where
         }
 
         if idx_in_bucket >= bucket_len {
-            position = if bucket_len == 0 {
+            // Bucket exhausted (or empty). The natural next position is just
+            // past this bucket's known entries. But if the stored bucket is
+            // shorter than `idx_in_bucket` already implies (malformed/
+            // inconsistent metadata — e.g. `bucket_len` was truncated after
+            // `position` had already advanced past it), that "natural" value
+            // can be *less* than the current `position`, walking it
+            // backwards into the same bucket on the next iteration forever.
+            // Clamp to `position + 1` so `position` is always strictly
+            // monotonically increasing regardless of what the bucket reports.
+            let natural_next = if bucket_len == 0 {
                 bucket_start + bucket_size
             } else {
                 bucket_start + bucket_len
             };
+            position = natural_next.max(position.saturating_add(1));
         }
     }
 
     campaigns
+}
+
+#[cfg(test)]
+mod bucket_pagination_tests {
+    use super::get_campaigns_from_buckets;
+    use core::cell::Cell;
+    use soroban_sdk::Env;
+
+    /// Guards against #844: a bucket that reports fewer entries than the
+    /// current position implies (malformed/inconsistent bucket metadata)
+    /// must not walk `position` backwards and re-fetch the same bucket
+    /// forever. This caps the number of `get_bucket` calls and fails loudly
+    /// if that bound is ever exceeded, rather than hanging.
+    #[test]
+    fn malformed_short_bucket_does_not_loop_forever() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 25u32;
+        let start = 5u32; // mid-bucket: idx_in_bucket = 5
+        let limit = 50u32;
+
+        let calls = Cell::new(0u32);
+        // Every bucket, regardless of index, reports only 2 entries — far
+        // fewer than `bucket_size` and fewer than `start`'s offset into it.
+        let result = get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(
+                n <= 32,
+                "get_bucket called {n} times — position is not advancing (infinite loop)"
+            );
+            soroban_sdk::Vec::from_array(e, [1u32, 2u32])
+        });
+
+        // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
+        // is collected — the point of the test is termination, not content.
+        assert_eq!(result.len(), 0);
+        assert!(calls.get() > 0);
+    }
+
+    /// Same malformed-bucket scenario, but with an always-empty bucket
+    /// (`bucket_len == 0`), which already advanced correctly before #844 —
+    /// kept here as a regression guard alongside the short-bucket case.
+    #[test]
+    fn always_empty_bucket_terminates() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 100u32;
+        let calls = Cell::new(0u32);
+
+        let result = get_campaigns_from_buckets(&env, 0, 50, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(n <= 32, "get_bucket called {n} times — possible infinite loop");
+            soroban_sdk::Vec::new(e)
+        });
+
+        assert_eq!(result.len(), 0);
+        assert!(calls.get() > 0);
+    }
 }
 
 pub(crate) fn get_campaigns_by_category(
