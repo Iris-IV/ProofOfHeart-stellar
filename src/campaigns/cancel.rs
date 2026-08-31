@@ -89,14 +89,14 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     Ok(())
 }
 
-/// Admin-initiated cancellation for fraud response (#508). Unlike
+/// Admin-initiated cancellation for fraud response (#508, #858). Unlike
 /// `cancel_campaign`, this is not restricted to the creator and does not
 /// apply the goal-met anti-rug-pull guard — an admin must be able to stop a
 /// verified fraudulent campaign even after it has hit its funding goal,
-/// without pausing the entire platform. It also deliberately does not
-/// auto-refund any revenue pool balance to the (presumed fraudulent)
-/// creator, unlike creator self-cancel; that balance is left in the
-/// contract with no other exit path — a known follow-up, not solved here.
+/// without pausing the entire platform.
+///
+/// Follows CEI pattern: refunds any creator revenue_pool deposit back to the
+/// creator and zeroes the pool before emitting cancellation events.
 /// Contributors reclaim their own funds via the existing `claim_refund`,
 /// which already treats any `is_cancelled` campaign as refund-eligible.
 pub(crate) fn admin_cancel_campaign(
@@ -122,6 +122,11 @@ pub(crate) fn admin_cancel_campaign(
 
     bump_instance_ttl(env);
 
+    let revenue_pool = get_revenue_pool(env, campaign_id);
+    if revenue_pool > 0 {
+        set_revenue_pool(env, campaign_id, 0);
+    }
+
     // #818: Same upfront decrement as creator cancel — global stat must not be
     // overstated while unclaimed refunds exist.
     if campaign.amount_raised > 0 {
@@ -139,6 +144,17 @@ pub(crate) fn admin_cancel_campaign(
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
+
+    if revenue_pool > 0 {
+        let client = campaign_token_client(env, campaign_id);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &revenue_pool,
+        );
+        env.events()
+            .publish(("revenue_pool_refunded", campaign_id), revenue_pool);
+    }
 
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
