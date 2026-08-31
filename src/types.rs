@@ -233,6 +233,6 @@ pub struct CampaignDeadlineExtended {
     pub new_deadline: u64,
     /// The extension duration requested by the creator, in days.
     pub additional_days: u64,
-    /// The actual total duration added by the extension, in seconds.
+    /// The resulting total duration after the extension, in seconds.
     pub total_duration: u64,
 }
