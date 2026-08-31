@@ -169,6 +169,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
 /// * `CommunityVerificationConflict` - The campaign is already verified.
 /// * `VotingQuorumNotMet` - Fewer votes than the required quorum.
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
@@ -181,6 +182,9 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::CommunityVerificationConflict);
     }
     require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);
