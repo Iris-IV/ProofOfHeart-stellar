@@ -254,9 +254,11 @@ pub(crate) fn get_creator_campaigns(
 /// complete aggregate, not a page.
 ///
 /// **Existence semantics:** `total_campaigns` is the existence indicator.
-/// A value of `0` means `creator` has no campaign index and is not a known
-/// creator. A known creator with no activity still has `total_campaigns > 0`;
-/// its other aggregate fields may be zero.
+/// Consumers can distinguish an unknown creator from a known creator with no
+/// activity by checking `total_campaigns > 0`. A value of `0` means `creator`
+/// has no campaign index and is not a known creator. A known creator with no
+/// activity still has `total_campaigns > 0`; its other aggregate fields may be
+/// zero.
 ///
 /// **Note:** `total_contributors` is a sum of the contributor counts of all
 /// creator's campaigns. Because no registry of unique contributor addresses
