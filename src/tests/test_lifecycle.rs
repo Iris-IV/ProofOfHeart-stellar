@@ -352,6 +352,59 @@ fn test_voting_keys_purged_after_cancel_with_prior_votes() {
 }
 
 #[test]
+fn test_contributor_cap_ttl_is_extended_while_campaign_stays_active() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor, &10_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cap TTL Campaign"),
+        String::from_str(&env, "Cap TTL Test"),
+        1_000,
+        365,
+        Category::EducationalStartup,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.verify_campaign(&campaign_id);
+    client.set_personal_cap(&campaign_id, &contributor, &500);
+    client.contribute(&campaign_id, &contributor, &100);
+
+    let current_ledger = env.ledger().sequence();
+    let advance_ledgers = 300 * 17280;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (300 * SECONDS_PER_DAY),
+        protocol_version: 22,
+        sequence_number: current_ledger + advance_ledgers,
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 100000,
+        min_persistent_entry_ttl: 100000,
+        max_entry_ttl: 1000000,
+    });
+
+    client.contribute(&campaign_id, &contributor, &50);
+
+    let later_ledger = env.ledger().sequence();
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (200 * SECONDS_PER_DAY),
+        protocol_version: 22,
+        sequence_number: later_ledger + (200 * 17280),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 100000,
+        min_persistent_entry_ttl: 100000,
+        max_entry_ttl: 1000000,
+    });
+
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor), 500);
+    assert_eq!(client.get_lifetime_contribution(&campaign_id, &contributor), 150);
+}
+
+#[test]
 fn test_verify_campaigns_extends_ttl_on_failure() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
 

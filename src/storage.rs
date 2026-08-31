@@ -25,6 +25,26 @@ pub fn bump_instance_ttl(env: &Env) {
         .extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Extends TTL for every contributor-specific persistent key tied to a campaign.
+///
+/// Long-lived campaigns keep contributor metadata such as per-campaign totals,
+/// lifetime totals, and personal caps in persistent storage. These entries need
+/// the same TTL refresh as the campaign itself so they do not vanish while the
+/// campaign remains active.
+pub fn extend_contributor_ttl(env: &Env, campaign_id: u32, contributor: &Address) {
+    let storage = env.storage().persistent();
+    let keys = [
+        ContributionKey::Contribution(campaign_id, contributor.clone()),
+        ContributionKey::LifetimeContribution(campaign_id, contributor.clone()),
+        ContributionKey::PersonalCap(campaign_id, contributor.clone()),
+    ];
+    for key in keys {
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+    }
+}
+
 /// Marker trait implemented by every domain storage-key enum.
 ///
 /// Ties the sub-enums together as the contract's storage-key surface and
@@ -408,7 +428,11 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
 /// Returns a contributor's total contribution to a campaign.
 pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = ContributionKey::Contribution(campaign_id, contributor.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value = env.storage().persistent().get(&key);
+    if value.is_some() {
+        extend_contributor_ttl(env, campaign_id, contributor);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores a contributor's contribution amount and extends its TTL.
@@ -423,7 +447,11 @@ pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amou
 /// Returns a contributor's lifetime (non-decreasing) contribution to a campaign.
 pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = ContributionKey::LifetimeContribution(campaign_id, contributor.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value = env.storage().persistent().get(&key);
+    if value.is_some() {
+        extend_contributor_ttl(env, campaign_id, contributor);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores a contributor's lifetime contribution amount and extends its TTL.
@@ -929,9 +957,7 @@ pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> O
     let key = ContributionKey::PersonalCap(campaign_id, contributor.clone());
     let val = env.storage().persistent().get(&key);
     if val.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        extend_contributor_ttl(env, campaign_id, contributor);
     }
     val
 }
