@@ -365,6 +365,35 @@ fn test_contribute_one_second_before_deadline() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
 }
 
+#[test]
+fn test_batch_contribute_failed_transfer_emits_no_events() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Batch Atomicity"),
+        String::from_str(&env, "No events on failed batch transfer"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    let _ = client.try_verify_campaign(&campaign_id);
+
+    let campaign_ids = soroban_sdk::Vec::from_slice(&env, &[campaign_id, campaign_id]);
+    let amounts = soroban_sdk::Vec::from_slice(&env, &[800i128, 700i128]);
+    let events_before = env.events().all().len();
+    let res = client.try_batch_contribute(&campaign_ids, &contributor1, &amounts);
+    assert!(res.is_err());
+    assert_eq!(env.events().all().len(), events_before);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 0);
+}
+
 // ── Issue #408: checked arithmetic in anomaly detection ───────────────────────
 
 #[test]
