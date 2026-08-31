@@ -156,33 +156,33 @@ fn test_category_duration_cap_bounds_extensions() {
     assert!(client.get_campaign(&id).deadline_extended);
 }
 
-// ── #789: editing a description revokes verification ─────────────────────────
+// ── #789 + freeze policy: description edits on verified campaigns are rejected ──────────
 
-/// The core behaviour: a verified campaign loses its badge when the reviewed
-/// content changes.
+/// The core behaviour: a verified campaign's description is frozen — editing
+/// it is rejected with CampaignAlreadyVerified.
 #[test]
-fn test_description_edit_revokes_verification() {
+fn test_description_edit_blocked_on_verified_campaign() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let id = campaign(&env, &creator, &client, 30);
 
     client.verify_campaign(&id);
     assert!(client.get_campaign(&id).is_verified);
 
-    client.update_campaign_description(&id, &String::from_str(&env, "A different pitch entirely"));
+    let res = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "A different pitch entirely"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    assert!(!client.get_campaign(&id).is_verified);
-    assert_eq!(client.get_platform_stats().verified_campaigns, 0);
+    // Badge and counter are untouched.
+    assert!(client.get_campaign(&id).is_verified);
+    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
-/// Revocation clears the community vote tally.
-///
-/// Without this the revocation is cosmetic for a community-verified campaign:
-/// the stored approve/reject counts were cast on the description that has just
-/// been replaced, and `verify_campaign_with_votes` would re-read them and
-/// restore the badge immediately, on the strength of votes for text nobody has
-/// seen.
+/// Because the edit is blocked, stale votes are never a concern — the
+/// description that was voted on cannot change.
 #[test]
-fn test_description_edit_clears_stale_votes() {
+fn test_votes_are_intact_because_description_edit_is_blocked() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let id = campaign(&env, &creator, &client, 30);
@@ -195,17 +195,19 @@ fn test_description_edit_clears_stale_votes() {
     assert_eq!(client.get_approve_votes(&id), 2);
 
     client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Rewritten after approval"));
 
-    // The tally is gone, so the old approvals cannot be reused.
-    assert_eq!(client.get_approve_votes(&id), 0);
-    assert_eq!(client.get_reject_votes(&id), 0);
+    // Edit is rejected; votes remain.
+    let _ = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "Attempted rewrite after approval"),
+    );
+    assert_eq!(client.get_approve_votes(&id), 2);
 }
 
-/// The consequence of the above: the campaign cannot be instantly
-/// re-verified on its old votes.
+/// A blocked edit does not allow a bait-and-switch: community re-verification
+/// on stale votes is impossible because the description never changed.
 #[test]
-fn test_revoked_campaign_cannot_be_reverified_on_stale_votes() {
+fn test_bait_and_switch_is_prevented_by_freeze() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let id = campaign(&env, &creator, &client, 30);
@@ -216,35 +218,17 @@ fn test_revoked_campaign_cannot_be_reverified_on_stale_votes() {
     client.vote_on_campaign(&id, &contributor2, &true);
 
     client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Bait and switch"));
-    assert!(!client.get_campaign(&id).is_verified);
 
-    // The votes that would have carried it are gone; quorum is not met.
-    let res = client.try_verify_campaign_with_votes(&id);
-    assert!(
-        res.is_err(),
-        "a revoked campaign must not re-verify on votes cast for the old description"
+    // Creator cannot rewrite the description after verification.
+    let res = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "Bait and switch"),
     );
-    assert!(!client.get_campaign(&id).is_verified);
-}
-
-/// Admin verification still works after a revocation, so a legitimate edit is
-/// not a dead end.
-#[test]
-fn test_admin_can_reverify_after_a_description_edit() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let id = campaign(&env, &creator, &client, 30);
-
-    client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Corrected copy"));
-
-    client.verify_campaign(&id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
     assert!(client.get_campaign(&id).is_verified);
-    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
-/// Editing an unverified campaign does not disturb its votes — the tally is
-/// cleared as part of revocation, not on every edit.
+/// Editing an unverified campaign still works, and does not disturb its votes.
 #[test]
 fn test_description_edit_on_unverified_campaign_keeps_votes() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
@@ -260,11 +244,8 @@ fn test_description_edit_on_unverified_campaign_keeps_votes() {
     assert!(!client.get_campaign(&id).is_verified);
 }
 
-/// `update_campaign` keeps its stricter policy: once verified, title and
-/// description are frozen there rather than revocable (#416).
-///
-/// The asymmetry is deliberate — pinned here so it is a decision rather than
-/// an oversight.
+/// `update_campaign` also rejects edits after verification — consistent
+/// freeze policy across both entry points (#416).
 #[test]
 fn test_update_campaign_still_rejects_edits_after_verification() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
