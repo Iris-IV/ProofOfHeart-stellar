@@ -383,19 +383,20 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
 pub(crate) fn get_contributor_portfolio(
     env: &Env,
     contributor: Address,
+    start: u32,
+    limit: u32,
 ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
     let total_campaigns = get_campaign_count(env);
     let mut portfolio = soroban_sdk::Vec::new(env);
 
-    for id in 1..=total_campaigns {
-        // Test the cheap key before loading the heavy value (#792).
-        //
-        // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
-        // deserializes the whole `Campaign` — creator, title, description, and a
-        // dozen more fields. This loop runs over every campaign that has ever
-        // existed, and a contributor is in almost none of them, so loading the
-        // campaign first meant deserializing thousands of structs to discard
-        // all but a handful. The filter now decides before the copy happens.
+    if start >= total_campaigns || limit == 0 {
+        return portfolio;
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let mut collected = 0;
+
+    for id in (start + 1)..=total_campaigns {
         let amount = get_contribution(env, id, &contributor);
         if amount == 0 {
             continue;
@@ -419,6 +420,11 @@ pub(crate) fn get_contributor_portfolio(
                     && campaign.amount_raised < campaign.funding_goal);
 
             portfolio.push_back((id, amount, String::from_str(env, status), refundable));
+            collected += 1;
+
+            if collected >= capped_limit {
+                break;
+            }
         }
     }
 
