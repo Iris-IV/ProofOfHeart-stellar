@@ -1,5 +1,6 @@
 use soroban_sdk::{Address, Env, String};
 
+use crate::constants::MAX_SCAN_WINDOW;
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
     get_category_campaign_bucket, get_category_campaign_count, get_contribution,
@@ -60,18 +61,6 @@ pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::
 
     campaigns
 }
-
-/// Maximum number of campaign IDs scanned per `list_active_campaigns` call (#475).
-///
-/// **Unit:** This limit counts campaign IDs scanned, not bytes or storage reads.
-///
-/// Widened from the original 200 so pagination can reach active campaigns that
-/// sit behind a long run of inactive ones; a maintained active-only index was
-/// considered (see issue #475) but rejected because it adds a per-`create_campaign`
-/// write whose cost compounds with the existing category/creator buckets and
-/// exceeds the per-invocation CPU budget once a creator has created several dozen
-/// campaigns (see `test_creator_buckets_100_campaigns`).
-const MAX_SCAN_WINDOW: u32 = 1000;
 
 /// Lists active campaigns by scanning campaign IDs starting after `start`, up to
 /// `MAX_SCAN_WINDOW` ids per call. If the scan window is exhausted before
@@ -274,6 +263,11 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
     // Counters are kept in sync by: create_campaign (+active), cancel_campaign (-active,
     // +cancelled), withdraw_funds (-active), and admin_verify / verify_with_votes
     // (+verified). No scan needed; stats_are_partial is always false.
+    //
+    // Since counters were made O(1) (issue #411), `stats_are_partial` and
+    // `scanned_up_to` are hardcoded constants retained for API compatibility.
+    // These fields no longer vary and can never differ from their hardcoded
+    // values (false and total_campaigns, respectively).
     let total_campaigns = get_campaign_count(env);
     PlatformStats {
         total_campaigns,

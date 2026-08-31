@@ -48,3 +48,15 @@ pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
 /// Named rather than left as a literal so a future edit has to state that it
 /// is changing a security bound.
 pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;
+
+/// Maximum number of campaign IDs scanned per `list_active_campaigns` call (#475).
+///
+/// **Unit:** This limit counts campaign IDs scanned, not bytes or storage reads.
+///
+/// Widened from the original 200 so pagination can reach active campaigns that
+/// sit behind a long run of inactive ones; a maintained active-only index was
+/// considered (see issue #475) but rejected because it adds a per-`create_campaign`
+/// write whose cost compounds with the existing category/creator buckets and
+/// exceeds the per-invocation CPU budget once a creator has created several dozen
+/// campaigns (see `test_creator_buckets_100_campaigns`).
+pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
