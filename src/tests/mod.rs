@@ -11,6 +11,7 @@ mod test_cancel_revenue_orphan;
 mod test_cap_interactions;
 mod test_caps_fees_and_copies;
 mod test_cei_reentrancy;
+mod test_contribute_caps;
 mod test_contributions;
 mod test_creator_buckets;
 mod test_deadline_and_reverification;
