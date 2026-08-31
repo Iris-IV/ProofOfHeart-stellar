@@ -12,10 +12,12 @@ pub const CATEGORY_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 macro_rules! persistent_set {
     ($env:expr, $key:expr, $value:expr) => {{
         let key = $key;
-        $env.storage().persistent().set(&key, $value);
-        $env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        let storage = $env.storage().persistent();
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+        storage.set(&key, $value);
+        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }};
 }
 
