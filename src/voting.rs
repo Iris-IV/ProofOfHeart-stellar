@@ -211,6 +211,8 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::VotingThresholdNotMet);
     }
 
+    bump_campaign(env, campaign_id);
+    bump_votes(env, campaign_id);
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
