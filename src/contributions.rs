@@ -8,8 +8,9 @@ use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_admin,
     get_campaign_block_contribution_count, get_campaign_token, get_contribution,
     get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
-    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
+    get_top_contributor, get_total_raised_global, has_personal_cap, increment_contributor_count,
+    remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count,
     set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
     set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
     AdminKey,
@@ -428,7 +429,7 @@ pub(crate) fn remove_personal_cap_fn(
     contributor.require_auth();
     let campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
-    if get_personal_cap(env, campaign_id, &contributor).is_none() {
+    if !has_personal_cap(env, campaign_id, &contributor) {
         return Err(Error::PersonalCapNotFound);
     }
     bump_instance_ttl(env);

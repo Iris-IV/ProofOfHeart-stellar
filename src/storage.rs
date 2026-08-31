@@ -936,6 +936,16 @@ pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> O
     val
 }
 
+/// Returns whether a contributor has a personal cap set for a campaign,
+/// without bumping the entry's TTL. Callers that are about to remove the
+/// cap (rather than read its value) should use this instead of
+/// `get_personal_cap`, so a removal doesn't first extend the TTL of the
+/// entry it's deleting.
+pub fn has_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> bool {
+    let key = ContributionKey::PersonalCap(campaign_id, contributor.clone());
+    env.storage().persistent().has(&key)
+}
+
 /// Stores a contributor's personal cap for a campaign and extends its TTL.
 pub fn set_personal_cap(env: &Env, campaign_id: u32, contributor: &Address, amount: i128) {
     persistent_set!(
