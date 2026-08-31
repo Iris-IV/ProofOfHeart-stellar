@@ -126,7 +126,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     env.events().publish(
         ("withdrawal", campaign_id, campaign.creator.clone()),
-        (platform_fee, creator_amount, reserve_amount),
+        (
+            campaign.effective_amount_raised,
+            fee_amount,
+            reserve_amount,
+            creator_amount,
+        ),
     );
 
     // Emitted separately from `withdrawal` so its shape stays stable: the fee
@@ -136,6 +141,10 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         ("withdrawal_fee_paid", campaign_id),
         (fee_recipient, fee_amount),
     );
+
+    let payout_marker = env.ledger().sequence();
+    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
+    env.events().publish(("payout_marker", campaign_id), payout_marker);
 
     if reserve_amount > 0 {
         env.events()
