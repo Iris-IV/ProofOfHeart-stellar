@@ -161,6 +161,8 @@ pub enum CampaignKey {
     ///
     /// Kept last so existing on-chain enum discriminants remain unchanged.
     CampaignTags(u32),
+    /// The ledger sequence in which a campaign's funds were withdrawn, keyed by campaign id.
+    CampaignPayoutMarker(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -276,6 +278,19 @@ pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
         env,
         CampaignKey::CampaignStartTime(campaign_id),
         &start_time
+    );
+}
+
+pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
+    let key = CampaignKey::CampaignPayoutMarker(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignPayoutMarker(campaign_id),
+        &marker
     );
 }
 

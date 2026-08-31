@@ -142,6 +142,10 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         (fee_recipient, fee_amount),
     );
 
+    let payout_marker = env.ledger().sequence();
+    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
+    env.events().publish(("payout_marker", campaign_id), payout_marker);
+
     if reserve_amount > 0 {
         env.events()
             .publish(("reserve_withheld", campaign_id), reserve_amount);
