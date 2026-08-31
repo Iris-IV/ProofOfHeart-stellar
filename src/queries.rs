@@ -54,7 +54,7 @@ pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
     let end = start.saturating_add(capped_limit).min(total_count);
 
-    for id in (start + 1)..=end {
+    for id in (start.saturating_add(1))..=end {
         if let Some(campaign) = get_campaign(env, id) {
             campaigns.push_back(campaign);
         }
@@ -82,11 +82,11 @@ pub(crate) fn list_active_campaigns(
 
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
     let mut collected = 0u32;
-    let mut current_id = start + 1;
+    let mut current_id = start.saturating_add(1);
     let mut next_cursor = 0u32;
 
     while current_id <= total_count {
-        if current_id > start + MAX_SCAN_WINDOW {
+        if current_id > start.saturating_add(MAX_SCAN_WINDOW) {
             env.events().publish(
                 ("scan_window_exhausted",),
                 (start, current_id, collected, capped_limit),
@@ -100,7 +100,7 @@ pub(crate) fn list_active_campaigns(
                 campaigns.push_back(campaign);
                 collected += 1;
                 if collected >= capped_limit {
-                    next_cursor = current_id + 1;
+                    next_cursor = current_id.saturating_add(1);
                     break;
                 }
             }
