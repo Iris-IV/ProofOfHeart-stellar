@@ -321,4 +321,27 @@ mod tests {
             MAX_BOOKMARKS_PER_WALLET
         );
     }
+
+    #[test]
+    fn test_save_campaign_extends_ttl() {
+        let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+
+        client.save_campaign(&user, &id);
+
+        let saved = client.get_saved_campaigns(&user);
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved.get(0).unwrap(), id);
+    }
 }

@@ -53,9 +53,9 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ### Bookmarks
 
-- **Save Campaign** — Wallets can bookmark campaigns on-chain via `save_campaign` to track causes they care about without relying on frontend storage.
-- **Remove Saved Campaign** — Remove a campaign from the saved list with `remove_saved_campaign`.
-- **Get Saved Campaigns** — Retrieve a wallet's bookmarked campaign IDs using `get_saved_campaigns`; this is a public read that any app can query.
+- **Save Campaign** — Wallets can bookmark single or multiple campaigns on-chain via `save_campaign` or `batch_save_campaigns` to track causes without frontend storage dependencies.
+- **Remove / Clear Bookmarks** — Remove a specific campaign from the saved list with `remove_saved_campaign` or clear all bookmarks at once via `clear_saved_campaigns`.
+- **Get Saved Campaigns** — Retrieve a wallet's live (non-cancelled) bookmarked campaign IDs via `get_saved`, total count via `get_saved_count`, or raw saved list via `get_saved_campaigns`.
 
 ### Revenue Sharing
 
