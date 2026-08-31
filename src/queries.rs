@@ -84,9 +84,10 @@ pub(crate) fn list_active_campaigns(
     let mut collected = 0u32;
     let mut current_id = start + 1;
     let mut next_cursor = 0u32;
+    let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
 
     while current_id <= total_count {
-        if current_id > start + MAX_SCAN_WINDOW {
+        if current_id > scan_window_end {
             env.events().publish(
                 ("scan_window_exhausted",),
                 (start, current_id, collected, capped_limit),
