@@ -157,6 +157,8 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
+    // set_campaign persists the verified campaign and refreshes its persistent
+    // TTL through the shared persistent_set helper.
     set_campaign(env, campaign_id, &campaign);
     increment_verified_campaign_count(env);
     env.events().publish(("campaign_verified", campaign_id), ());

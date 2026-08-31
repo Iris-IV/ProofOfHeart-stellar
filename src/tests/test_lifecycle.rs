@@ -247,6 +247,56 @@ fn has_persistent_key(env: &Env, client: &ProofOfHeartClient<'_>, key: VotingKey
 }
 
 #[test]
+fn test_admin_verification_refreshes_campaign_ttl() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Admin Verification TTL"),
+        String::from_str(&env, "Verification refreshes campaign storage"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Campaign storage is initially extended to roughly 400 days. Move close
+    // to that expiry, then verify so admin_verify must refresh the campaign key.
+    let current_ledger = env.ledger().sequence();
+    let age_ledgers = 390 * 17280;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (390 * SECONDS_PER_DAY),
+        protocol_version: 22,
+        sequence_number: current_ledger + age_ledgers,
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10000000,
+    });
+
+    client.verify_campaign(&campaign_id);
+
+    // Without the TTL refresh, the campaign would expire after the next 10
+    // days; the refreshed entry should survive well beyond that point.
+    let current_ledger = env.ledger().sequence();
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + (20 * SECONDS_PER_DAY),
+        protocol_version: 22,
+        sequence_number: current_ledger + (20 * 17280),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10000000,
+    });
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(campaign.is_verified);
+}
+
+#[test]
 fn test_storage_state_after_withdraw_funds() {
     let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
         setup_env();
