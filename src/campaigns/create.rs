@@ -144,8 +144,9 @@ fn create_campaign_inner(
     };
 
     bump_instance_ttl(env);
-    let mut count = get_campaign_count(env);
-    count += 1;
+    let count = get_campaign_count(env)
+        .checked_add(1)
+        .ok_or(Error::Overflow)?;
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 

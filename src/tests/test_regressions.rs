@@ -913,3 +913,52 @@ fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     assert_eq!(active.get(4).unwrap().id, last_id);
     assert_eq!(next_cursor, 0);
 }
+
+// ── #815 campaign_count checked_add overflow guard ────────────────────────────
+
+/// Regression: `create_campaign` used `count += 1` (unchecked). At u32::MAX
+/// the increment wraps to 0, assigning `campaign_id = 0` and overwriting the
+/// storage slot of the very first campaign. The fix uses `checked_add(1)` and
+/// returns `Error::Overflow` instead of corrupting state.
+#[test]
+fn test_create_campaign_at_u32_max_returns_overflow() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    // Forge the campaign counter to u32::MAX so the next create would wrap.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&CampaignKey::CampaignCount, &u32::MAX);
+    });
+
+    let result = client.try_create_campaign(&make_campaign_params_simple(&env, &creator));
+    assert_eq!(result.unwrap_err().unwrap(), Error::Overflow);
+}
+
+// ── #811 claim_refund double-claim guard (CEI ordering) ───────────────────────
+
+/// Regression guard: `claim_refund` must zero the storage slot before the
+/// token transfer (Checks–Effects–Interactions). A second invocation with the
+/// same contributor must see 0 and return `NoFundsToWithdraw`, not transfer
+/// again.
+#[test]
+fn test_claim_refund_double_claim_rejected() {
+    let (env, _, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    // Fund contributor and make a contribution.
+    token_admin.mint(&contributor1, &500);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Let deadline pass without reaching goal so a refund is valid.
+    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * crate::SECONDS_PER_DAY);
+
+    // First refund must succeed.
+    let result = client.try_claim_refund(&campaign_id, &contributor1);
+    assert!(result.is_ok());
+
+    // Second refund on the same (now-zeroed) slot must fail.
+    let result2 = client.try_claim_refund(&campaign_id, &contributor1);
+    assert_eq!(result2.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}

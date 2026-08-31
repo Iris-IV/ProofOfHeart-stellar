@@ -1,3 +1,19 @@
+//! # Admin trust model (#810)
+//!
+//! A single admin key controls sensitive operations: `update_platform_fee`,
+//! `set_campaign_fee_override`, `verify_campaign`, `pause`, `propose_token_update`,
+//! `migrate`, and `purge_voting_state`. A compromised key can force-verify
+//! fraudulent campaigns, set fees to 0, or pause the contract.
+//!
+//! **Short-term mitigation**: guard the admin key with a hardware wallet or
+//! multisig signer. The `propose_admin` / `accept_admin` two-step transfer
+//! prevents accidental key rotation but does not add a timelock.
+//!
+//! **Long-term**: replace the single-key admin with a Soroban-native multisig
+//! or timelock contract so that high-impact actions (fee override to 0,
+//! force-verify, token migration) require multiple signers or a mandatory
+//! delay before taking effect.
+
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
