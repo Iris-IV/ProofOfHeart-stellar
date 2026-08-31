@@ -312,6 +312,7 @@ pub(crate) fn batch_contribute(
         if is_new_top {
             set_top_contributor(env, campaign_id, &contributor);
         }
+        set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
