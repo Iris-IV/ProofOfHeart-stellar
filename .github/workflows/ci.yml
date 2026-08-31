@@ -47,6 +47,16 @@ jobs:
           tool: cargo-audit
       - run: cargo audit --ignore RUSTSEC-2024-0344 --ignore RUSTSEC-2026-0009
 
+  # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --features testutils
+      - run: cargo test --doc
+
   # Tracks the release WASM binary size so unexpected bloat from new
   # dependencies or unused code is caught before merge, instead of silently
   # growing the deployed contract. Update wasm-size-baseline.txt in the same
