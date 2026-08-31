@@ -18,13 +18,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Basic validation
-        run: |
-          echo "Basic CI passed :heart:"
-          if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all -- --check || echo "cargo fmt hint"
-          fi
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint with clippy
+        run: cargo clippy --all-targets --features testutils -- -D warnings
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
   # PR/push. Fails the build if any advisory applies to a locked version.
