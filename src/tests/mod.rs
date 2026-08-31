@@ -21,6 +21,7 @@ mod test_multi_step;
 mod test_multi_token;
 mod test_queries;
 mod test_refund_edge;
+mod test_issue_813_814_816_818;
 mod test_regressions;
 mod test_revenue;
 mod test_revenue_deposit;
