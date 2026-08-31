@@ -3,6 +3,7 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
+    extend_ttl,
     get_approval_threshold_bps, get_approve_votes, get_approve_weight,
     get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum, get_min_voting_balance,
     get_reject_votes, get_reject_weight, increment_verified_campaign_count,
@@ -127,6 +128,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     set_has_voted(env, campaign_id, &voter);
+    extend_ttl(env, campaign_id, &voter);
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
