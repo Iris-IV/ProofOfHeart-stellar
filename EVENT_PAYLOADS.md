@@ -220,9 +220,9 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
-| Topics  | `(Symbol("voting_params_updated"),)`                       |
+| Topics  | `(Symbol("voting_params_updated"), admin: Address)`       |
 | Data    | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
-| Source  | `lib.rs:985` — `set_voting_params()`                       |
+| Source  | `admin.rs:186` — `set_voting_params()`                     |
 
 ---
 
