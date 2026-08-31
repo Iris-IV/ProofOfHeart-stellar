@@ -1194,15 +1194,10 @@ pub fn increment_cancelled_campaign_count(env: &Env) {
 /// they were saved. Defaults to an empty list.
 pub fn get_saved_campaigns(env: &Env, user: &Address) -> Vec<u32> {
     let key = BookmarkKey::SavedCampaigns(user.clone());
-    let val: Option<Vec<u32>> = env.storage().persistent().get(&key);
-    if let Some(ids) = val {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        ids
-    } else {
-        Vec::new(env)
-    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
 }
 
 /// Stores a wallet's list of bookmarked campaign ids and extends its TTL.
