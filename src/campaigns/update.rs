@@ -171,15 +171,25 @@ pub(crate) fn extend_campaign_deadline(
     let category_cap = get_category_duration_cap(env, campaign.category)
         .unwrap_or(crate::CAMPAIGN_DURATION_MAX_DAYS);
 
+    // Compute the total elapsed seconds between campaign start and the
+    // proposed new deadline.  Do NOT convert to days via integer division
+    // before comparing against the caps: floor division would silently accept
+    // a deadline that is `cap * SECONDS_PER_DAY + 1` seconds after start
+    // (which rounds down to exactly `cap` days), letting the campaign run 1-N
+    // seconds past the policy boundary (#868).
+    //
+    // Instead, compare seconds directly against `cap * SECONDS_PER_DAY`.
+    // The multiplications cannot overflow: both caps are at most 365 and
+    // SECONDS_PER_DAY is 86_400, so the product is at most 365 * 86_400 =
+    // 31_536_000, well within u64::MAX.
     let total_duration_seconds = new_deadline
         .checked_sub(start_time)
         .ok_or(Error::Overflow)?;
-    let total_duration_days = total_duration_seconds / crate::SECONDS_PER_DAY;
 
-    if total_duration_days > category_cap {
+    if total_duration_seconds > category_cap * crate::SECONDS_PER_DAY {
         return Err(Error::InvalidDuration);
     }
-    if total_duration_days > crate::CAMPAIGN_EXTENSION_MAX_DAYS {
+    if total_duration_seconds > crate::CAMPAIGN_EXTENSION_MAX_DAYS * crate::SECONDS_PER_DAY {
         return Err(Error::InvalidDuration);
     }
 
