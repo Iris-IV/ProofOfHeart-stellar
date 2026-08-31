@@ -531,11 +531,11 @@ fn test_withdraw_event_payload_tuple() {
         })
         .expect("should find withdrawal event");
 
-    // data payload should be a tuple (fee_bps, creator_amount, reserve_amount)
+    // data payload should be a tuple (gross, fee_amount, reserve_amount, creator_amount)
     // Goal: 1000. Fee (3% default = 300 bps): 30. Remaining: 970.
     // Reserve (20% of 970): 194. Immediate: 776.
-    let data: (u32, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
-    assert_eq!(data, (300, 776, 194));
+    let data: (i128, i128, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
+    assert_eq!(data, (1000, 30, 194, 776));
 }
 
 // ── BPS_CEIL_OFFSET ─────────────────────────────────────────────────────────────

@@ -61,7 +61,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("withdrawal", campaign_id: u32, creator: Address)`       |
-| Data    | `(fee_bps: u32, creator_amount: i128, reserve_amount: i128)` |
+| Data    | `(gross_amount: i128, fee_amount: i128, reserve_amount: i128, net_creator_amount: i128)` |
 | Source  | `lib.rs:533` — `withdraw_funds()`                          |
 
 ---

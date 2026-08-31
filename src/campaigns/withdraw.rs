@@ -126,7 +126,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     env.events().publish(
         ("withdrawal", campaign_id, campaign.creator.clone()),
-        (platform_fee, creator_amount, reserve_amount),
+        (
+            campaign.effective_amount_raised,
+            fee_amount,
+            reserve_amount,
+            creator_amount,
+        ),
     );
 
     // Emitted separately from `withdrawal` so its shape stays stable: the fee
