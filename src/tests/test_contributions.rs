@@ -1330,14 +1330,14 @@ fn test_batch_contribute_reverts_fully_on_invalid_item() {
 }
 
 #[test]
-fn test_batch_contribute_duplicate_campaign_id_cumulative_against_cap() {
+fn test_batch_contribute_rejects_duplicate_campaign_ids() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Capped"),
-        String::from_str(&env, "Cumulative duplicate check"),
+        String::from_str(&env, "No Duplicates"),
+        String::from_str(&env, "Duplicate campaign IDs rejected"),
         2_000,
         30,
         Category::Educator,
@@ -1347,12 +1347,10 @@ fn test_batch_contribute_duplicate_campaign_id_cumulative_against_cap() {
     ));
     client.verify_campaign(&campaign_id);
 
-    // Each item is individually within the 1_000 cap, but the combined
-    // amount (600 + 500 = 1_100) exceeds it — must fail atomically.
     let res = client.try_batch_contribute(
         &contributor1,
         &soroban_sdk::vec![&env, (campaign_id, 600i128), (campaign_id, 500i128)],
     );
-    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 }
