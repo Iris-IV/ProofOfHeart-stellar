@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
 
-use crate::types::{Campaign, CampaignReserve, Category};
+use crate::types::{Campaign, CampaignReserve, Category, EmergencyWithdrawal};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -158,9 +158,13 @@ pub enum CampaignKey {
     TagCampaignCount(BytesN<32>),
     /// The tags applied to a campaign, keyed by campaign id (#798). Used to
     /// reject duplicate tags and to expose a campaign's tag list.
+    CampaignTags(u32),
+    /// A pending admin emergency withdrawal for a campaign, keyed by campaign
+    /// id (#802). Absent unless `emergency_withdraw` has been called and not
+    /// yet executed or cancelled.
     ///
     /// Kept last so existing on-chain enum discriminants remain unchanged.
-    CampaignTags(u32),
+    EmergencyWithdrawal(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -1013,6 +1017,27 @@ pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReser
     persistent_set!(env, CampaignKey::CampaignReserve(campaign_id), reserve);
 }
 
+// ── Emergency withdrawal (#802) ──────────────────────────────────────────────
+
+/// Returns the pending emergency withdrawal for a campaign, or `None`.
+pub fn get_emergency_withdrawal(env: &Env, campaign_id: u32) -> Option<EmergencyWithdrawal> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::EmergencyWithdrawal(campaign_id))
+}
+
+/// Records a pending emergency withdrawal for a campaign.
+pub fn set_emergency_withdrawal(env: &Env, campaign_id: u32, pending: &EmergencyWithdrawal) {
+    persistent_set!(env, CampaignKey::EmergencyWithdrawal(campaign_id), pending);
+}
+
+/// Clears a pending emergency withdrawal (after execution or cancellation).
+pub fn remove_emergency_withdrawal(env: &Env, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::EmergencyWithdrawal(campaign_id));
+}
+
 // ── Per-campaign vesting snapshot (#466) ─────────────────────────────────────
 
 pub fn get_campaign_vesting(env: &Env, campaign_id: u32) -> Option<(u64, u32)> {
@@ -1519,18 +1544,17 @@ pub fn get_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>) -> u32 {
 
 /// Sets the number of campaigns indexed under `tag_hash`.
 pub fn set_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>, count: u32) {
-    persistent_set!(
-        env,
-        CampaignKey::TagCampaignCount(tag_hash.clone()),
-        &count
-    );
+    persistent_set!(env, CampaignKey::TagCampaignCount(tag_hash.clone()), &count);
 }
 
 /// Reads a single tag-index bucket.
 pub fn get_tag_campaigns_bucket(env: &Env, tag_hash: &BytesN<32>, bucket_idx: u32) -> Vec<u32> {
     env.storage()
         .persistent()
-        .get(&CampaignKey::TagCampaignsBucket(tag_hash.clone(), bucket_idx))
+        .get(&CampaignKey::TagCampaignsBucket(
+            tag_hash.clone(),
+            bucket_idx,
+        ))
         .unwrap_or_else(|| Vec::new(env))
 }
 

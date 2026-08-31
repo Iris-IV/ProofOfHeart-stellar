@@ -15,6 +15,7 @@ mod test_contribute_caps;
 mod test_contributions;
 mod test_creator_buckets;
 mod test_deadline_and_reverification;
+mod test_emergency_withdraw;
 mod test_lifecycle;
 mod test_lifecycle_events;
 mod test_multi_step;
