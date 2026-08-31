@@ -67,4 +67,11 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `initiate_campaign_transfer(campaign_id, new_creator)` | `campaign.creator` |
 | `accept_campaign_transfer(campaign_id)` | pending creator (from `campaign.pending_creator`) |
 | `cancel_campaign_transfer(campaign_id)` | `campaign.creator` |
+| `save_campaign(user, campaign_id)` | `user` |
+| `remove_saved_campaign(user, campaign_id)` | `user` |
+| `batch_save_campaigns(user, campaign_ids)` | `user` |
+| `clear_saved_campaigns(user)` | `user` |
+| `get_saved(user)` | no auth |
+| `get_saved_count(user)` | no auth |
+| `get_saved_campaigns(user)` | no auth |
 
