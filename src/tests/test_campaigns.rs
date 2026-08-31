@@ -1203,8 +1203,10 @@ fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
     });
     client.verify_campaign(&campaign_id);
 
-    // Set AutoPaused directly (Soroban rolls back writes on Err, so we can't
-    // rely on the anomaly trigger in contribute() to persist the flag).
+    // Set AutoPaused directly: no production code path sets it. The anomaly
+    // trigger in check_burst_guard rejects the transaction, and a rejected
+    // Soroban invocation rolls back its own storage writes, so it cannot
+    // persist the flag. This test exercises the read/clear path in isolation.
     env.as_contract(&client.address, || {
         env.storage().instance().set(&AdminKey::AutoPaused, &true);
     });

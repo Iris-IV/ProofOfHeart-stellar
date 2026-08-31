@@ -65,6 +65,13 @@ pub enum AdminKey {
     /// Whether the contract is paused by admin.
     Paused,
     /// Whether the contract is auto-paused by anomaly detection.
+    ///
+    /// No code path currently sets this to `true`: anomaly detection in
+    /// `check_burst_guard` rejects the offending transaction, and a rejected
+    /// Soroban invocation rolls back its own storage writes. The read path
+    /// (`require_not_paused`, `is_paused`, `resume_campaign`) and `unpause`
+    /// clearing it are retained for a future latching anomaly-pause that is
+    /// triggered by a committing transaction rather than a rejected one.
     AutoPaused,
     /// Whether campaign creation is disabled.
     CreationDisabled,

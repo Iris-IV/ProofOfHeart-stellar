@@ -12,7 +12,6 @@ use crate::storage::{
     remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
     set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
     set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    AdminKey,
 };
 use crate::types::Campaign;
 
@@ -44,8 +43,17 @@ fn check_transaction_contribution_cap(env: &Env, amount: i128) -> Result<(), Err
     Ok(())
 }
 
+/// Rejects contributions that look like an attack: a single contribution above
+/// `AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD` of the goal, or more than
+/// `AUTO_PAUSE_BURST_THRESHOLD` contributions to one campaign in a single
+/// ledger. The offending transaction is rejected with `Error::ContractPaused`.
+///
+/// This does not pause the contract. A rejected transaction reverts its whole
+/// storage footprint in Soroban, so any `AutoPaused` flag written here would be
+/// rolled back with it; the only durable effect is the rejection itself. See
+/// the module history for the removed (inert) auto-pause writes.
+///
 /// Fix #408: use checked arithmetic to avoid panic on overflow.
-/// A huge contribution (> 200% of goal) triggers an auto-pause.
 fn check_burst_guard(
     env: &Env,
     campaign_id: u32,
@@ -60,9 +68,8 @@ fn check_burst_guard(
         .checked_mul(crate::AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD)
         .ok_or(Error::Overflow)?;
     if amount_bps > threshold {
-        env.storage().instance().set(&AdminKey::AutoPaused, &true);
-        env.events()
-            .publish(("auto_paused",), ("huge_contribution", amount));
+        // No event: this call returns Err, and Soroban rolls back events
+        // emitted by a failed invocation along with its storage writes.
         return Err(Error::ContractPaused);
     }
 
@@ -94,9 +101,11 @@ fn check_burst_guard(
     set_campaign_block_contribution_count(env, campaign_id, current_ledger, block_count);
 
     if block_count > crate::AUTO_PAUSE_BURST_THRESHOLD {
-        env.storage().instance().set(&AdminKey::AutoPaused, &true);
-        env.events()
-            .publish(("auto_paused",), ("burst", block_count));
+        // No event / no pause flag: this call returns Err, and Soroban rolls
+        // back both events and storage writes from a failed invocation. The
+        // persisted `block_count` above (written on the Ok path of prior
+        // contributions) is what keeps rejecting further contributions in this
+        // ledger; it resets on the next ledger.
         return Err(Error::ContractPaused);
     }
 

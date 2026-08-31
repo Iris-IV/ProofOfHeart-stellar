@@ -524,7 +524,7 @@ fn test_personal_cap_enforcement() {
 }
 
 #[test]
-fn test_anomaly_auto_pause_huge_contribution() {
+fn test_anomaly_rejects_huge_contribution() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
@@ -543,7 +543,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
 
     let res = client.try_contribute(&campaign_id, &contributor1, &4001);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rejected, not paused: no code path sets AutoPaused.
     assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 
@@ -555,7 +555,7 @@ fn test_anomaly_auto_pause_huge_contribution() {
 }
 
 #[test]
-fn test_anomaly_auto_pause_burst() {
+fn test_anomaly_rejects_burst() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
@@ -585,7 +585,7 @@ fn test_anomaly_auto_pause_burst() {
 
     let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rejected, not paused: no code path sets AutoPaused.
     assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
@@ -639,7 +639,7 @@ fn test_low_activity_campaign_skips_burst_check() {
 }
 
 #[test]
-fn test_huge_contribution_triggers_auto_pause() {
+fn test_huge_contribution_is_rejected() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     token_admin.mint(&contributor1, &5000);
@@ -657,8 +657,8 @@ fn test_huge_contribution_triggers_auto_pause() {
     });
     client.verify_campaign(&campaign_id);
 
-    // Anomaly detection fires (the Err rollback means AutoPaused doesn't persist
-    // through contribute() itself — test the detection, not the persistence).
+    // Anomaly detection fires and rejects the transaction. It does not pause
+    // the contract: a rejected Soroban invocation rolls back its own writes.
     let res = client.try_contribute(&campaign_id, &contributor1, &2001i128);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 }
