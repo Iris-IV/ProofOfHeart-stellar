@@ -362,16 +362,11 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, &campaign);
 
-    // #818: For cancelled campaigns total_raised_global was already decremented
-    // in full at cancel time. Only decrement here for the failed-funding path
-    // (deadline passed, goal not met) to avoid double-counting.
-    if !campaign.is_cancelled {
-        let total_raised = get_total_raised_global(env);
-        set_total_raised_global(
-            env,
-            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
-        );
-    }
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+    );
 
     let client = campaign_token_client(env, campaign_id);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
