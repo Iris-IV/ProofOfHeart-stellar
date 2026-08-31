@@ -365,19 +365,27 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     // #818: For cancelled campaigns total_raised_global was already decremented
     // in full at cancel time. Only decrement here for the failed-funding path
     // (deadline passed, goal not met) to avoid double-counting.
-    if !campaign.is_cancelled {
+    let post_refund_total_raised = if !campaign.is_cancelled {
         let total_raised = get_total_raised_global(env);
-        set_total_raised_global(
-            env,
-            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
-        );
-    }
+        let new_total = total_raised
+            .checked_sub(amount)
+            .ok_or(Error::Overflow)?;
+        set_total_raised_global(env, new_total);
+        new_total
+    } else {
+        get_total_raised_global(env)
+    };
 
     let client = campaign_token_client(env, campaign_id);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
 
-    env.events()
-        .publish(("refund_claimed", campaign_id, contributor), amount);
+    // #871: Include the post-refund remaining totals so consumers can update
+    // live campaign/global totals from this event alone, without a second RPC
+    // read after the refund.
+    env.events().publish(
+        ("refund_claimed", campaign_id, contributor),
+        (amount, campaign.effective_amount_raised, post_refund_total_raised),
+    );
 
     Ok(())
 }

@@ -181,8 +181,12 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("refund_claimed", campaign_id: u32, contributor: Address)` |
-| Data    | `amount: i128`                                             |
-| Source  | `lib.rs:805` — `claim_refund()`                            |
+| Data    | `(amount: i128, effective_amount_raised: i128, total_raised_global: i128)` |
+| Source  | `src/contributions.rs` — `claim_refund()`                  |
+
+> #871: the payload started as just `amount`; it now also carries the
+> post-refund `effective_amount_raised` and `total_raised_global` so consumers
+> can update live totals from the event without a second RPC read.
 
 ---
 
