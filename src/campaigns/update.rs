@@ -67,6 +67,9 @@ pub(crate) fn update_campaign_description(
     require_not_paused(env)?;
 
     require_active_campaign(&campaign)?;
+    if description == campaign.description {
+        return Ok(());
+    }
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
         || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
     {
