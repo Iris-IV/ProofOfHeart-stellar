@@ -267,11 +267,15 @@ pub(crate) fn set_campaign_fee_override(
     assert_admin(env, &admin)?;
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    // Same two bounds as `update_platform_fee` (#793). A per-campaign
+    // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
     // override is still a platform fee and must not be a way around either
-    // the arithmetic limit or the policy ceiling.
+    // the arithmetic limit (fee > 10000 bps would make the platform's cut in
+    // `withdraw_funds` exceed the amount raised and drain the campaign) or the
+    // policy ceiling. Returns the same `InvalidPlatformFee` as
+    // `update_platform_fee` so callers see one consistent error for an
+    // out-of-range fee regardless of which setter they used.
     if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || fee_bps > crate::PLATFORM_FEE_MAX_BPS {
-        return Err(Error::ValidationFailed);
+        return Err(Error::InvalidPlatformFee);
     }
     bump_instance_ttl(env);
     campaign.fee_override = Some(fee_bps);

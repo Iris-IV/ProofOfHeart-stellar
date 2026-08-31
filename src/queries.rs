@@ -2,12 +2,13 @@ use soroban_sdk::{Address, Env, String};
 
 use crate::constants::MAX_SCAN_WINDOW;
 use crate::storage::{
-    get_active_campaign_count, get_campaign, get_campaign_count, get_cancelled_campaign_count,
-    get_category_campaign_bucket, get_category_campaign_count, get_contribution,
-    get_contributor_count, get_creator_campaign_bucket, get_creator_campaign_count,
-    get_last_contribution_time, get_platform_fee, get_token, get_top_contributor,
-    get_total_raised_global, get_verified_campaign_count, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_active_campaign_count, get_campaign, get_campaign_count, get_campaign_tags,
+    get_cancelled_campaign_count, get_category_campaign_bucket, get_category_campaign_count,
+    get_contribution, get_contributor_count, get_creator_campaign_bucket,
+    get_creator_campaign_count, get_last_contribution_time, get_platform_fee, get_tag_campaign_count,
+    get_tag_campaigns_bucket, get_token, get_top_contributor, get_total_raised_global,
+    get_verified_campaign_count, hash_text, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE, TAG_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::{
     Campaign, CampaignStats, Category, CreatorStats, MaybePendingCreator, PlatformReport,
@@ -190,6 +191,38 @@ pub(crate) fn get_campaigns_by_category(
         CATEGORY_CAMPAIGNS_BUCKET_SIZE,
         |e, idx| get_category_campaign_bucket(e, category, idx),
     )
+}
+
+/// Returns the campaigns tagged with `tag`, paginated (#798).
+///
+/// Backed by the inverted tag index maintained by `add_campaign_tag`, so this
+/// is O(page) rather than a full campaign scan. `offset` is a zero-based
+/// index into the tag's campaign list (not a campaign id). An unknown,
+/// empty, or over-long tag returns an empty page.
+pub(crate) fn get_campaigns_by_tag(
+    env: &Env,
+    tag: String,
+    offset: u32,
+    limit: u32,
+) -> soroban_sdk::Vec<Campaign> {
+    if tag.len() < crate::CAMPAIGN_TAG_MIN_LEN || tag.len() > crate::CAMPAIGN_TAG_MAX_LEN {
+        return soroban_sdk::Vec::new(env);
+    }
+    let tag_hash = hash_text(env, &tag);
+    let total = get_tag_campaign_count(env, &tag_hash);
+    get_campaigns_from_buckets(
+        env,
+        offset,
+        limit,
+        total,
+        TAG_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_tag_campaigns_bucket(e, &tag_hash, idx),
+    )
+}
+
+/// Returns the tags applied to a campaign, in the order they were added (#798).
+pub(crate) fn get_campaign_tag_list(env: &Env, campaign_id: u32) -> soroban_sdk::Vec<String> {
+    get_campaign_tags(env, campaign_id)
 }
 
 /// #534: jumps straight to the bucket containing `start` instead of reading

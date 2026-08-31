@@ -3,15 +3,15 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{calculate_deadline, require_not_paused};
 use crate::storage::{
-    bump_instance_ttl, get_campaign_count, get_category_campaign_bucket,
+    bump_instance_ttl, creator_has_title, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
     get_min_campaign_funding_goal, get_withdraw_release_delay_days,
-    get_withdraw_reserve_percentage, set_campaign, set_campaign_count, set_campaign_creator_index,
-    set_campaign_start_time, set_campaign_token, set_campaign_vesting,
+    get_withdraw_reserve_percentage, hash_text, set_campaign, set_campaign_count,
+    set_campaign_creator_index, set_campaign_start_time, set_campaign_token, set_campaign_vesting,
     set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_creator_campaign_position, set_revenue_pool,
-    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    set_creator_campaign_count, set_creator_campaign_position, set_creator_title_index,
+    set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::storage::{get_token, is_token_explicitly_allowed};
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
@@ -92,6 +92,18 @@ fn create_campaign_inner(
         return Err(Error::InvalidDuration);
     }
     if title.len() < crate::CAMPAIGN_TITLE_MIN_LEN || title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
+        return Err(Error::ValidationFailed);
+    }
+    // Title uniqueness per creator (#801). Two campaigns from the same creator
+    // with identical titles are indistinguishable to a donor searching by
+    // name, so the second one is rejected. The check is scoped to the creator:
+    // different creators may reuse a title. `ValidationFailed` rather than a
+    // dedicated code because `Error` is already at Soroban's fifty-variant
+    // ceiling for `#[contracterror]` unions; the `campaign_created` event and
+    // `get_creator_campaigns` let a caller tell this apart from the other
+    // validation failures above.
+    let title_hash = hash_text(env, &title);
+    if creator_has_title(env, &creator, &title_hash) {
         return Err(Error::ValidationFailed);
     }
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
@@ -220,6 +232,7 @@ fn create_campaign_inner(
     set_creator_campaign_position(env, &creator, count, bucket_idx, bucket.len() - 1);
     set_creator_campaign_count(env, &creator, creator_count + 1);
     set_campaign_creator_index(env, count, &creator);
+    set_creator_title_index(env, &creator, &title_hash, count);
 
     env.events().publish(
         ("campaign_created", count, creator),

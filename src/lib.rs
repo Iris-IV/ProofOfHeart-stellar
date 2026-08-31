@@ -9,6 +9,12 @@ pub(crate) const CAMPAIGN_TITLE_MIN_LEN: u32 = 1;
 pub(crate) const CAMPAIGN_TITLE_MAX_LEN: u32 = 100;
 pub(crate) const CAMPAIGN_DESCRIPTION_MIN_LEN: u32 = 1;
 pub(crate) const CAMPAIGN_DESCRIPTION_MAX_LEN: u32 = 1000;
+/// Bounds for a single campaign tag (#798).
+pub(crate) const CAMPAIGN_TAG_MIN_LEN: u32 = 1;
+pub(crate) const CAMPAIGN_TAG_MAX_LEN: u32 = 32;
+/// Maximum number of tags a campaign may carry (#798). Bounds the work
+/// `add_campaign_tag` and tag queries can be asked to do per campaign.
+pub(crate) const MAX_TAGS_PER_CAMPAIGN: u32 = 10;
 pub(crate) const CAMPAIGN_DURATION_MIN_DAYS: u64 = 1;
 pub(crate) const CAMPAIGN_DURATION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
@@ -44,6 +50,7 @@ mod milestones;
 mod queries;
 mod revenue;
 mod storage;
+mod tags;
 mod types;
 mod voting;
 

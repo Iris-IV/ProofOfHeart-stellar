@@ -5,13 +5,14 @@ use crate::lifecycle::{
     campaign_token_client, get_campaign_or_error, require_active_campaign, require_not_paused,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_campaign_token, get_contribution, get_lifetime_contribution,
-    get_max_contribution_per_transaction, get_personal_cap, get_top_contributor,
-    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
-    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global, AdminKey,
+    bump_instance_ttl, decrement_contributor_count, get_admin,
+    get_campaign_block_contribution_count, get_campaign_token, get_contribution,
+    get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
+    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
+    remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
+    set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
+    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
+    AdminKey,
 };
 use crate::types::Campaign;
 
@@ -111,6 +112,20 @@ fn update_contribution_accounting(
     lifetime: i128,
     amount: i128,
 ) -> Result<(), Error> {
+    // Snapshot the platform-fee recipient on the first contribution (#800).
+    //
+    // The fee is only moved at `withdraw_funds` time, which can be long after
+    // the money came in. If an admin transfer completes in that window, the
+    // fee would otherwise land with whoever is admin at withdrawal rather than
+    // the admin who was in place when contributors funded the campaign.
+    // Pinning it here — on the first contribution, when `amount_raised` is
+    // still zero — ties the fee to the admin the campaign was funded under.
+    // `withdraw_funds` falls back to the current admin when this key is absent
+    // (campaigns created before this change, or never contributed to).
+    if campaign.amount_raised == 0 {
+        set_campaign_fee_recipient(env, campaign_id, &get_admin(env));
+    }
+
     campaign.amount_raised = campaign
         .amount_raised
         .checked_add(amount)

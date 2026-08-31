@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Env, String, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category};
 
@@ -138,9 +138,29 @@ pub enum CampaignKey {
     /// those fall back to the platform token. See `get_campaign_token`.
     CampaignToken(u32),
     /// Position of a campaign in its creator's bucket, used for O(1) removal on transfer.
+    CreatorCampaignPosition(Address, u32),
+    /// Marks that a creator already owns a campaign with a given title,
+    /// keyed by `(creator, sha256(title))`; the value is that campaign's id.
+    /// Enforces title uniqueness per creator so donors cannot confuse two
+    /// identically named campaigns from the same creator (#801).
+    CreatorCampaignTitleIndex(Address, BytesN<32>),
+    /// The address that receives the platform fee for a campaign, captured on
+    /// the campaign's first contribution, keyed by campaign id (#800).
+    ///
+    /// Absent until the first contribution lands (and for campaigns created
+    /// before this key existed); `withdraw_funds` falls back to the current
+    /// admin when it is missing.
+    CampaignFeeRecipient(u32),
+    /// Campaign ids carrying a given tag, grouped into fixed-size buckets.
+    /// Keyed by `(sha256(tag), bucket_idx)` (#798).
+    TagCampaignsBucket(BytesN<32>, u32),
+    /// Number of campaigns carrying a given tag, keyed by `sha256(tag)` (#798).
+    TagCampaignCount(BytesN<32>),
+    /// The tags applied to a campaign, keyed by campaign id (#798). Used to
+    /// reject duplicate tags and to expose a campaign's tag list.
     ///
     /// Kept last so existing on-chain enum discriminants remain unchanged.
-    CreatorCampaignPosition(Address, u32),
+    CampaignTags(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -1396,4 +1416,144 @@ pub fn is_token_explicitly_allowed(env: &Env, token: &Address) -> bool {
     env.storage()
         .instance()
         .has(&AdminKey::AllowedToken(token.clone()))
+}
+
+// ── Text hashing (#801, #798) ────────────────────────────────────────────────
+
+/// Longest text this module will hash: a campaign title's maximum length.
+/// Tags are shorter, so the same buffer covers both.
+const MAX_HASHED_TEXT_LEN: usize = crate::CAMPAIGN_TITLE_MAX_LEN as usize;
+
+/// SHA-256 of a short string's UTF-8 bytes, used as a compact fixed-size key
+/// for the per-creator title index (#801) and the tag index (#798).
+///
+/// Callers must validate `text.len() <= CAMPAIGN_TITLE_MAX_LEN` first — this
+/// copies into a fixed stack buffer and a longer string would trap.
+pub fn hash_text(env: &Env, text: &String) -> BytesN<32> {
+    let len = (text.len() as usize).min(MAX_HASHED_TEXT_LEN);
+    let mut buf = [0u8; MAX_HASHED_TEXT_LEN];
+    text.copy_into_slice(&mut buf[..len]);
+    env.crypto().sha256(&Bytes::from_slice(env, &buf[..len]))
+}
+
+// ── Per-creator title index (#801) ──────────────────────────────────────────
+
+/// Whether `creator` already owns a campaign whose title hashes to `title_hash`.
+pub fn creator_has_title(env: &Env, creator: &Address, title_hash: &BytesN<32>) -> bool {
+    env.storage()
+        .persistent()
+        .has(&CampaignKey::CreatorCampaignTitleIndex(
+            creator.clone(),
+            title_hash.clone(),
+        ))
+}
+
+/// Records that `creator`'s campaign `campaign_id` occupies `title_hash`.
+pub fn set_creator_title_index(
+    env: &Env,
+    creator: &Address,
+    title_hash: &BytesN<32>,
+    campaign_id: u32,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::CreatorCampaignTitleIndex(creator.clone(), title_hash.clone()),
+        &campaign_id
+    );
+}
+
+/// Frees `title_hash` for `creator` (used when a campaign's title changes).
+pub fn remove_creator_title_index(env: &Env, creator: &Address, title_hash: &BytesN<32>) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::CreatorCampaignTitleIndex(
+            creator.clone(),
+            title_hash.clone(),
+        ));
+}
+
+// ── Per-campaign fee recipient snapshot (#800) ──────────────────────────────
+
+/// The fee recipient captured on this campaign's first contribution, if any.
+pub fn get_campaign_fee_recipient(env: &Env, campaign_id: u32) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignFeeRecipient(campaign_id))
+}
+
+/// Pins the fee recipient for a campaign. Written once, on the first
+/// contribution; never overwritten.
+pub fn set_campaign_fee_recipient(env: &Env, campaign_id: u32, recipient: &Address) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignFeeRecipient(campaign_id),
+        recipient
+    );
+}
+
+// ── Tag index (#798) ────────────────────────────────────────────────────────
+
+/// Campaign ids per tag bucket, mirroring the category-index layout.
+pub const TAG_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
+
+/// The tags currently applied to a campaign.
+pub fn get_campaign_tags(env: &Env, campaign_id: u32) -> Vec<String> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignTags(campaign_id))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Persists a campaign's tag list.
+pub fn set_campaign_tags(env: &Env, campaign_id: u32, tags: &Vec<String>) {
+    persistent_set!(env, CampaignKey::CampaignTags(campaign_id), tags);
+}
+
+/// Number of campaigns indexed under `tag_hash`.
+pub fn get_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::TagCampaignCount(tag_hash.clone()))
+        .unwrap_or(0)
+}
+
+/// Sets the number of campaigns indexed under `tag_hash`.
+pub fn set_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>, count: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::TagCampaignCount(tag_hash.clone()),
+        &count
+    );
+}
+
+/// Reads a single tag-index bucket.
+pub fn get_tag_campaigns_bucket(env: &Env, tag_hash: &BytesN<32>, bucket_idx: u32) -> Vec<u32> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::TagCampaignsBucket(tag_hash.clone(), bucket_idx))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Writes a single tag-index bucket.
+pub fn set_tag_campaigns_bucket(
+    env: &Env,
+    tag_hash: &BytesN<32>,
+    bucket_idx: u32,
+    bucket: &Vec<u32>,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::TagCampaignsBucket(tag_hash.clone(), bucket_idx),
+        bucket
+    );
+}
+
+/// Appends `campaign_id` to the tag index for `tag_hash`.
+pub fn append_campaign_to_tag(env: &Env, tag_hash: &BytesN<32>, campaign_id: u32) {
+    let count = get_tag_campaign_count(env, tag_hash);
+    let bucket_idx = count / TAG_CAMPAIGNS_BUCKET_SIZE;
+    let mut bucket = get_tag_campaigns_bucket(env, tag_hash, bucket_idx);
+    bucket.push_back(campaign_id);
+    set_tag_campaigns_bucket(env, tag_hash, bucket_idx, &bucket);
+    set_tag_campaign_count(env, tag_hash, count + 1);
 }

@@ -234,7 +234,7 @@ fn test_campaign_fee_override_obeys_the_same_ceiling() {
     );
 
     let res = client.try_set_campaign_fee_override(&id, &admin, &crate::BPS_DENOMINATOR);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
 
 /// The scenario behind the issue: a withdrawal at the maximum fee on a large
