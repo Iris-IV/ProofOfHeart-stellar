@@ -740,6 +740,11 @@ impl ProofOfHeart {
         queries::list_active_campaigns(&env, start, limit)
     }
 
+    /// `offset` is a **zero-based positional index** into this category's
+    /// campaign list, not a campaign ID — unlike `list_campaigns`'s `start`,
+    /// which is an exclusive campaign-ID cursor. Page by advancing
+    /// `offset += page.len()`; the two cursor styles are not interchangeable
+    /// (#845).
     pub fn get_campaigns_by_category(
         env: Env,
         category: Category,
@@ -749,6 +754,11 @@ impl ProofOfHeart {
         queries::get_campaigns_by_category(&env, category, offset, limit)
     }
 
+    /// `start` is a **zero-based positional index** into this creator's
+    /// campaign list, not a campaign ID — unlike `list_campaigns`'s `start`,
+    /// which is an exclusive campaign-ID cursor. Page by advancing
+    /// `start += page.len()`; the two cursor styles are not interchangeable
+    /// (#845).
     pub fn get_creator_campaigns(
         env: Env,
         creator: Address,

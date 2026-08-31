@@ -111,11 +111,23 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
-/// Shared bucket-pagination helper used by both `get_campaigns_by_category`
-/// and `get_creator_campaigns`. The two query functions differ only in how
-/// they derive the total count and how they load a bucket — this helper
-/// captures the identical traversal algorithm so there is one canonical
-/// implementation.
+/// Shared bucket-pagination helper used by `get_campaigns_by_category`,
+/// `get_campaigns_by_tag`, and `get_creator_campaigns`. The query functions
+/// differ only in how they derive the total count and how they load a
+/// bucket — this helper captures the identical traversal algorithm so there
+/// is one canonical implementation.
+///
+/// # Cursor contract (#845)
+///
+/// `start` here is a **zero-based positional offset** into the query's own
+/// result ordering (the Nth campaign matching that category/tag/creator),
+/// *not* a campaign ID. This is a different contract from [`list_campaigns`],
+/// whose `start` is an **exclusive campaign-ID cursor**. The two are not
+/// interchangeable: a cursor obtained from one of these bucket-paginated
+/// queries cannot be passed as `start` to `list_campaigns` (or vice versa).
+/// To page through a bucket-paginated query, set the next `start` to
+/// `previous_start + previous_page.len()` and stop once a page returns fewer
+/// than `limit` results.
 ///
 /// Algorithm overview:
 ///   1. Jump to the bucket containing `start`.
@@ -176,6 +188,12 @@ where
     campaigns
 }
 
+/// Returns the campaigns in `category`, paginated.
+///
+/// `offset` is a zero-based positional index into this category's campaign
+/// list — **not** a campaign ID. See the cursor contract note on
+/// [`get_campaigns_from_buckets`] (#845) for how this differs from
+/// `list_campaigns`'s ID-based cursor.
 pub(crate) fn get_campaigns_by_category(
     env: &Env,
     category: Category,
@@ -197,7 +215,8 @@ pub(crate) fn get_campaigns_by_category(
 ///
 /// Backed by the inverted tag index maintained by `add_campaign_tag`, so this
 /// is O(page) rather than a full campaign scan. `offset` is a zero-based
-/// index into the tag's campaign list (not a campaign id). An unknown,
+/// index into the tag's campaign list (not a campaign id) — see the cursor
+/// contract note on [`get_campaigns_from_buckets`] (#845). An unknown,
 /// empty, or over-long tag returns an empty page.
 pub(crate) fn get_campaigns_by_tag(
     env: &Env,
@@ -229,6 +248,11 @@ pub(crate) fn get_campaign_tag_list(env: &Env, campaign_id: u32) -> soroban_sdk:
 /// every preceding bucket just to advance a counter, so paginating deep into
 /// a creator with many campaigns no longer costs one ledger read per skipped
 /// bucket (mirrors `get_campaigns_by_category`'s direct-jump approach).
+///
+/// `start` is a zero-based positional index into this creator's campaign
+/// list — **not** a campaign ID. See the cursor contract note on
+/// [`get_campaigns_from_buckets`] (#845) for how this differs from
+/// `list_campaigns`'s ID-based cursor.
 pub(crate) fn get_creator_campaigns(
     env: &Env,
     creator: Address,
