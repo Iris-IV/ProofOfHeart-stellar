@@ -384,10 +384,11 @@ fn test_batch_contribute_failed_transfer_emits_no_events() {
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
-    let campaign_ids = soroban_sdk::Vec::from_slice(&env, &[campaign_id, campaign_id]);
-    let amounts = soroban_sdk::Vec::from_slice(&env, &[800i128, 700i128]);
     let events_before = env.events().all().len();
-    let res = client.try_batch_contribute(&campaign_ids, &contributor1, &amounts);
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 800i128), (campaign_id, 700i128)],
+    );
     assert!(res.is_err());
     assert_eq!(env.events().all().len(), events_before);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
