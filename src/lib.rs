@@ -745,7 +745,7 @@ impl ProofOfHeart {
         category: Category,
         offset: u32,
         limit: u32,
-    ) -> soroban_sdk::Vec<Campaign> {
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_campaigns_by_category(&env, category, offset, limit)
     }
 
@@ -754,7 +754,7 @@ impl ProofOfHeart {
         creator: Address,
         start: u32,
         limit: u32,
-    ) -> soroban_sdk::Vec<Campaign> {
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_creator_campaigns(&env, creator, start, limit)
     }
 
