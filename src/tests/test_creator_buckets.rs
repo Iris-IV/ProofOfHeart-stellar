@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, LIST_MAX_LIMIT};
+use crate::{storage, Category, LIST_MAX_LIMIT};
 use soroban_sdk::{Address, Env, String};
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
@@ -111,6 +111,40 @@ fn test_creator_buckets_transfer_single() {
     let ids = all_creator_ids(&env, &client, &receiver);
     assert_eq!(ids.len(), 1);
     assert_eq!(ids.get(0).unwrap(), 1);
+}
+
+#[test]
+fn test_creator_campaign_positions_are_updated_by_swap_removal() {
+    let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    let receiver = Address::generate(&env);
+
+    for idx in 0..3 {
+        create_campaign(&env, &client, &creator, idx);
+    }
+    env.as_contract(&client.address, || {
+        assert_eq!(
+            storage::get_creator_campaign_position(&env, &creator, 2),
+            Some((0, 1))
+        );
+    });
+
+    client.initiate_campaign_transfer(&2, &receiver);
+    client.accept_campaign_transfer(&2);
+
+    env.as_contract(&client.address, || {
+        assert_eq!(
+            storage::get_creator_campaign_position(&env, &creator, 2),
+            None
+        );
+        assert_eq!(
+            storage::get_creator_campaign_position(&env, &creator, 3),
+            Some((0, 1))
+        );
+        assert_eq!(
+            storage::get_creator_campaign_position(&env, &receiver, 2),
+            Some((0, 0))
+        );
+    });
 }
 
 #[test]

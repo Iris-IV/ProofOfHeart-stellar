@@ -6,12 +6,12 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_campaign_block_contribution_count,
-    get_campaign_token, get_contribution, get_lifetime_contribution, get_personal_cap,
-    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count, set_contribution, set_last_contribution_time,
-    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    AdminKey,
+    get_campaign_token, get_contribution, get_lifetime_contribution,
+    get_max_contribution_per_transaction, get_personal_cap, get_top_contributor,
+    get_total_raised_global, increment_contributor_count, remove_contribution, remove_personal_cap,
+    remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -31,6 +31,14 @@ fn check_contribution_caps(
             > campaign.max_contribution_per_user
     {
         return Err(Error::ContributionCapExceeded);
+    }
+    Ok(())
+}
+
+fn check_transaction_contribution_cap(env: &Env, amount: i128) -> Result<(), Error> {
+    let cap = get_max_contribution_per_transaction(env);
+    if cap > 0 && amount > cap {
+        return Err(Error::ValidationFailed);
     }
     Ok(())
 }
@@ -168,6 +176,7 @@ pub(crate) fn contribute(
     let current = get_contribution(env, campaign_id, &contributor);
     let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
 
+    check_transaction_contribution_cap(env, amount)?;
     check_contribution_caps(&campaign, lifetime, amount)?;
 
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
@@ -257,6 +266,7 @@ pub(crate) fn batch_contribute(
         let current = get_contribution(env, campaign_id, &contributor);
         let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
 
+        check_transaction_contribution_cap(env, amount)?;
         check_contribution_caps(&campaign, lifetime, amount)?;
 
         if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {

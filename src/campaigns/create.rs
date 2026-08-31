@@ -10,8 +10,8 @@ use crate::storage::{
     get_withdraw_reserve_percentage, set_campaign, set_campaign_count, set_campaign_creator_index,
     set_campaign_start_time, set_campaign_token, set_campaign_vesting,
     set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    set_creator_campaign_count, set_creator_campaign_position, set_revenue_pool,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::storage::{get_token, is_token_explicitly_allowed};
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
@@ -217,6 +217,7 @@ fn create_campaign_inner(
     let mut bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
     bucket.push_back(count);
     set_creator_campaign_bucket(env, &creator, bucket_idx, &bucket);
+    set_creator_campaign_position(env, &creator, count, bucket_idx, bucket.len() - 1);
     set_creator_campaign_count(env, &creator, creator_count + 1);
     set_campaign_creator_index(env, count, &creator);
 

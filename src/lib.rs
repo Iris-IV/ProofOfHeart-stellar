@@ -412,6 +412,15 @@ impl ProofOfHeart {
         admin::update_platform_fee(&env, new_fee)
     }
 
+    /// Sets the global per-transaction contribution cap. `0` disables the cap.
+    pub fn set_max_contribution_per_tx(
+        env: Env,
+        admin: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        admin::set_max_contribution_per_transaction(&env, admin, amount)
+    }
+
     pub fn set_campaign_fee_override(
         env: Env,
         campaign_id: u32,
@@ -638,6 +647,11 @@ impl ProofOfHeart {
 
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
+    }
+
+    /// Returns the global per-transaction contribution cap; `0` means unlimited.
+    pub fn get_max_contribution_per_tx(env: Env) -> i128 {
+        get_max_contribution_per_transaction(&env)
     }
 
     /// Returns the basis-point denominator (10_000 == 100%) that fee and

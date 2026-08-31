@@ -116,6 +116,40 @@ fn test_withdraw_funds_succeeds_when_verified() {
 }
 
 #[test]
+fn test_withdraw_funds_uses_effective_amount_after_refunds_for_fee() {
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &1_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Effective withdrawal"),
+        String::from_str(&env, "Fees exclude refunded contributions"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor, &1_000);
+
+    // Model the post-refund accounting state: historical raised total remains
+    // 1_000 while only 700 is still available for withdrawal.
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.effective_amount_raised = 700;
+        storage::set_campaign(&env, campaign_id, &campaign);
+        storage::set_total_raised_global(&env, 700);
+    });
+
+    client.withdraw_funds(&campaign_id);
+
+    assert_eq!(token.balance(&admin), 21);
+    assert_eq!(token.balance(&creator), 679);
+}
+
+#[test]
 fn test_claim_refund_removes_contribution_storage_key() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);

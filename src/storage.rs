@@ -86,6 +86,8 @@ pub enum AdminKey {
     /// Keyed by the token address so the allowlist grows without rewriting a
     /// single vector entry, and so a lookup is O(1) at contribution time.
     AllowedToken(Address),
+    /// Maximum amount accepted by a single contribution transaction. `0` disables the cap.
+    MaxContributionPerTransaction,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -135,6 +137,10 @@ pub enum CampaignKey {
     /// Absent for campaigns created before per-campaign currencies existed;
     /// those fall back to the platform token. See `get_campaign_token`.
     CampaignToken(u32),
+    /// Position of a campaign in its creator's bucket, used for O(1) removal on transfer.
+    ///
+    /// Kept last so existing on-chain enum discriminants remain unchanged.
+    CreatorCampaignPosition(Address, u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -330,6 +336,21 @@ pub fn get_platform_fee(env: &Env) -> u32 {
 /// Stores the platform fee in basis points.
 pub fn set_platform_fee(env: &Env, fee: u32) {
     env.storage().instance().set(&AdminKey::PlatformFee, &fee);
+}
+
+/// Returns the global single-transaction contribution cap. `0` means unlimited.
+pub fn get_max_contribution_per_transaction(env: &Env) -> i128 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::MaxContributionPerTransaction)
+        .unwrap_or(0)
+}
+
+/// Stores the global single-transaction contribution cap.
+pub fn set_max_contribution_per_transaction(env: &Env, amount: i128) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::MaxContributionPerTransaction, &amount);
 }
 
 /// Returns the minimum funding goal, falling back to `default` if unset.
@@ -838,6 +859,47 @@ pub fn set_creator_campaign_bucket(
         CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index),
         ids
     );
+}
+
+/// Returns a campaign's `(bucket_index, slot_index)` in the creator index.
+pub fn get_creator_campaign_position(
+    env: &Env,
+    creator: &Address,
+    campaign_id: u32,
+) -> Option<(u32, u32)> {
+    let key = CampaignKey::CreatorCampaignPosition(creator.clone(), campaign_id);
+    let val = env.storage().persistent().get(&key);
+    if val.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    val
+}
+
+/// Stores a campaign's position in the creator bucket index.
+pub fn set_creator_campaign_position(
+    env: &Env,
+    creator: &Address,
+    campaign_id: u32,
+    bucket_index: u32,
+    slot_index: u32,
+) {
+    persistent_set!(
+        env,
+        CampaignKey::CreatorCampaignPosition(creator.clone(), campaign_id),
+        &(bucket_index, slot_index)
+    );
+}
+
+/// Removes a campaign's position record after it leaves a creator index.
+pub fn remove_creator_campaign_position(env: &Env, creator: &Address, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::CreatorCampaignPosition(
+            creator.clone(),
+            campaign_id,
+        ));
 }
 
 // ── Personal cap ─────────────────────────────────────────────────────────────

@@ -5,11 +5,35 @@ use crate::lifecycle::{
     get_campaign_or_error, get_creator_campaign, require_active_campaign, require_not_paused,
 };
 use crate::storage::{
-    bump_instance_ttl, get_creator_campaign_bucket, get_creator_campaign_count, set_campaign,
+    bump_instance_ttl, get_creator_campaign_bucket, get_creator_campaign_count,
+    get_creator_campaign_position, remove_creator_campaign_position, set_campaign,
     set_campaign_creator_index, set_creator_campaign_bucket, set_creator_campaign_count,
-    CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    set_creator_campaign_position, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::MaybePendingCreator;
+
+fn get_creator_campaign_position_or_legacy_scan(
+    env: &Env,
+    creator: &Address,
+    campaign_id: u32,
+    campaign_count: u32,
+) -> Option<(u32, u32)> {
+    if let Some(position) = get_creator_campaign_position(env, creator, campaign_id) {
+        return Some(position);
+    }
+
+    // Campaigns created before #808 do not have a position entry. Preserve
+    // their ability to transfer while all newly created campaigns take the
+    // O(1) path above.
+    let bucket_count = campaign_count.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
+    for bucket_idx in 0..bucket_count {
+        let bucket = get_creator_campaign_bucket(env, creator, bucket_idx);
+        if let Some(slot_idx) = bucket.first_index_of(campaign_id) {
+            return Some((bucket_idx, slot_idx));
+        }
+    }
+    None
+}
 
 pub(crate) fn initiate_campaign_transfer(
     env: &Env,
@@ -75,15 +99,37 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     let old_creator = campaign.creator.clone();
 
     let old_count = get_creator_campaign_count(env, &old_creator);
-    let old_num_buckets = old_count.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
-    'outer: for bucket_idx in 0..old_num_buckets {
-        let mut bucket = get_creator_campaign_bucket(env, &old_creator, bucket_idx);
-        if let Some(pos) = bucket.first_index_of(campaign_id) {
-            bucket.remove(pos);
-            set_creator_campaign_bucket(env, &old_creator, bucket_idx, &bucket);
-            break 'outer;
-        }
+    let (old_bucket_idx, old_slot_idx) =
+        get_creator_campaign_position_or_legacy_scan(env, &old_creator, campaign_id, old_count)
+            .ok_or(Error::ValidationFailed)?;
+    let mut old_bucket = get_creator_campaign_bucket(env, &old_creator, old_bucket_idx);
+    if old_bucket.is_empty() {
+        return Err(Error::ValidationFailed);
     }
+    if old_bucket.get(old_slot_idx) != Some(campaign_id) {
+        return Err(Error::ValidationFailed);
+    }
+
+    // Swap removal avoids shifting every later slot and lets us update at most
+    // one position record. The position lookup itself replaces the old scan of
+    // every creator bucket (#808).
+    let last_slot_idx = old_bucket.len() - 1;
+    let last_campaign_id = old_bucket
+        .get(last_slot_idx)
+        .ok_or(Error::ValidationFailed)?;
+    if old_slot_idx != last_slot_idx {
+        old_bucket.set(old_slot_idx, last_campaign_id);
+        set_creator_campaign_position(
+            env,
+            &old_creator,
+            last_campaign_id,
+            old_bucket_idx,
+            old_slot_idx,
+        );
+    }
+    old_bucket.pop_back();
+    set_creator_campaign_bucket(env, &old_creator, old_bucket_idx, &old_bucket);
+    remove_creator_campaign_position(env, &old_creator, campaign_id);
     set_creator_campaign_count(env, &old_creator, old_count.saturating_sub(1));
 
     let new_count = get_creator_campaign_count(env, &pending);
@@ -91,6 +137,13 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     let mut new_bucket = get_creator_campaign_bucket(env, &pending, new_bucket_idx);
     new_bucket.push_back(campaign_id);
     set_creator_campaign_bucket(env, &pending, new_bucket_idx, &new_bucket);
+    set_creator_campaign_position(
+        env,
+        &pending,
+        campaign_id,
+        new_bucket_idx,
+        new_bucket.len() - 1,
+    );
     set_creator_campaign_count(env, &pending, new_count + 1);
     set_campaign_creator_index(env, campaign_id, &pending);
 

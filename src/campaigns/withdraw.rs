@@ -49,15 +49,16 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let platform_fee = campaign
         .fee_override
         .unwrap_or_else(|| get_platform_fee(env));
-    // Ceiling division: ceil(a / b) = (a + b - 1) / b. Use checked arithmetic so
-    // a pathological amount_raised yields Error::Overflow rather than a panic (#408).
+    // Refunds reduce `effective_amount_raised` but retain `amount_raised` as an
+    // audit total. Fees and payouts must use the remaining escrowed amount.
+    // Ceiling division uses checked arithmetic to avoid an overflow panic (#408).
     let fee_amount = campaign
-        .amount_raised
+        .effective_amount_raised
         .checked_mul(platform_fee as i128)
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.amount_raised - fee_amount;
+    let total_after_fee = campaign.effective_amount_raised - fee_amount;
 
     // Use per-campaign vesting params snapshotted at creation, falling back
     // to the global defaults for campaigns created before the snapshot was
@@ -101,7 +102,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.amount_raised - reserve_amount)
+            .checked_sub(campaign.effective_amount_raised - reserve_amount)
             .ok_or(Error::Overflow)?,
     );
 

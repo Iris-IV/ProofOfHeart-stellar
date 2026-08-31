@@ -4,14 +4,16 @@ use crate::errors::Error;
 use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
-    get_max_campaign_funding_goal, get_min_campaign_funding_goal, get_min_votes_quorum,
-    get_pending_admin, get_pending_token, get_pending_token_release, get_platform_fee, get_token,
-    get_token_update_delay_secs, get_total_raised_global, get_version, is_initialized,
-    remove_has_voted, remove_pending_admin, remove_pending_token, remove_voting_state, set_admin,
-    set_approval_threshold_bps, set_campaign_count, set_creation_disabled, set_initialized,
-    set_max_campaign_funding_goal, set_min_campaign_funding_goal, set_min_votes_quorum,
-    set_min_voting_balance, set_pending_admin, set_pending_token, set_pending_token_release,
-    set_platform_fee, set_token, set_token_update_delay_secs, set_total_raised_global, set_version,
+    get_max_campaign_funding_goal, get_max_contribution_per_transaction,
+    get_min_campaign_funding_goal, get_min_votes_quorum, get_pending_admin, get_pending_token,
+    get_pending_token_release, get_platform_fee, get_token, get_token_update_delay_secs,
+    get_total_raised_global, get_version, is_initialized, remove_has_voted, remove_pending_admin,
+    remove_pending_token, remove_voting_state, set_admin, set_approval_threshold_bps,
+    set_campaign_count, set_creation_disabled, set_initialized, set_max_campaign_funding_goal,
+    set_max_contribution_per_transaction as set_max_contribution_per_transaction_value,
+    set_min_campaign_funding_goal, set_min_votes_quorum, set_min_voting_balance, set_pending_admin,
+    set_pending_token, set_pending_token_release, set_platform_fee, set_token,
+    set_token_update_delay_secs, set_total_raised_global, set_version,
     set_withdraw_release_delay_days, set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
@@ -58,6 +60,7 @@ pub(crate) fn init(
     set_approval_threshold_bps(env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
     set_withdraw_release_delay_days(env, 0);
     set_withdraw_reserve_percentage(env, 0);
+    set_max_contribution_per_transaction_value(env, 0);
 
     env.events().publish(
         ("initialized", admin.clone()),
@@ -233,6 +236,25 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
     env.events().publish(("fee_updated",), (old_fee, new_fee));
+    Ok(())
+}
+
+pub(crate) fn set_max_contribution_per_transaction(
+    env: &Env,
+    admin: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if amount < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    let old_amount = get_max_contribution_per_transaction(env);
+    bump_instance_ttl(env);
+    set_max_contribution_per_transaction_value(env, amount);
+    env.events().publish(
+        ("max_contribution_per_transaction_updated", admin),
+        (old_amount, amount),
+    );
     Ok(())
 }
 

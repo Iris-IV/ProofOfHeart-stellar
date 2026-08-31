@@ -452,6 +452,44 @@ fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
 }
 
 #[test]
+fn test_max_contribution_per_transaction_is_admin_configured_and_enforced() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Transaction cap"),
+        String::from_str(&env, "single contribution limit"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    assert_eq!(client.get_max_contribution_per_tx(), 0);
+    client.set_max_contribution_per_tx(&admin, &750);
+    assert_eq!(client.get_max_contribution_per_tx(), 750);
+
+    client.contribute(&campaign_id, &contributor1, &750);
+    let result = client.try_contribute(&campaign_id, &contributor1, &751);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // The same guard applies to batch contributions, which otherwise bypass
+    // the public single-contribution entry point.
+    let result = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 751i128)],
+    );
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    client.set_max_contribution_per_tx(&admin, &0);
+    client.contribute(&campaign_id, &contributor1, &751);
+}
+
+#[test]
 fn test_personal_cap_enforcement() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5000);
