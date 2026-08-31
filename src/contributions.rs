@@ -310,7 +310,8 @@ pub(crate) fn batch_contribute(
 
     }
 
-    // Interactions last, after every campaign's accounting is persisted.
+    // Transfers happen here, after accounting and before any events are
+    // published, so a failed transfer leaves no partial event stream.
     for (token, amount) in owed.iter() {
         soroban_sdk::token::Client::new(env, &token).transfer(
             &contributor,
