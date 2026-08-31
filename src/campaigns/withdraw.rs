@@ -33,6 +33,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_cancelled {
         return Err(Error::CampaignNotActive);
     }
+    // Withdrawal is only allowed after the campaign deadline has passed.
+    // A verified campaign can otherwise be withdrawn immediately,
+    // bypassing the intended funding window (#854).
+    if env.ledger().timestamp() <= campaign.deadline {
+        return Err(Error::DeadlineNotPassed);
+    }
     if campaign.funds_withdrawn {
         return Err(Error::FundsAlreadyWithdrawn);
     }

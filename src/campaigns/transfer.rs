@@ -144,7 +144,10 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
         new_bucket_idx,
         new_bucket.len() - 1,
     );
-    set_creator_campaign_count(env, &pending, new_count + 1);
+    let new_count = new_count
+        .checked_add(1)
+        .ok_or(Error::Overflow)?;
+    set_creator_campaign_count(env, &pending, new_count);
     set_campaign_creator_index(env, campaign_id, &pending);
 
     campaign.creator = pending.clone();
