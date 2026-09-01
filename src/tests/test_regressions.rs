@@ -105,6 +105,19 @@ fn test_propose_token_update_non_admin_fails() {
     assert_eq!(result.unwrap_err().unwrap(), Error::NotAuthorized);
 }
 
+// ── #884 reject no-op token update proposal ──────────────────────────────────
+
+/// Issue #884 — proposing a token update to the same address as the current
+/// token must be rejected. Accepting such a proposal would start a pointless
+/// timelock and emit a misleading `token_update_proposed` event.
+#[test]
+fn test_propose_token_update_same_token_rejected() {
+    let (_, admin, _, _, _, _, _, client) = setup_env();
+    let current_token = client.get_token();
+    let result = client.try_propose_token_update(&admin, &current_token);
+    assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
 // ── #268 O(1) platform stats ──────────────────────────────────────────────────
 
 fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
@@ -952,7 +965,9 @@ fn test_claim_refund_double_claim_rejected() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     // Let deadline pass without reaching goal so a refund is valid.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * crate::SECONDS_PER_DAY);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * crate::SECONDS_PER_DAY;
+    });
 
     // First refund must succeed.
     let result = client.try_claim_refund(&campaign_id, &contributor1);

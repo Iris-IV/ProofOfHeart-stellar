@@ -1514,18 +1514,17 @@ pub fn get_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>) -> u32 {
 
 /// Sets the number of campaigns indexed under `tag_hash`.
 pub fn set_tag_campaign_count(env: &Env, tag_hash: &BytesN<32>, count: u32) {
-    persistent_set!(
-        env,
-        CampaignKey::TagCampaignCount(tag_hash.clone()),
-        &count
-    );
+    persistent_set!(env, CampaignKey::TagCampaignCount(tag_hash.clone()), &count);
 }
 
 /// Reads a single tag-index bucket.
 pub fn get_tag_campaigns_bucket(env: &Env, tag_hash: &BytesN<32>, bucket_idx: u32) -> Vec<u32> {
     env.storage()
         .persistent()
-        .get(&CampaignKey::TagCampaignsBucket(tag_hash.clone(), bucket_idx))
+        .get(&CampaignKey::TagCampaignsBucket(
+            tag_hash.clone(),
+            bucket_idx,
+        ))
         .unwrap_or_else(|| Vec::new(env))
 }
 

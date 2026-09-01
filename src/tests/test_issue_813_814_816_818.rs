@@ -95,11 +95,7 @@ fn test_admin_cancel_decrements_total_raised_global() {
 
     assert_eq!(client.get_total_raised_global(), goal);
 
-    client.admin_cancel_campaign(
-        &admin,
-        &id,
-        &String::from_str(&env, "fraud detected"),
-    );
+    client.admin_cancel_campaign(&admin, &id, &String::from_str(&env, "fraud detected"));
 
     assert_eq!(client.get_total_raised_global(), 0);
 }
@@ -114,7 +110,9 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * 24 * 60 * 60 + 1);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * 24 * 60 * 60 + 1;
+    });
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).
@@ -228,7 +226,13 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     env.as_contract(&client.address, || {
         let (_, count_a) = crate::storage::get_campaign_block_contribution_count(&env, id_a);
         let (_, count_b) = crate::storage::get_campaign_block_contribution_count(&env, id_b);
-        assert_eq!(count_a, 1, "campaign A count must be 1 (per-campaign, not global)");
-        assert_eq!(count_b, 1, "campaign B count must be 1 (per-campaign, not global)");
+        assert_eq!(
+            count_a, 1,
+            "campaign A count must be 1 (per-campaign, not global)"
+        );
+        assert_eq!(
+            count_b, 1,
+            "campaign B count must be 1 (per-campaign, not global)"
+        );
     });
 }
