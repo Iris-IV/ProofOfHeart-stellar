@@ -130,10 +130,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
-        // Data shape documented in EVENT_PAYLOADS.md as
-        // (approve: bool, balance: i128, weight: i128). Balance is kept for
-        // indexers as informational signal; weight is always the unit 1.
-        (approve, balance, 1i128),
+        // Data shape documented in EVENT_PAYLOADS.md as (approve: bool, weight: i128).
+        // Uses unit-weight voting: weight is always 1, representing 1-address-1-vote
+        // governance model that prevents flash-loan attacks (#469).
+        (approve, 1i128),
     );
 
     Ok(())
