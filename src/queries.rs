@@ -376,18 +376,53 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
     }
 }
 
-/// Returns the contributor's portfolio across all campaigns: for each
-/// campaign the contributor has backed, returns the campaign ID, the
-/// contribution amount, the campaign's current status, and whether a
-/// refund is currently available (#539).
+/// Returns a page of the contributor's portfolio: for each campaign the
+/// contributor has backed, the campaign ID, the contribution amount, the
+/// campaign's current status, and whether a refund is currently available
+/// (#539).
+///
+/// # Pagination (#849)
+///
+/// `start` is an **exclusive cursor** — pass the last campaign ID scanned from
+/// the previous page to begin the next page. Begin with `start = 0`. Each call
+/// scans at most [`MAX_SCAN_WINDOW`] campaign IDs and returns at most `limit`
+/// contributions (capped at [`LIST_MAX_LIMIT`]), so a heavily active wallet can
+/// never produce an unbounded response.
+///
+/// The returned `u32` is the next cursor: pass it as `start` to fetch the next
+/// page, and stop when it equals `0`. If the scan window is exhausted before
+/// `limit` contributions are collected, a `scan_window_exhausted` event is
+/// published so callers/indexers know to re-query with the returned cursor
+/// rather than assuming pagination is complete (mirrors
+/// [`list_active_campaigns`]).
 pub(crate) fn get_contributor_portfolio(
     env: &Env,
     contributor: Address,
-) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+    start: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<(u32, i128, String, bool)>, u32) {
     let total_campaigns = get_campaign_count(env);
     let mut portfolio = soroban_sdk::Vec::new(env);
 
-    for id in 1..=total_campaigns {
+    if start >= total_campaigns || limit == 0 {
+        return (portfolio, 0);
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let mut collected = 0u32;
+    let mut current_id = start + 1;
+    let mut next_cursor = 0u32;
+
+    while current_id <= total_campaigns {
+        if current_id > start + MAX_SCAN_WINDOW {
+            env.events().publish(
+                ("scan_window_exhausted",),
+                (start, current_id, collected, capped_limit),
+            );
+            next_cursor = current_id;
+            break;
+        }
+
         // Test the cheap key before loading the heavy value (#792).
         //
         // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
@@ -396,31 +431,40 @@ pub(crate) fn get_contributor_portfolio(
         // existed, and a contributor is in almost none of them, so loading the
         // campaign first meant deserializing thousands of structs to discard
         // all but a handful. The filter now decides before the copy happens.
-        let amount = get_contribution(env, id, &contributor);
-        if amount == 0 {
-            continue;
+        let amount = get_contribution(env, current_id, &contributor);
+        if amount != 0 {
+            if let Some(campaign) = get_campaign(env, current_id) {
+                let status = if campaign.is_cancelled {
+                    "cancelled"
+                } else if campaign.funds_withdrawn {
+                    "withdrawn"
+                } else if !campaign.is_active {
+                    "inactive"
+                } else if campaign.is_verified {
+                    "verified"
+                } else {
+                    "active"
+                };
+
+                let refundable = campaign.is_cancelled
+                    || (env.ledger().timestamp() > campaign.deadline
+                        && campaign.amount_raised < campaign.funding_goal);
+
+                portfolio.push_back((
+                    current_id,
+                    amount,
+                    String::from_str(env, status),
+                    refundable,
+                ));
+                collected += 1;
+                if collected >= capped_limit {
+                    next_cursor = current_id + 1;
+                    break;
+                }
+            }
         }
-
-        if let Some(campaign) = get_campaign(env, id) {
-            let status = if campaign.is_cancelled {
-                "cancelled"
-            } else if campaign.funds_withdrawn {
-                "withdrawn"
-            } else if !campaign.is_active {
-                "inactive"
-            } else if campaign.is_verified {
-                "verified"
-            } else {
-                "active"
-            };
-
-            let refundable = campaign.is_cancelled
-                || (env.ledger().timestamp() > campaign.deadline
-                    && campaign.amount_raised < campaign.funding_goal);
-
-            portfolio.push_back((id, amount, String::from_str(env, status), refundable));
-        }
+        current_id += 1;
     }
 
-    portfolio
+    (portfolio, next_cursor)
 }
