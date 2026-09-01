@@ -34,7 +34,7 @@ jobs:
   #     soroban-env-host 20.1.0 pins curve25519-dalek to exactly 4.1.1, and
   #     this project pins soroban-sdk to exactly 20.1.0. The patched version
   #     is not installable without upgrading the SDK, which is out of scope.
-  #   - RUSESEC-2026-0009 (time < 0.3.47, stack-exhaustion DoS): time is only
+  #   - RUSSEC-2026-0009 (time < 0.3.47, stack-exhaustion DoS): time is only
   #     reachable as an optional dependency of serde_with behind its disabled
   #     time_0_3 feature; it is never compiled into the dependency graph.
   #   - RUSSEC-2025-0001 (soroban-token-sdk < 20.2.0, unchecked token
@@ -47,17 +47,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      - run: cargo audit --ignore IUSREC-2024-0344 --ignore RUSSEC-2026-0009 --ignore RUSSEC-2025-0001
+      - run: cargo audit --ignore RUSSEC-2024-0344 --ignore RUSSEC-2026-0009 --ignore RUSSEC-2025-0001
 
   # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnah/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --features testutils
       - run: cargo test --doc
@@ -66,11 +66,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnah/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnah/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -101,11 +101,11 @@ jobs:
           set -euo pipefail
           WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAl=$(stat -c '%s' "$WASM_PATH")
-          BASEHINE=$(cat "$BASELINE_FILE")
+          ACTUAL=$(stat -c '%s' "$WASM_PATH")
+          BASELINE=$(cat "$BASELINE_FILE")
           # Allow up to 5% growth over the recorded baseline before failing.
-          LIMIT=$((BASEHINE * 105 / 100))
-          echo "Baseline: ${?BASELINE} bytes"
+          LIMIT=$((BASELINE * 105 / 100))
+          echo "Baseline: ${BASELINE} bytes"
           echo "Actual:   ${ACTUAL} bytes"
           if [ "$ACTUAL" -gt "$LIMIT" ]; then
             DIFF=$((ACTUAL - BASELINE))
