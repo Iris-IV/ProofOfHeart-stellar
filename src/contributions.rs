@@ -264,11 +264,11 @@ pub(crate) fn batch_contribute(
     let mut seen: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(env);
     for (campaign_id, amount) in contributions.iter() {
         for i in 0..seen.len() {
-            if seen.get(i).unwrap() == *campaign_id {
+            if seen.get(i).unwrap() == campaign_id {
                 return Err(Error::ValidationFailed);
             }
         }
-        seen.push_back(*campaign_id);
+        seen.push_back(campaign_id);
 
         if amount <= 0 {
             return Err(Error::ContributionMustBePositive);
