@@ -100,16 +100,16 @@ fn test_get_campaigns_by_category_with_pagination() {
     ));
 
     let learner_page_1 = client.get_campaigns_by_category(&Category::Learner, &0, &1);
-    assert_eq!(learner_page_1.len(), 1);
-    assert_eq!(learner_page_1.get(0).unwrap().id, id1);
+    assert_eq!(learner_page_1.0.len(), 1);
+    assert_eq!(learner_page_1.0.get(0).unwrap().id, id1);
 
     let learner_page_2 = client.get_campaigns_by_category(&Category::Learner, &1, &1);
-    assert_eq!(learner_page_2.len(), 1);
-    assert_eq!(learner_page_2.get(0).unwrap().id, id3);
+    assert_eq!(learner_page_2.0.len(), 1);
+    assert_eq!(learner_page_2.0.get(0).unwrap().id, id3);
 
     let publisher = client.get_campaigns_by_category(&Category::Publisher, &0, &10);
-    assert_eq!(publisher.len(), 1);
-    assert_eq!(publisher.get(0).unwrap().category, Category::Publisher);
+    assert_eq!(publisher.0.len(), 1);
+    assert_eq!(publisher.0.get(0).unwrap().category, Category::Publisher);
 }
 
 #[test]
@@ -409,31 +409,31 @@ fn test_creator_campaigns_listing_and_transfer() {
     ));
 
     let list1 = client.get_creator_campaigns(&creator1, &0, &10);
-    assert_eq!(list1.len(), 2);
-    assert_eq!(list1.get(0).unwrap().id, id1);
-    assert_eq!(list1.get(1).unwrap().id, id2);
+    assert_eq!(list1.0.len(), 2);
+    assert_eq!(list1.0.get(0).unwrap().id, id1);
+    assert_eq!(list1.0.get(1).unwrap().id, id2);
 
     let paginated1 = client.get_creator_campaigns(&creator1, &0, &1);
-    assert_eq!(paginated1.len(), 1);
-    assert_eq!(paginated1.get(0).unwrap().id, id1);
+    assert_eq!(paginated1.0.len(), 1);
+    assert_eq!(paginated1.0.get(0).unwrap().id, id1);
 
     let paginated2 = client.get_creator_campaigns(&creator1, &1, &1);
-    assert_eq!(paginated2.len(), 1);
-    assert_eq!(paginated2.get(0).unwrap().id, id2);
+    assert_eq!(paginated2.0.len(), 1);
+    assert_eq!(paginated2.0.get(0).unwrap().id, id2);
 
     let list2 = client.get_creator_campaigns(&creator2, &0, &10);
-    assert_eq!(list2.len(), 0);
+    assert_eq!(list2.0.len(), 0);
 
     client.initiate_campaign_transfer(&id1, &creator2);
     client.accept_campaign_transfer(&id1);
 
     let list1_after = client.get_creator_campaigns(&creator1, &0, &10);
-    assert_eq!(list1_after.len(), 1);
-    assert_eq!(list1_after.get(0).unwrap().id, id2);
+    assert_eq!(list1_after.0.len(), 1);
+    assert_eq!(list1_after.0.get(0).unwrap().id, id2);
 
     let list2_after = client.get_creator_campaigns(&creator2, &0, &10);
-    assert_eq!(list2_after.len(), 1);
-    assert_eq!(list2_after.get(0).unwrap().id, id1);
+    assert_eq!(list2_after.0.len(), 1);
+    assert_eq!(list2_after.0.get(0).unwrap().id, id1);
 }
 
 #[test]
@@ -623,17 +623,17 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 
     // Start pagination two entries before the bucket boundary, spanning into bucket 1.
     let page = client.get_creator_campaigns(&creator, &(bucket_size - 2), &10);
-    assert_eq!(page.len(), extra + 2);
-    assert_eq!(page.get(0).unwrap().id, bucket_size - 1);
-    assert_eq!(page.get(1).unwrap().id, bucket_size);
-    assert_eq!(page.get(2).unwrap().id, bucket_size + 1);
-    assert_eq!(page.get(6).unwrap().id, bucket_size + 5);
+    assert_eq!(page.0.len(), extra + 2);
+    assert_eq!(page.0.get(0).unwrap().id, bucket_size - 1);
+    assert_eq!(page.0.get(1).unwrap().id, bucket_size);
+    assert_eq!(page.0.get(2).unwrap().id, bucket_size + 1);
+    assert_eq!(page.0.get(6).unwrap().id, bucket_size + 5);
 
     // Pagination entirely within bucket 1.
     let tail = client.get_creator_campaigns(&creator, &bucket_size, &10);
-    assert_eq!(tail.len(), extra);
-    assert_eq!(tail.get(0).unwrap().id, bucket_size + 1);
-    assert_eq!(tail.get(extra - 1).unwrap().id, total);
+    assert_eq!(tail.0.len(), extra);
+    assert_eq!(tail.0.get(0).unwrap().id, bucket_size + 1);
+    assert_eq!(tail.0.get(extra - 1).unwrap().id, total);
 }
 
 #[test]

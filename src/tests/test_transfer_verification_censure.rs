@@ -81,8 +81,8 @@ fn test_accept_transfer_to_self_is_rejected() {
 
     // The creator index is untouched: the campaign still appears exactly once.
     let owned = client.get_creator_campaigns(&creator, &0, &10);
-    assert_eq!(owned.len(), 1);
-    assert_eq!(owned.get(0).unwrap().id, campaign_id);
+    assert_eq!(owned.0.len(), 1);
+    assert_eq!(owned.0.get(0).unwrap().id, campaign_id);
 }
 
 // ── #796: editing the description revokes verification ───────────────────────
