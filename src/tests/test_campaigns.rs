@@ -147,11 +147,10 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 fn test_description_length_boundaries() {
     extern crate std;
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let title = String::from_str(&env, "Title");
 
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, "T1"),
         String::from_str(&env, ""),
         1000,
         30,
@@ -165,7 +164,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            String::from_str(&env, "T2"),
             String::from_str(&env, "a"),
             1000,
             30,
@@ -180,7 +179,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            title.clone(),
+            String::from_str(&env, "T3"),
             String::from_str(&env, &desc_1000),
             1000,
             30,
@@ -194,7 +193,7 @@ fn test_description_length_boundaries() {
     let desc_1001 = "a".repeat(1001);
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, "T4"),
         String::from_str(&env, &desc_1001),
         1000,
         30,
@@ -328,9 +327,10 @@ fn test_campaign_count_cannot_reset_after_deployment() {
 
     assert_eq!(client.get_campaign_count(), 0);
     for i in 1u32..=3 {
+        let title_data = [b'C', b'_', b'0' + i as u8];
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Desc"),
             1000,
             30,

@@ -2,10 +2,19 @@ use super::helpers::*;
 use crate::{storage, Category, LIST_MAX_LIMIT};
 use soroban_sdk::{Address, Env, String};
 
+fn unique_title(env: &Env, idx: u32) -> String {
+    let mut data = [0u8; 4];
+    data[0] = b'C';
+    data[1] = b'_';
+    data[2] = b'0' + (idx / 10) as u8;
+    data[3] = b'0' + (idx % 10) as u8;
+    String::from_bytes(env, &data)
+}
+
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign"),
+        unique_title(env, idx),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,
@@ -44,6 +53,7 @@ fn all_creator_ids(
 #[test]
 fn test_creator_buckets_100_campaigns() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
 
     let total_campaigns = 60u32;
     for idx in 0..total_campaigns {
@@ -67,6 +77,7 @@ fn test_creator_buckets_100_campaigns() {
 #[test]
 fn test_creator_buckets_pagination_boundaries() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
 
     let total = 60u32;
     for idx in 0..total {
@@ -91,6 +102,7 @@ fn test_creator_buckets_pagination_boundaries() {
 #[test]
 fn test_creator_buckets_transfer_single() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
     let receiver = Address::generate(&env);
 
     // Create 15 campaigns
@@ -116,6 +128,7 @@ fn test_creator_buckets_transfer_single() {
 #[test]
 fn test_creator_campaign_positions_are_updated_by_swap_removal() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
     let receiver = Address::generate(&env);
 
     for idx in 0..3 {
@@ -150,6 +163,7 @@ fn test_creator_campaign_positions_are_updated_by_swap_removal() {
 #[test]
 fn test_creator_buckets_transfer_multiple() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
     let receiver = Address::generate(&env);
 
     // Create 15 campaigns
@@ -195,15 +209,21 @@ fn verify_missing(
 #[test]
 fn test_creator_buckets_multiple_creators() {
     let (env, _admin, creator1, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
     let creator2 = Address::generate(&env);
 
     for idx in 0..30 {
         create_campaign(&env, &client, &creator1, idx);
     }
-    for idx in 0..20 {
+    for idx in 0..20u32 {
+        let mut data = [0u8; 4];
+        data[0] = b'X';
+        data[1] = b'_';
+        data[2] = b'0' + (idx / 10) as u8;
+        data[3] = b'0' + (idx % 10) as u8;
         client.create_campaign(&make_params(
             creator2.clone(),
-            String::from_str(&env, "Creator2"),
+            String::from_bytes(&env, &data),
             String::from_str(&env, "Test"),
             1000 + idx as i128,
             30,
@@ -223,6 +243,7 @@ fn test_creator_buckets_multiple_creators() {
 #[test]
 fn test_creator_buckets_internal_state() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
 
     for idx in 0..50 {
         create_campaign(&env, &client, &creator, idx);

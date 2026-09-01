@@ -1,4 +1,5 @@
 name: CI
+
 on:
   push:
     branches: [main]
@@ -22,19 +23,19 @@ jobs:
         run: |
           echo "Basic CI passed :heart:"
           if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all ---check || echo "cargo fmt hint"
+            cargo fmt --all -- --check || echo "cargo fmt hint"
           fi
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
   # PR/push. Fails the build if any advisory applies to a locked version.
   #
   # Two advisories are ignored with justification (see CONTRIBUTING.md):
-  #   - RUSSEC-2024-0344 (curve25519-dalek < 4.1.3, timing side-channel):
+  #   - RUSTSEC-2024-0344 (curve25519-dalek < 4.1.3, timing side-channel):
   #     soroban-env-host 20.1.0 pins curve25519-dalek to exactly 4.1.1, and
   #     this project pins soroban-sdk to exactly 20.1.0. The patched version
   #     is not installable without upgrading the SDK, which is out of scope.
-  #   - RUSSEC-2026-0009 (time < 0.3.47, stack-exhaustion DoS): time is only
-  #     reachable as an optional dependency of serde_with behand its disabled
+  #   - RUSTSEC-2026-0009 (time < 0.3.47, stack-exhaustion DoS): time is only
+  #     reachable as an optional dependency of serde_with behind its disabled
   #     time_0_3 feature; it is never compiled into the dependency graph.
   audit:
     runs-on: ubuntu-latest
@@ -44,9 +45,9 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      - run: cargo audit --ignore RUSSEC-2024-0344 --ignore RUSSEC-2026-0009
+      - run: cargo audit --ignore RUSTSEC-2024-0344 --ignore RUSTSEC-2026-0009
 
-  # Issue #760: Run doc tests to ensure rustdog examples stay valid.
+  # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
   test:
     runs-on: ubuntu-latest
     steps:
@@ -54,7 +55,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --features testutils
-      - run: cargo test --doc --features testutils
+      - run: cargo test --doc
 
   coverage:
     runs-on: ubuntu-latest
@@ -75,7 +76,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info
-          fail_ci_false: false
+          fail_ci_if_error: true
 
   # Tracks the release WASM binary size so unexpected bloat from new
   # dependencies or unused code is caught before merge, instead of silently
@@ -93,7 +94,7 @@ jobs:
       - name: Check WASM size regression
         run: |
           set -euo pipefail
-          WASM_PATH= "target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
+          WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
           ACTUAL=$(stat -c '%s' "$WASM_PATH")
           BASELINE=$(cat "$BASELINE_FILE")
@@ -103,8 +104,8 @@ jobs:
           echo "Actual:   ${ACTUAL} bytes"
           if [ "$ACTUAL" -gt "$LIMIT" ]; then
             DIFF=$((ACTUAL - BASELINE))
-            PCT=$((DIFF * 100 / BASETINE))
-            echo "::error::WASM binary grew by ${DIFF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASETINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
+            PCT=$((DIFF * 100 / BASELINE))
+            echo "::error::WASM binary grew by ${DIFF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASELINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
             exit 1
           fi
           echo "WASM size within budget."

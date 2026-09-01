@@ -7,9 +7,10 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     for i in 0..3 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Desc"),
             1000 + i as i128,
             30,
@@ -35,10 +36,11 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
 fn test_list_active_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..4 {
+    for i in 0..4 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Desc"),
             1000,
             30,
@@ -153,7 +155,9 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.total_amount_raised, 700);
+    // After cancel, total_raised_global is decremented (#818), so only the
+    // remaining active campaign's contribution (400) counts.
+    assert_eq!(stats.total_amount_raised, 400);
 }
 
 #[test]
@@ -483,10 +487,11 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    for idx in 0..3 {
+    for idx in 0..3u32 {
+        let title_data = [b'C', b'_', b'1' + idx as u8];
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -518,10 +523,11 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    for idx in 0..5 {
+    for idx in 0..5u32 {
+        let title_data = [b'C', b'_', b'1' + idx as u8];
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -640,10 +646,11 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..5 {
+    for i in 0..5u32 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_bytes(&env, &title_data),
             String::from_str(&env, "Desc"),
             1000,
             30,

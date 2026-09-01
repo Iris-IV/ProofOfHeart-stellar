@@ -6,9 +6,24 @@ use crate::{storage, Category, Error, MaybePendingCreator};
 use soroban_sdk::{testutils::Ledger, Address, BytesN, String, TryFromVal};
 
 fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHeartClient) -> u32 {
+    static mut COUNTER: u32 = 0;
+    let nonce = unsafe {
+        COUNTER += 1;
+        COUNTER
+    };
+    let title_data = [
+        b'T',
+        b'i',
+        b't',
+        b'l',
+        b'e',
+        b'_',
+        b'0' + (nonce / 10) as u8,
+        b'0' + (nonce % 10) as u8,
+    ];
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign Title"),
+        String::from_bytes(env, &title_data),
         String::from_str(env, "Campaign Description"),
         1000,
         30,

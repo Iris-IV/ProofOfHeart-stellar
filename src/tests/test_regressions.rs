@@ -107,17 +107,32 @@ fn test_propose_token_update_non_admin_fails() {
 
 // ── #268 O(1) platform stats ──────────────────────────────────────────────────
 
+static mut CAMPAIGN_COUNTER: u32 = 0;
+
 fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
-    CreateCampaignParams {
-        creator: creator.clone(),
-        title: String::from_str(env, "T"),
-        description: String::from_str(env, "D"),
-        funding_goal: 1,
-        duration_days: 30,
-        category: Category::Learner,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
+    unsafe {
+        CAMPAIGN_COUNTER += 1;
+        let c = CAMPAIGN_COUNTER;
+        CreateCampaignParams {
+            creator: creator.clone(),
+            title: {
+                let title_data = [
+                    b'T',
+                    b'_',
+                    b'0' + (c / 100) as u8,
+                    b'0' + ((c / 10) % 10) as u8,
+                    b'0' + (c % 10) as u8,
+                ];
+                String::from_bytes(env, &title_data)
+            },
+            description: String::from_str(env, "D"),
+            funding_goal: 10_000,
+            duration_days: 30,
+            category: Category::Learner,
+            has_revenue_sharing: false,
+            revenue_share_percentage: 0,
+            max_contribution_per_user: 0,
+        }
     }
 }
 
@@ -158,8 +173,8 @@ fn test_platform_stats_after_withdraw() {
     let id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
     client.verify_campaign(&id);
 
-    token_admin.mint(&contributor, &1000);
-    client.contribute(&id, &contributor, &1);
+    token_admin.mint(&contributor, &100_000);
+    client.contribute(&id, &contributor, &10_000);
 
     env.ledger().with_mut(|l| {
         l.timestamp += 31 * SECONDS_PER_DAY;
@@ -175,6 +190,7 @@ fn test_platform_stats_after_withdraw() {
 #[test]
 fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
+    env.budget().reset_unlimited();
 
     for _ in 0..60 {
         client.create_campaign(&make_campaign_params_simple(&env, &creator));
@@ -188,6 +204,7 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
 #[test]
 fn test_get_campaigns_by_category_small_limit_respected() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
+    env.budget().reset_unlimited();
     for _ in 0..10 {
         client.create_campaign(&make_campaign_params_simple(&env, &creator));
     }
@@ -622,6 +639,7 @@ fn test_platform_stats_counters_track_lifecycle() {
 #[test]
 fn test_platform_stats_never_partial() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
+    env.budget().reset_unlimited();
 
     for _ in 0..5 {
         client.create_campaign(&make_campaign_params_simple(&env, &creator));
@@ -900,6 +918,7 @@ fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     // remain reachable in a single page rather than proving the exact 1000 bound
     // (proving that directly would itself blow the per-invocation test budget).
     let mut last_id = 0u32;
+    env.budget().reset_unlimited();
     for _ in 0..40 {
         last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
     }
@@ -946,6 +965,7 @@ fn test_claim_refund_double_claim_rejected() {
     let (env, _, creator, contributor1, _, token, token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    client.verify_campaign(&campaign_id);
 
     // Fund contributor and make a contribution.
     token_admin.mint(&contributor1, &500);
