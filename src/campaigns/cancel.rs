@@ -7,9 +7,9 @@ use crate::lifecycle::{
     require_active_campaign, require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool,
-    get_total_raised_global, increment_cancelled_campaign_count, remove_voting_state, set_campaign,
-    set_revenue_pool, set_total_raised_global,
+    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_total_raised_global,
+    increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
+    set_total_raised_global,
 };
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -56,9 +56,17 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
         let total = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total.checked_sub(campaign.amount_raised).ok_or(Error::Overflow)?,
+            total
+                .checked_sub(campaign.amount_raised)
+                .ok_or(Error::Overflow)?,
         );
     }
+
+    // #831: Zero effective_amount_raised on cancellation so that indexers do
+    // not report a stale "live contributions" value for dead campaigns.
+    // claim_refund skips the effective_amount_raised decrement for cancelled
+    // campaigns to avoid underflow.
+    campaign.effective_amount_raised = 0;
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
@@ -128,9 +136,14 @@ pub(crate) fn admin_cancel_campaign(
         let total = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total.checked_sub(campaign.amount_raised).ok_or(Error::Overflow)?,
+            total
+                .checked_sub(campaign.amount_raised)
+                .ok_or(Error::Overflow)?,
         );
     }
+
+    // #831: Zero effective_amount_raised on admin cancellation as well.
+    campaign.effective_amount_raised = 0;
 
     campaign.is_cancelled = true;
     campaign.is_active = false;

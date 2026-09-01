@@ -8,9 +8,8 @@ use crate::lifecycle::{
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_fee_recipient,
     get_campaign_milestones, get_campaign_reserve, get_campaign_vesting, get_platform_fee,
-    get_total_raised_global,
-    get_withdraw_release_delay_days, get_withdraw_reserve_percentage, set_campaign,
-    set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
+    get_total_raised_global, get_withdraw_release_delay_days, get_withdraw_reserve_percentage,
+    set_campaign, set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
     set_withdraw_reserve_percentage,
 };
 use crate::types::CampaignReserve;
@@ -114,7 +113,8 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     // transfer between contribution and withdrawal must not redirect a fee
     // that was earned under the previous admin. Campaigns funded before this
     // snapshot existed have no key and fall back to the current admin.
-    let fee_recipient = get_campaign_fee_recipient(env, campaign_id).unwrap_or_else(|| get_admin(env));
+    let fee_recipient =
+        get_campaign_fee_recipient(env, campaign_id).unwrap_or_else(|| get_admin(env));
     let client = campaign_token_client(env, campaign_id);
 
     client.transfer(&env.current_contract_address(), &fee_recipient, &fee_amount);

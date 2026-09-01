@@ -9,10 +9,10 @@ use crate::storage::{
     get_campaign_block_contribution_count, get_campaign_token, get_contribution,
     get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
     get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
-    set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
-    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    AdminKey,
+    remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count, set_campaign_fee_recipient, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -356,15 +356,19 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
 
     decrement_contributor_count(env, campaign_id);
 
-    campaign.effective_amount_raised = campaign
-        .effective_amount_raised
-        .checked_sub(amount)
-        .ok_or(Error::Overflow)?;
-    set_campaign(env, campaign_id, &campaign);
-
     // #818: For cancelled campaigns total_raised_global was already decremented
     // in full at cancel time. Only decrement here for the failed-funding path
     // (deadline passed, goal not met) to avoid double-counting.
+    // #831: Similarly, effective_amount_raised was already zeroed at cancel
+    // time. Skip the per-contributor decrement to avoid underflow.
+    if !campaign.is_cancelled {
+        campaign.effective_amount_raised = campaign
+            .effective_amount_raised
+            .checked_sub(amount)
+            .ok_or(Error::Overflow)?;
+    }
+    set_campaign(env, campaign_id, &campaign);
+
     if !campaign.is_cancelled {
         let total_raised = get_total_raised_global(env);
         set_total_raised_global(
