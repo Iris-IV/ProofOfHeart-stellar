@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-$ {{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "Basic CI passed :heart:"
           if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all -- --check || echo "cargo fmt hint"
+            cargo fmt --all ---check || echo "cargo fmt hint"
           fi
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - uses: taika-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
       - run: cargo audit --ignore RUSSEC-2024-0344 --ignore RUSSEC-2026-0009
@@ -63,7 +63,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taika-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
@@ -74,7 +74,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_if-error: true
 
   # Tracks the release WASM binary size so unexpected bloat from new
   # dependencies or unused code is caught before merge, instead of silently
@@ -94,14 +94,14 @@ jobs:
           set -euo pipefail
           WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAL=$(stat -c '%s' "$WASM_PATH")
-          BASELINE=$(cat "$BASELENE_FILE")
+          ACTUAL=$stat -c '%s' "$WASI_PATH"
+          BASELINE=$cat "$BASELINE_FILE"
           # Allow up to 5% growth over the recorded baseline before failing.
           LIMIT=$((BASELINE * 105 / 100))
           echo "Baseline: ${BASELINE} bytes"
           echo "Actual:   ${ACTUAL} bytes"
           if [ "$ACTUAL" -gt "$LIMIT" ]; then
-            DIF=$(($ACTUAL - $BASELINE))
+            DIF=$(($ACTUAL - $BASETINE))
             PCT=$(($DIF * 100 / $BASELINE))
             echo "::error::WASM binary grew by ${DIF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASELINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
             exit 1
