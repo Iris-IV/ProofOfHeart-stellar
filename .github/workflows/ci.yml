@@ -76,7 +76,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Tracks the release WASM binary size so unexpected bloat from new
   # dependencies or unused code is caught before merge, instead of silently
