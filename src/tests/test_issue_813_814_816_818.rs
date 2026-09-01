@@ -6,8 +6,8 @@
 /// #814 — BlockCampaignContributionCount (per-campaign) is the only block
 ///         count variant; no dead global key exists.
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{testutils::Ledger as _, vec, Address, String, Vec};
+use crate::{Category, CreateCampaignParams};
+use soroban_sdk::{vec, Address, String, Vec};
 
 fn make_campaign(
     env: &soroban_sdk::Env,

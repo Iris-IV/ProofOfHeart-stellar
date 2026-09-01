@@ -1,7 +1,7 @@
 use super::helpers::*;
 use crate::{
-    AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
-    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    storage, AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error,
+    MaybePendingCreator, VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
@@ -983,4 +983,46 @@ fn test_claim_refund_double_claim_rejected() {
     // Second refund on the same (now-zeroed) slot must fail.
     let result2 = client.try_claim_refund(&campaign_id, &contributor1);
     assert_eq!(result2.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
+// ── #855 withdraw_funds unchecked day-to-second multiplication ────────────────
+
+/// Issue #855 — `delay_days * SECONDS_PER_DAY` in `withdraw_funds` was
+/// unchecked. An extreme per-campaign vesting delay (e.g. via migration or
+/// storage corruption) could overflow the multiplication, panicking and
+/// permanently locking the reserve. The fix uses `checked_mul` so the
+/// operation returns `Error::Overflow` instead.
+#[test]
+fn test_withdraw_funds_overflow_day_to_seconds_returns_error() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Overflow Vesting"),
+        description: String::from_str(&env, "Test day-to-second overflow"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // Forge the per-campaign vesting delay to an extreme value that would
+    // overflow when multiplied by SECONDS_PER_DAY (86_400).
+    let huge_delay = u64::MAX / 2;
+    env.as_contract(&client.address, || {
+        storage::set_campaign_vesting(&env, campaign_id, huge_delay, 1000);
+    });
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * SECONDS_PER_DAY;
+    });
+
+    // Must return Overflow, not panic.
+    let result = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::Overflow);
 }
