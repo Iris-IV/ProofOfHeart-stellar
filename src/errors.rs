@@ -105,6 +105,8 @@ pub enum Error {
     MilestoneNotVerified = 49,
     /// Milestone has already been claimed.
     MilestoneAlreadyClaimed = 50,
+    /// An invariant condition has been violated (state corruption or bug).
+    InvariantBroken = 51,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -181,6 +183,7 @@ impl Error {
                 MilestoneNotFound,
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
+                InvariantBroken,
             ]
         )
     }
@@ -331,6 +334,7 @@ mod tests {
             Error::MilestoneAlreadyClaimed.to_string(),
             "MilestoneAlreadyClaimed"
         );
+        assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
     }
 
     #[test]

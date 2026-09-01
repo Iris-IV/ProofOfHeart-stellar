@@ -354,7 +354,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     remove_revenue_claimed(env, campaign_id, &contributor);
     remove_personal_cap(env, campaign_id, &contributor);
 
-    decrement_contributor_count(env, campaign_id);
+    decrement_contributor_count(env, campaign_id)?;
 
     campaign.effective_amount_raised = campaign
         .effective_amount_raised

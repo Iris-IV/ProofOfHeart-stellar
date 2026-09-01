@@ -464,11 +464,13 @@ pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
     set_contributor_count(env, campaign_id, count + 1);
 }
 
-pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+pub fn decrement_contributor_count(env: &Env, campaign_id: u32) -> Result<(), crate::errors::Error> {
     let count = get_contributor_count(env, campaign_id);
-    if count > 0 {
-        set_contributor_count(env, campaign_id, count - 1);
+    if count == 0 {
+        return Err(crate::errors::Error::InvariantBroken);
     }
+    set_contributor_count(env, campaign_id, count - 1);
+    Ok(())
 }
 
 pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
