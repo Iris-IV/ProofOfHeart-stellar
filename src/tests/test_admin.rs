@@ -347,8 +347,8 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Cancel: ActiveCampaignCount → 0, but the 500 is still escrowed in the
-    // old token pending claim_refund.
+    // Cancel: ActiveCampaignCount → 0, AND total_raised_global → 0 immediately
+    // (per #818 fix). So the token swap is no longer blocked after cancel.
     client.cancel_campaign(&campaign_id);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -357,15 +357,10 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must still be blocked: outstanding balance remains in the old token.
+    // With #818 fix, total_raised_global is already 0 after cancel,
+    // so the swap succeeds immediately without waiting for claim_refund.
     let res = client.try_accept_token_update(&admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Once the contributor claims their refund, no old-token escrow remains and
-    // the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor1);
-    let res2 = client.try_accept_token_update(&admin);
-    assert!(res2.is_ok());
+    assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 }
 
@@ -394,30 +389,20 @@ fn test_token_swap_blocked_after_partial_refund() {
     client.contribute(&campaign_id, &contributor1, &500);
     client.contribute(&campaign_id, &contributor2, &500);
 
-    // Cancel → ActiveCampaignCount → 0, but both contributions remain
-    // escrowed in the old token pending claim_refund.
+    // Cancel: ActiveCampaignCount → 0, AND total_raised_global → 0 immediately
+    // (per #818 fix). So the token swap is no longer blocked after cancel.
     client.cancel_campaign(&campaign_id);
 
-    // Only contributor1 claims their refund (partial refund).
-    // contributor2's 500 remains escrowed in the old token, so
-    // total_raised_global is still 500.
-    client.claim_refund(&campaign_id, &contributor1);
-
+    // With #818 fix, total_raised_global is already 0 after cancel,
+    // so the swap succeeds immediately.
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
     env.ledger().with_mut(|l| {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must be blocked: contributor2's refund is still escrowed in the
-    // old token (total_raised_global = 500 != 0).
     let res = client.try_accept_token_update(&admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Once all refunds are claimed, the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor2);
-    let res2 = client.try_accept_token_update(&admin);
-    assert!(res2.is_ok());
+    assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 }
 
@@ -607,13 +592,12 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
         CAMPAIGN_FUNDING_GOAL_MAX
     );
 
-    let title = String::from_str(&env, "Max Goal");
     let desc = String::from_str(&env, "Checks funding goal ceiling");
 
     // Exactly at the cap must succeed.
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, "Max Goal 1"),
         desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX,
         30,
@@ -627,7 +611,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     // One above the cap must fail.
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, "Max Goal 2"),
         desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
@@ -646,7 +630,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     // Previously-rejected goal now succeeds.
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, "Max Goal 3"),
         desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
@@ -749,9 +733,9 @@ fn test_campaign_fee_override_above_max_rejected() {
         0i128,
     ));
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &1001);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &10001);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
 
 #[test]
