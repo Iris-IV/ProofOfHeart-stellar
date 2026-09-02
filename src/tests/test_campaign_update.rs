@@ -373,6 +373,171 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
+// ── #869: pending transfer expiry ─────────────────────────────────────────
+
+#[test]
+fn test_initiate_campaign_transfer_emits_expiry() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expiry Event"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let before = env.ledger().timestamp();
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator_expiry,
+        before + crate::TRANSFER_EXPIRY_SECS
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    // Event payload: (new_creator, expiry)
+    let payload: (Address, u64) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload.0, contributor1);
+    assert_eq!(payload.1, campaign.pending_creator_expiry);
+}
+
+#[test]
+fn test_expired_transfer_cannot_be_accepted() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expired Accept"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += crate::TRANSFER_EXPIRY_SECS + 1;
+    });
+
+    let res = client.try_accept_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+
+    // The stale nomination never took effect.
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, creator);
+}
+
+#[test]
+fn test_expired_transfer_can_be_replaced_without_explicit_cancel() {
+    let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expiry Replace"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    // While still pending (not yet expired), a second nomination is rejected.
+    let res = client.try_initiate_campaign_transfer(&campaign_id, &contributor2);
+    assert_eq!(res.unwrap_err().unwrap(), Error::TransferAlreadyPending);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += crate::TRANSFER_EXPIRY_SECS + 1;
+    });
+
+    // Past expiry, initiating again overwrites the stale nomination without
+    // needing an explicit cancel_campaign_transfer first (#869) — a lost or
+    // unresponsive nominee can no longer block the creator forever.
+    client.initiate_campaign_transfer(&campaign_id, &contributor2);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(contributor2.clone())
+    );
+
+    client.accept_campaign_transfer(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, contributor2);
+}
+
+#[test]
+fn test_admin_cancel_campaign_transfer_recovers_stuck_pending() {
+    let (env, admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Admin Recovery"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    // Only the admin can force-clear a still-live pending transfer this way.
+    let impostor = Address::generate(&env);
+    let res = client.try_admin_cancel_campaign_transfer(&impostor, &campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+
+    // The admin can clear it immediately, without waiting for the expiry window.
+    client.admin_cancel_campaign_transfer(&admin, &campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+
+    // The creator can now nominate someone else right away.
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(contributor1)
+    );
+}
+
+#[test]
+fn test_admin_cancel_campaign_transfer_no_pending() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "No Pending"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let res = client.try_admin_cancel_campaign_transfer(&admin, &campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+}
+
 #[test]
 fn test_cancel_campaign_already_cancelled_is_terminal() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();

@@ -27,22 +27,12 @@ fn capped_campaign(
     creator: &Address,
     client: &ProofOfHeartClient,
     max_per_user: i128,
-    index: u32,
+    seq: u32,
 ) -> u32 {
-    let nonce = unsafe {
-        CC_COUNTER += 1;
-        CC_COUNTER
-    };
-    let title_data = [
-        b'C',
-        b'C',
-        b'_',
-        b'0' + (nonce / 10) as u8,
-        b'0' + (nonce % 10) as u8,
-    ];
+    extern crate std;
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_bytes(env, &title_data),
+        title: String::from_str(env, &std::format!("Capped Campaign {}", seq)),
         description: String::from_str(env, "Has a per-user contribution cap"),
         funding_goal: 100_000,
         duration_days: 30,
@@ -328,11 +318,16 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
 fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
     let (env, _admin, creator, _, contributor2, _token, _token_admin, client) = setup_env();
 
-    for i in 0..5 {
+    for i in 0..5u32 {
         capped_campaign(&env, &creator, &client, 0, i);
     }
 
-    assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &u32::MAX).0.len(), 0);
+    assert_eq!(
+        client
+            .get_contributor_portfolio(&contributor2, &0, &100)
+            .len(),
+        0
+    );
 }
 
 /// The portfolio still reports status and refundability from the campaign, so
@@ -442,4 +437,3 @@ fn test_extension_stays_within_the_absolute_horizon() {
     // And it is genuinely one-shot.
     assert!(client.try_extend_campaign_deadline(&id, &1).is_err());
 }
-

@@ -55,8 +55,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS, MAX_EXTENSION_DAYS,
-    MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_EXTENSION_DAYS, MAX_TOKEN_UPDATE_DELAY_SECS,
+    SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS, TRANSFER_EXPIRY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
@@ -309,6 +309,17 @@ impl ProofOfHeart {
 
     pub fn cancel_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::transfer::cancel_campaign_transfer(&env, campaign_id)
+    }
+
+    /// Admin recovery path for a pending transfer whose nominee is
+    /// unreachable (#869): lets the admin clear `pending_creator` without
+    /// waiting for `TRANSFER_EXPIRY_SECS` to elapse.
+    pub fn admin_cancel_campaign_transfer(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        campaigns::transfer::admin_cancel_campaign_transfer(&env, admin, campaign_id)
     }
 
     // ── Revenue sharing ───────────────────────────────────────────────────────
@@ -839,7 +850,7 @@ impl ProofOfHeart {
         contributor: Address,
         start: u32,
         limit: u32,
-    ) -> (soroban_sdk::Vec<(u32, i128, String, bool)>, u32) {
+    ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
         queries::get_contributor_portfolio(&env, contributor, start, limit)
     }
 

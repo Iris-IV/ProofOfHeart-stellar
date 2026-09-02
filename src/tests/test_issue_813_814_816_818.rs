@@ -20,11 +20,12 @@ fn make_campaign_with_title(
     goal: i128,
     days: u64,
     category: Category,
-    index: u32,
+    seq: u32,
 ) -> u32 {
-    let id = client.create_campaign(&CreateCampaignParams {
+    extern crate std;
+    client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, title),
+        title: String::from_str(env, &std::format!("Test Campaign {}", seq)),
         description: String::from_str(env, "Test description for campaign"),
         funding_goal: goal,
         duration_days: days,
@@ -189,9 +190,8 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().with_mut(|li| {
-        li.timestamp += 31 * 24 * 60 * 60 + 1;
-    });
+    env.ledger()
+        .with_mut(|l| l.timestamp += 31 * 24 * 60 * 60 + 1);
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).

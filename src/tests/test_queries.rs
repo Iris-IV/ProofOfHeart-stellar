@@ -528,8 +528,14 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    for idx in 0..5u32 {
-        let title_data = [b'C', b'_', b'1' + idx as u8];
+    let titles = [
+        "Campaign 1",
+        "Campaign 2",
+        "Campaign 3",
+        "Campaign 4",
+        "Campaign 5",
+    ];
+    for idx in 0..5 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
             String::from_bytes(&env, &title_data),
@@ -574,6 +580,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
         creator: creator.clone(),
         first_creator: creator.clone(),
         pending_creator: MaybePendingCreator::None,
+        pending_creator_expiry: 0,
         title: String::from_str(env, "t"),
         description: String::from_str(env, "d"),
         funding_goal: 1_000,
@@ -651,8 +658,14 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for i in 0..5u32 {
-        let title_data = [b'C', b'_', b'1' + i as u8];
+    let titles = [
+        "Campaign 1",
+        "Campaign 2",
+        "Campaign 3",
+        "Campaign 4",
+        "Campaign 5",
+    ];
+    for i in 0..5 {
         client.create_campaign(&make_params(
             creator.clone(),
             String::from_bytes(&env, &title_data),

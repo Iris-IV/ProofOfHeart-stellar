@@ -451,7 +451,10 @@ fn test_contributor_cap_ttl_is_extended_while_campaign_stays_active() {
     });
 
     assert_eq!(client.get_personal_cap(&campaign_id, &contributor), 500);
-    assert_eq!(client.get_lifetime_contribution(&campaign_id, &contributor), 150);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor),
+        150
+    );
 }
 
 #[test]

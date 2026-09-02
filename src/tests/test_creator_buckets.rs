@@ -15,9 +15,10 @@ fn unique_title(env: &Env, idx: u32) -> String {
 }
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
+    extern crate std;
     client.create_campaign(&make_params(
         creator.clone(),
-        unique_title(env, idx),
+        String::from_str(env, &std::format!("Campaign {}", idx)),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,
@@ -220,14 +221,10 @@ fn test_creator_buckets_multiple_creators() {
         create_campaign(&env, &client, &creator1, idx);
     }
     for idx in 0..20u32 {
-        let mut data = [0u8; 4];
-        data[0] = b'X';
-        data[1] = b'_';
-        data[2] = b'0' + (idx / 10) as u8;
-        data[3] = b'0' + (idx % 10) as u8;
+        extern crate std;
         client.create_campaign(&make_params(
             creator2.clone(),
-            String::from_bytes(&env, &data),
+            String::from_str(&env, &std::format!("Creator2 {}", idx)),
             String::from_str(&env, "Test"),
             1000 + idx as i128,
             30,

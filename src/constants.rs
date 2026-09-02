@@ -69,6 +69,20 @@ pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS : u64 = 365 * SECONDS_PER_DAY;
 /// is changing a security bound.
 pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;
 
+/// How long a pending campaign-ownership nomination remains acceptable
+/// before it expires (7 days) (#869).
+///
+/// Without an expiry, nominating an address that never calls
+/// `accept_campaign_transfer` — a lost key, an abandoned wallet, a typo —
+/// would leave `pending_creator` valid forever: acceptable at any point in
+/// the future, however unexpected, and (previously) unable to be replaced
+/// with a new nomination without an explicit `cancel_campaign_transfer`
+/// first. Once this window elapses, `accept_campaign_transfer` rejects the
+/// stale nomination and `initiate_campaign_transfer` is free to overwrite
+/// it outright; `admin_cancel_campaign_transfer` remains available as an
+/// immediate recovery path that does not require waiting out the window.
+pub(crate) const TRANSFER_EXPIRY_SECS: u64 = 7 * SECONDS_PER_DAY;
+
 /// Maximum number of campaign IDs scanned per `list_active_campaigns` call (#475).
 ///
 /// **Unit:** This limit counts campaign IDs scanned, not bytes or storage reads.

@@ -59,6 +59,10 @@ pub struct Campaign {
     pub first_creator: Address,
     /// The address of the proposed new creator (for two-step transfer).
     pub pending_creator: MaybePendingCreator,
+    /// Unix timestamp after which a pending `pending_creator` nomination can
+    /// no longer be accepted (#869). Meaningless while `pending_creator` is
+    /// `None`; always set together with it.
+    pub pending_creator_expiry: u64,
     /// Short display name of the campaign.
     pub title: String,
     /// Long description of the campaign's purpose.

@@ -313,11 +313,7 @@ pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
 }
 
 pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
-    persistent_set!(
-        env,
-        CampaignKey::CampaignPayoutMarker(campaign_id),
-        &marker
-    );
+    persistent_set!(env, CampaignKey::CampaignPayoutMarker(campaign_id), &marker);
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────
@@ -733,6 +729,15 @@ pub fn remove_voting_state(env: &Env, campaign_id: u32) {
     storage.remove(&VotingKey::RejectVotes(campaign_id));
     storage.remove(&VotingKey::ApproveWeight(campaign_id));
     storage.remove(&VotingKey::RejectWeight(campaign_id));
+}
+
+/// Extends TTL on the HasVoted record for a specific voter on a campaign.
+pub fn extend_ttl(env: &Env, campaign_id: u32, voter: &Address) {
+    let storage = env.storage().persistent();
+    let key = VotingKey::HasVoted(campaign_id, voter.clone());
+    if storage.has(&key) {
+        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
 }
 
 /// Extends TTL on all voting state keys for a campaign.
