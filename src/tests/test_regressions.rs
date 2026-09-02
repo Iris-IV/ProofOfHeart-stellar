@@ -181,8 +181,8 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     }
 
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &1000u32);
-    assert!(result.len() <= 50);
-    assert_eq!(result.len(), 50);
+    assert!(result.0.len() <= 50);
+    assert_eq!(result.0.len(), 50);
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn test_get_campaigns_by_category_small_limit_respected() {
         client.create_campaign(&make_campaign_params_simple(&env, &creator));
     }
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &5u32);
-    assert_eq!(result.len(), 5);
+    assert_eq!(result.0.len(), 5);
 }
 
 // ── #348 resume_campaign spurious events/state writes ─────────────────────────
