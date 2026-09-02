@@ -9,8 +9,8 @@ extern crate alloc;
 use alloc::format;
 
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams};
-use soroban_sdk::{vec, Address, String};
+use crate::{Category, CreateCampaignParams, Error};
+use soroban_sdk::{testutils::Ledger as _, vec, Address, String};
 
 fn make_campaign(
     env: &soroban_sdk::Env,
@@ -21,7 +21,7 @@ fn make_campaign(
     category: Category,
     index: u32,
 ) -> u32 {
-    client.create_campaign(&CreateCampaignParams {
+    let id = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
         title: String::from_str(env, &format!("Test Campaign {index}")),
         description: String::from_str(env, &format!("Test description for campaign {index}")),
@@ -31,7 +31,9 @@ fn make_campaign(
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
         max_contribution_per_user: 0i128,
-    })
+    });
+    client.verify_campaign(&id);
+    id
 }
 
 // ── #818 / #823: cancel_campaign must NOT strand escrow — total_raised_global
@@ -44,6 +46,7 @@ fn test_cancel_campaign_decrements_total_raised_global_immediately() {
     token_admin.mint(&contributor, &500);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &500);
 
     assert_eq!(client.get_total_raised_global(), 500);
@@ -65,6 +68,7 @@ fn test_cancel_campaign_allows_accept_token_update_after_all_refunds_claimed() {
     token_admin.mint(&contributor, &500);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &500);
     client.cancel_campaign(&id);
 
@@ -82,6 +86,7 @@ fn test_claim_refund_does_not_double_decrement_after_creator_cancel() {
     token_admin.mint(&contributor, &300);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &300);
 
     assert_eq!(client.get_total_raised_global(), 300);
@@ -99,8 +104,7 @@ fn test_admin_cancel_decrements_total_raised_global() {
     let goal = 2_000i128;
     token_admin.mint(&contributor, &goal);
 
-    let id = make_campaign(&env, &client, &creator, goal, 30, Category::Educator, 0);
-    client.verify_campaign(&id);
+    let id = make_campaign(&env, &client, &creator, goal, 30, Category::Educator);
     client.contribute(&id, &contributor, &goal);
 
     assert_eq!(client.get_total_raised_global(), goal);
@@ -170,13 +174,12 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     token_admin.mint(&contributor, &400);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &400);
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().with_mut(|l| {
-        l.timestamp += 31 * 24 * 60 * 60 + 1;
-    });
+    env.ledger().with_mut(|l| l.timestamp += 31 * 24 * 60 * 60 + 1);
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).
@@ -189,7 +192,18 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
 fn test_verify_campaigns_partial_failure_returns_both_vecs() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let good = make_campaign(&env, &client, &creator, 100, 30, Category::Learner, 0);
+    // Create an unverified campaign (bypass make_campaign which auto-verifies).
+    let good = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify Partial"),
+        description: String::from_str(&env, "Verify partial desc"),
+        funding_goal: 100,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
     let bad_id: u32 = 9999;
 
     let (verified, failed) = client.verify_campaigns(&vec![&env, good, bad_id]);
@@ -214,8 +228,29 @@ fn test_verify_campaigns_all_fail_returns_empty_verified_vec() {
 fn test_verify_campaigns_all_succeed_returns_empty_failed_vec() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let id1 = make_campaign(&env, &client, &creator, 100, 30, Category::Learner, 0);
-    let id2 = make_campaign(&env, &client, &creator, 200, 30, Category::Educator, 1);
+    // Create unverified campaigns (bypass make_campaign which auto-verifies).
+    let id1 = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify All A"),
+        description: String::from_str(&env, "Verify all desc A"),
+        funding_goal: 100,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    let id2 = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify All B"),
+        description: String::from_str(&env, "Verify all desc B"),
+        funding_goal: 200,
+        duration_days: 30,
+        category: Category::Educator,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
 
     let (verified, failed) = client.verify_campaigns(&vec![&env, id1, id2]);
 
@@ -259,10 +294,6 @@ fn test_extend_deadline_allowed_within_category_cap() {
 }
 
 // ── #814: BlockCampaignContributionCount is the live per-campaign key ──────────
-// There is no dead global BlockContributionCount variant in ContributionKey;
-// the split from DataKey removed it. The per-campaign burst-detection key is
-// exercised by the anomaly detection path in contribute(). This test verifies
-// the counts are truly per-campaign and independent of each other.
 
 #[test]
 fn test_burst_guard_block_counts_are_per_campaign_not_global() {
@@ -272,10 +303,34 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     token_admin.mint(&contributor, &10_000);
     token_admin.mint(&contributor2, &10_000);
 
-    // goal = 1_000; burst_check_threshold = 50% = 500
-    let id_a = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
-    let id_b = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 1);
+    // Create two campaigns with unique titles (title uniqueness per creator #801).
+    let id_a = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Burst A"),
+        description: String::from_str(&env, "Burst campaign A"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&id_a);
 
+    let id_b = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Burst B"),
+        description: String::from_str(&env, "Burst campaign B"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: Category::Educator,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&id_b);
+
+    // goal = 1_000; burst_check_threshold = 50% = 500
     // First contribution to each — amount_raised starts at 0 so the burst-check
     // early-exit fires and no block-count entry is written yet.
     client.contribute(&id_a, &contributor, &600); // A now at 600 (>50% threshold)

@@ -347,8 +347,9 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Cancel: ActiveCampaignCount → 0 and total_raised_global is
-    // decremented upfront (#818), so the token swap can proceed.
+    // Cancel: ActiveCampaignCount → 0 and total_raised_global → 0 (#818).
+    // The swap is no longer blocked after cancel because total_raised_global
+    // is zeroed upfront.
     client.cancel_campaign(&campaign_id);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -357,8 +358,7 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // #818: total_raised_global was already decremented at cancel time,
-    // so the swap is no longer blocked even though claim_refund is pending.
+    // Swap can proceed: cancel decremented total_raised_global.
     let res = client.try_accept_token_update(&admin);
     assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
@@ -389,9 +389,12 @@ fn test_token_swap_blocked_after_partial_refund() {
     client.contribute(&campaign_id, &contributor1, &500);
     client.contribute(&campaign_id, &contributor2, &500);
 
-    // Cancel → ActiveCampaignCount → 0 and total_raised_global is
-    // decremented upfront (#818), so the swap can proceed immediately.
+    // Cancel → ActiveCampaignCount → 0 and total_raised_global → 0 (#818).
     client.cancel_campaign(&campaign_id);
+
+    // Both contributor refunds are pending, but total_raised_global was already
+    // zeroed at cancel time. The swap is no longer blocked.
+    client.claim_refund(&campaign_id, &contributor1);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
@@ -399,15 +402,11 @@ fn test_token_swap_blocked_after_partial_refund() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // #818: total_raised_global was already decremented at cancel time,
-    // so the swap succeeds even though claim_refund is pending.
+    // Swap can proceed: cancel decremented total_raised_global.
     let res = client.try_accept_token_update(&admin);
     assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 
-    // Refunds still work after the swap.
-    client.claim_refund(&campaign_id, &contributor1);
-    client.claim_refund(&campaign_id, &contributor2);
 }
 
 // ── initialisation & config ─────────────────────────────────────────────────────

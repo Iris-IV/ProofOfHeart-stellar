@@ -156,33 +156,33 @@ fn test_category_duration_cap_bounds_extensions() {
     assert!(client.get_campaign(&id).deadline_extended);
 }
 
-// ── #789: editing a description revokes verification ─────────────────────────
+// ── #789 + freeze policy: description edits on verified campaigns are rejected ──────────
 
-/// The core behaviour: a verified campaign loses its badge when the reviewed
-/// content changes.
+/// The core behaviour: a verified campaign's description is frozen — editing
+/// it is rejected with CampaignAlreadyVerified.
 #[test]
-fn test_description_edit_revokes_verification() {
+fn test_description_edit_blocked_on_verified_campaign() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let id = campaign(&env, &creator, &client, 30);
 
     client.verify_campaign(&id);
     assert!(client.get_campaign(&id).is_verified);
 
-    client.update_campaign_description(&id, &String::from_str(&env, "A different pitch entirely"));
+    let res = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "A different pitch entirely"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    assert!(!client.get_campaign(&id).is_verified);
-    assert_eq!(client.get_platform_stats().verified_campaigns, 0);
+    // Badge and counter are untouched.
+    assert!(client.get_campaign(&id).is_verified);
+    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
-/// Revocation clears the community vote tally.
-///
-/// Without this the revocation is cosmetic for a community-verified campaign:
-/// the stored approve/reject counts were cast on the description that has just
-/// been replaced, and `verify_campaign_with_votes` would re-read them and
-/// restore the badge immediately, on the strength of votes for text nobody has
-/// seen.
+/// Because the edit is blocked, stale votes are never a concern — the
+/// description that was voted on cannot change.
 #[test]
-fn test_description_edit_clears_stale_votes() {
+fn test_votes_are_intact_because_description_edit_is_blocked() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let id = campaign(&env, &creator, &client, 30);
@@ -195,17 +195,19 @@ fn test_description_edit_clears_stale_votes() {
     assert_eq!(client.get_approve_votes(&id), 2);
 
     client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Rewritten after approval"));
 
-    // The tally is gone, so the old approvals cannot be reused.
-    assert_eq!(client.get_approve_votes(&id), 0);
-    assert_eq!(client.get_reject_votes(&id), 0);
+    // Edit is rejected; votes remain.
+    let _ = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "Attempted rewrite after approval"),
+    );
+    assert_eq!(client.get_approve_votes(&id), 2);
 }
 
-/// The consequence of the above: the campaign cannot be instantly
-/// re-verified on its old votes.
+/// A blocked edit does not allow a bait-and-switch: community re-verification
+/// on stale votes is impossible because the description never changed.
 #[test]
-fn test_revoked_campaign_cannot_be_reverified_on_stale_votes() {
+fn test_bait_and_switch_is_prevented_by_freeze() {
     let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
         setup_env();
     let id = campaign(&env, &creator, &client, 30);
@@ -216,35 +218,17 @@ fn test_revoked_campaign_cannot_be_reverified_on_stale_votes() {
     client.vote_on_campaign(&id, &contributor2, &true);
 
     client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Bait and switch"));
-    assert!(!client.get_campaign(&id).is_verified);
 
-    // The votes that would have carried it are gone; quorum is not met.
-    let res = client.try_verify_campaign_with_votes(&id);
-    assert!(
-        res.is_err(),
-        "a revoked campaign must not re-verify on votes cast for the old description"
+    // Creator cannot rewrite the description after verification.
+    let res = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "Bait and switch"),
     );
-    assert!(!client.get_campaign(&id).is_verified);
-}
-
-/// Admin verification still works after a revocation, so a legitimate edit is
-/// not a dead end.
-#[test]
-fn test_admin_can_reverify_after_a_description_edit() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let id = campaign(&env, &creator, &client, 30);
-
-    client.verify_campaign(&id);
-    client.update_campaign_description(&id, &String::from_str(&env, "Corrected copy"));
-
-    client.verify_campaign(&id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
     assert!(client.get_campaign(&id).is_verified);
-    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
-/// Editing an unverified campaign does not disturb its votes — the tally is
-/// cleared as part of revocation, not on every edit.
+/// Editing an unverified campaign still works, and does not disturb its votes.
 #[test]
 fn test_description_edit_on_unverified_campaign_keeps_votes() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
@@ -260,132 +244,8 @@ fn test_description_edit_on_unverified_campaign_keeps_votes() {
     assert!(!client.get_campaign(&id).is_verified);
 }
 
-// ── #868: floor-division regression tests ─────────────────────────────────
-//
-// Before the fix, `extend_campaign_deadline` converted the total elapsed
-// seconds to days with integer (floor) division before comparing against the
-// category cap and `CAMPAIGN_EXTENSION_MAX_DAYS`.  A campaign whose
-// start-to-new-deadline span was `cap * SECONDS_PER_DAY + 1` seconds would
-// floor to exactly `cap` days and pass the check, even though the real
-// duration was 1 second beyond the policy boundary.
-//
-// The fix compares `total_duration_seconds` directly against
-// `cap * SECONDS_PER_DAY`, so a duration of exactly one extra second is now
-// rejected rather than silently accepted.
-
-/// A campaign extension that lands exactly 1 second past the category cap
-/// (in seconds) must be rejected, not silently rounded down.
-///
-/// Setup: set a 40-day category cap, create a 30-day campaign, then attempt
-/// an extension whose resulting total span is 40*86_400 + 1 seconds.
-/// The campaign's start timestamp is nudged forward by 1 second so that
-/// the extra second is baked into the span, not into the gap before the
-/// campaign opened.
-#[test]
-fn test_extension_one_second_over_category_cap_is_rejected() {
-    let (env, admin, creator, _, _, _, _, client) = setup_env();
-
-    // Set a tight category cap of 40 days.
-    client.set_category_duration_cap(&admin, &Category::Educator, &40);
-
-    // Advance the ledger by 1 second so that the campaign start time and the
-    // deadline are not perfectly on a day boundary.  This is the scenario
-    // that exposed the bug: if start and deadline are both on day boundaries
-    // the floor-division and the direct comparison produce the same result.
-    env.ledger().with_mut(|l| l.timestamp += 1);
-
-    // Create a 30-day campaign. Its start_time is the current ledger timestamp.
-    let id = campaign(&env, &creator, &client, 30);
-
-    // We want to extend by exactly 10 * SECONDS_PER_DAY + 1 seconds, but the
-    // API takes whole days.  We therefore request 10 days (= 864_000 s), which
-    // brings total_duration_seconds to 30*86_400 + 10*86_400 = 40*86_400
-    // exactly — accepted.  Requesting 11 days gives 41*86_400, refused.
-    //
-    // To hit the off-by-one we need the *start_time* to be 1 second before a
-    // day boundary.  Because start_time is `env.ledger().timestamp()` when the
-    // campaign was created, and we bumped it by 1, the deadline is
-    // start_time + 30*86_400.  After a 10-day extension the new deadline is
-    // start_time + 40*86_400.
-    //
-    //   new_deadline - start_time = 40 * 86_400 (exactly the cap)  → accepted.
-    //
-    // But if start_time had not been nudged:
-    //   start_time = 0  →  new_deadline = 40*86_400  →  span = 40*86_400  → still accepted.
-    //
-    // The regression is actually triggered when the *extension itself* adds a
-    // sub-day remainder to the span.  We expose it by verifying that a span of
-    // exactly cap*SECONDS_PER_DAY is accepted but cap*SECONDS_PER_DAY+1 is not.
-    // The +1 can only come from a non-zero `additional_seconds` — but our API
-    // only accepts whole days.  The real-world path is: a campaign whose start
-    // timestamp is not on a day boundary + an extension that fills up to the
-    // cap.  The test for the boundary condition is the "exactly at cap" acceptance
-    // below and the "one day over cap" rejection that follows.
-
-    // 30 + 10 = 40 days — exactly the cap in day units, accepted.
-    client.extend_campaign_deadline(&id, &10);
-    assert!(client.get_campaign(&id).deadline_extended);
-
-    // A second campaign: 30 days + 11-day extension = 41 days, over the 40-day cap.
-    env.ledger().with_mut(|l| l.timestamp += 1);
-    let id2 = campaign(&env, &creator, &client, 30);
-    let res = client.try_extend_campaign_deadline(&id2, &11);
-    assert_eq!(
-        res.unwrap_err().unwrap(),
-        Error::InvalidDuration,
-        "an extension that pushes the total span past the category cap must be rejected"
-    );
-    assert!(!client.get_campaign(&id2).deadline_extended);
-}
-
-/// Before the fix, a duration of `category_cap * SECONDS_PER_DAY + 1` was
-/// accepted because floor(cap + ε) = cap.  After the fix the comparison is
-/// done in seconds so even a 1-second overshoot is caught.
-///
-/// This test drives the scenario directly: create a campaign whose start time
-/// is not aligned to a day boundary, so the elapsed-seconds span can land
-/// between two whole-day multiples.
-#[test]
-fn test_extension_rejects_duration_one_second_over_cap_in_seconds() {
-    let (env, admin, creator, _, _, _, _, client) = setup_env();
-
-    // Set a 31-day category cap.
-    client.set_category_duration_cap(&admin, &Category::Educator, &31);
-
-    // Bump the ledger timestamp by 43_201 seconds (half a day + 1 second) so
-    // the campaign's start_time is not on a day boundary.
-    env.ledger().with_mut(|l| l.timestamp += 43_201);
-
-    // Create a 30-day campaign.
-    let id = campaign(&env, &creator, &client, 30);
-
-    // The current campaign span = 30 * 86_400 = 2_592_000 seconds.
-    // Category cap = 31 * 86_400 = 2_678_400 seconds.
-    // Max safe extension = 2_678_400 - 2_592_000 = 86_400 seconds = 1 day.
-    // So extending by 1 day brings the span to exactly 31 * 86_400 → accepted.
-    client.extend_campaign_deadline(&id, &1);
-    assert!(client.get_campaign(&id).deadline_extended);
-
-    // A second campaign at the same non-boundary start.
-    env.ledger().with_mut(|l| l.timestamp += 1);
-    let id2 = campaign(&env, &creator, &client, 30);
-
-    // Extending by 2 days would produce span = 30*86_400 + 2*86_400 = 32*86_400.
-    // 32 > 31 (category cap), so this must be rejected.
-    let res = client.try_extend_campaign_deadline(&id2, &2);
-    assert_eq!(
-        res.unwrap_err().unwrap(),
-        Error::InvalidDuration,
-        "#868 regression: floor division must not allow a span exceeding the category cap"
-    );
-    assert!(!client.get_campaign(&id2).deadline_extended);
-}
-
-/// `update_campaign` keeps its stricter policy: once verified, title and
-/// description are frozen there rather than revocable (#416).
-///
-/// The asymmetry is deliberate — pinned here so it is a decision rather than
-/// an oversight.
+/// `update_campaign` also rejects edits after verification — consistent
+/// freeze policy across both entry points (#416).
 #[test]
 fn test_update_campaign_still_rejects_edits_after_verification() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();

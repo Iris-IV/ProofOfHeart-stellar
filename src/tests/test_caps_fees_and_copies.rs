@@ -20,6 +20,8 @@ use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::{Address, String};
 
+static mut CC_COUNTER: u32 = 0;
+
 fn capped_campaign(
     env: &soroban_sdk::Env,
     creator: &Address,
@@ -27,10 +29,21 @@ fn capped_campaign(
     max_per_user: i128,
     index: u32,
 ) -> u32 {
+    let nonce = unsafe {
+        CC_COUNTER += 1;
+        CC_COUNTER
+    };
+    let title_data = [
+        b'C',
+        b'C',
+        b'_',
+        b'0' + (nonce / 10) as u8,
+        b'0' + (nonce % 10) as u8,
+    ];
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, &format!("Capped Campaign {index}")),
-        description: String::from_str(env, &format!("Has a per-user contribution cap {index}")),
+        title: String::from_bytes(env, &title_data),
+        description: String::from_str(env, "Has a per-user contribution cap"),
         funding_goal: 100_000,
         duration_days: 30,
         category: Category::Learner,
@@ -299,7 +312,7 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
 
     client.contribute(&funded, &contributor1, &2500);
 
-    let portfolio = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (portfolio, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     assert_eq!(portfolio.len(), 1);
 
     let (id, amount, _status, _refundable) = portfolio.get(0).unwrap();
@@ -319,7 +332,7 @@ fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
         capped_campaign(&env, &creator, &client, 0, i);
     }
 
-    assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &100).len(), 0);
+    assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &u32::MAX).0.len(), 0);
 }
 
 /// The portfolio still reports status and refundability from the campaign, so
@@ -333,14 +346,14 @@ fn test_contributor_portfolio_still_reports_campaign_state() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1000);
 
-    let before = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (before, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     let (_, _, status, refundable) = before.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "verified"));
     assert!(!refundable);
 
     client.cancel_campaign(&id);
 
-    let after = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (after, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     let (_, _, status, refundable) = after.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "cancelled"));
     assert!(refundable);

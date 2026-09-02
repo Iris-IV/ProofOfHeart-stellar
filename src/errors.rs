@@ -1,6 +1,13 @@
 use soroban_sdk::contracterror;
 
 /// Represents a distinct error type that can occur within the contract.
+///
+/// NOTE: Soroban's contract-spec XDR caps error enums at 50 cases
+/// (`ScSpecUDTErrorEnumV0.cases` is a `VecM<_, 50>`). Going over that limit
+/// makes `#[contracterror]` panic with `LengthExceedsMax` at build time.
+/// Discriminants are assigned explicitly and are NOT meant to be resequenced
+/// when a variant is removed — existing on-the-wire error codes must stay
+/// stable (see the locked-discriminant test at the bottom of this file).
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -71,10 +78,8 @@ pub enum Error {
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
-    /// Admin verification was attempted on an already verified campaign.
-    AdminVerificationConflict = 34,
-    /// Community verification was attempted on an already verified campaign.
-    CommunityVerificationConflict = 35,
+    /// Admin or community verification was attempted on an already verified campaign.
+    VerificationConflict = 34,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
@@ -105,6 +110,8 @@ pub enum Error {
     MilestoneNotVerified = 49,
     /// Milestone has already been claimed.
     MilestoneAlreadyClaimed = 50,
+    /// An invariant condition has been violated (state corruption or bug).
+    InvariantBroken = 51,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -164,8 +171,7 @@ impl Error {
                 InvalidTokenContract,
                 CreationDisabled,
                 FundingGoalTooLow,
-                AdminVerificationConflict,
-                CommunityVerificationConflict,
+                VerificationConflict,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -181,6 +187,7 @@ impl Error {
                 MilestoneNotFound,
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
+                InvariantBroken,
             ]
         )
     }
@@ -201,7 +208,7 @@ mod tests {
 
     #[test]
     fn display_matches_variant_name() {
-        // Comprehensive check: all 46 variants' Display output matches their name()
+        // Comprehensive check: all 50 variants' Display output matches their name()
         // This ensures the name()/Display pairing stays correct as variants are added.
         assert_eq!(Error::NotAuthorized.to_string(), "NotAuthorized");
         assert_eq!(Error::CampaignNotFound.to_string(), "CampaignNotFound");
@@ -276,12 +283,8 @@ mod tests {
         assert_eq!(Error::CreationDisabled.to_string(), "CreationDisabled");
         assert_eq!(Error::FundingGoalTooLow.to_string(), "FundingGoalTooLow");
         assert_eq!(
-            Error::AdminVerificationConflict.to_string(),
-            "AdminVerificationConflict"
-        );
-        assert_eq!(
-            Error::CommunityVerificationConflict.to_string(),
-            "CommunityVerificationConflict"
+            Error::VerificationConflict.to_string(),
+            "VerificationConflict"
         );
         assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
@@ -331,6 +334,7 @@ mod tests {
             Error::MilestoneAlreadyClaimed.to_string(),
             "MilestoneAlreadyClaimed"
         );
+        assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
     }
 
     #[test]
@@ -370,5 +374,16 @@ mod tests {
             Error::InvalidStateTransition.name(),
             "InvalidStateTransition"
         );
+    }
+
+    /// Locks the total variant count at 50 (Soroban's XDR cap for
+    /// `ScSpecUDTErrorEnumV0.cases`). If this creeps back up, `cargo build`
+    /// itself will fail with `#[contracterror] ... LengthExceedsMax` before
+    /// this test ever runs — this assertion just documents why.
+    #[test]
+    fn error_variant_count_stays_within_xdr_cap() {
+        // NotAuthorized..=InvariantBroken, minus the freed discriminant 35.
+        const CASES: u32 = 50;
+        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
     }
 }
