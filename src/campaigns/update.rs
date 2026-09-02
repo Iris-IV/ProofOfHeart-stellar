@@ -6,8 +6,8 @@ use crate::lifecycle::{
     require_not_paused, require_unverified_campaign,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_verified_campaign_count, get_category_duration_cap,
-    remove_voting_state, set_campaign,
+    bump_instance_ttl, get_category_duration_cap,
+    set_campaign,
 };
 
 /// Updates the title and description of a campaign.
@@ -66,6 +66,14 @@ pub(crate) fn update_campaign_description(
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
 
+    // Freeze verified metadata: once a campaign is verified, its description
+    // is part of the attested content contributors rely on. Allowing edits
+    // after verification creates a bait-and-switch path where a creator gets
+    // approval on one description and then silently rewrites it. Reject the
+    // edit entirely — the creator must cancel and recreate if the content
+    // needs to change after verification.
+    require_unverified_campaign(&campaign)?;
+
     require_active_campaign(&campaign)?;
     if description == campaign.description {
         return Ok(());
@@ -81,52 +89,9 @@ pub(crate) fn update_campaign_description(
     let event_desc = description.clone();
     campaign.description = description;
 
-    // Revoke verification on edit (#796).
-    //
-    // `update_campaign` freezes title and description once verified (#416),
-    // but this entry point had no such guard, so a verified campaign's description could be written while keeping the badge. Verification attests to the content that was reviewed; once that content changes the
-    // attestation is stale, and contributors read `is_verified` as a signal about what they are funding.
-    //
-    // Revoking rather than rejecting keeps the edit available &mdash; a creator can still correct their copy &mdash; at the cost of re-verification. Note this
-    // also gates `contribute`, `withdraw` and milestone claims until a
-    // re-verification lands, which is the intended consequence rather than a
-    // side effect.
-    let was_verified = campaign.is_verified;
-    if was_verified {
-        campaign.is_verified = false;
-    }
-
     set_campaign(env, campaign_id, &campaign);
 
-    if was_verified {
-        decrement_verified_campaign_count(env);
-
-        // Reset the community vote tally along with the badge (#789).
-        //
-        // Without this the revocation is cosmetic for community-verified
-        // campaigns: `verify_with_votes` re-reads the stored approve/reject
-        // counts, and those votes were cast on the description that has just
-        // been replaced. A creator could get profiled, rewrite the pitch into
-        // something the voters never saw, and immediately call
-        // `verify_campaign_with_votes` to restore the badge on the strength of
-        // votes for the old text.
-        //
-        // Only the aggregate tallies are cleared. The per-voter `HasVoted`
-        // records are keyed by (campaign, voter) with no voter index to
-        // enumerate, so they cannot be cleared in bounded work here; they are
-        // the admin's `purge_voting_state` to sweep. The consequence is that
-        // an address which already voted cannot vote again on the rewritten
-        // description, so community re-verification needs fresh voters &mdash;
-        // admin verification is unaffected.
-        remove_voting_state(env, campaign_id);
-
-        env.events().publish(
-            ("campaign_verification_revoked", campaign_id),
-            campaign.creator.clone(),
-        );
-    }
-
-    // Title is unaffected by this function &mdash; publish it unchanged in both
+    // Title is unaffected by this function — publish it unchanged in both
     // old/new slots so `campaign_metadata_updated` has one consistent shape
     // for indexers regardless of which entry point emitted it (#510).
     env.events().publish(

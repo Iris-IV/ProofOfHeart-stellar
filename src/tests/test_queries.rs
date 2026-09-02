@@ -12,10 +12,11 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
 
     let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 0..3 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &format!("Campaign {i}")),
-            String::from_str(&env, &format!("Desc {i}")),
+            String::from_bytes(&env, &title_data),
+            String::from_str(&env, "Desc"),
             1000 + i as i128,
             30,
             Category::Learner,
@@ -41,10 +42,11 @@ fn test_list_active_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
     for i in 0..4 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &format!("Campaign {i}")),
-            String::from_str(&env, &format!("Desc {i}")),
+            String::from_bytes(&env, &title_data),
+            String::from_str(&env, "Desc"),
             1000,
             30,
             Category::Learner,
@@ -158,7 +160,8 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
-    // c2 was cancelled, so its 300 is no longer counted in total_amount_raised
+    // After cancel, total_raised_global is decremented (#818), so only the
+    // remaining active campaign's contribution (400) counts.
     assert_eq!(stats.total_amount_raised, 400);
 }
 
@@ -489,12 +492,12 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
-    for idx in 0..3 {
+    for idx in 0..3u32 {
+        let title_data = [b'C', b'_', b'1' + idx as u8];
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &format!("Campaign {idx}")),
-            String::from_str(&env, &format!("Pagination test {idx}")),
+            String::from_bytes(&env, &title_data),
+            String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
             Category::Learner,
@@ -525,12 +528,12 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4", "Campaign 5"];
-    for idx in 0..5 {
+    for idx in 0..5u32 {
+        let title_data = [b'C', b'_', b'1' + idx as u8];
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &format!("Campaign {idx}")),
-            String::from_str(&env, &format!("Pagination test {idx}")),
+            String::from_bytes(&env, &title_data),
+            String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
             Category::Learner,
@@ -648,11 +651,12 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for i in 0..5 {
+    for i in 0..5u32 {
+        let title_data = [b'C', b'_', b'1' + i as u8];
         client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &format!("Campaign {i}")),
-            String::from_str(&env, &format!("Desc {i}")),
+            String::from_bytes(&env, &title_data),
+            String::from_str(&env, "Desc"),
             1000,
             30,
             Category::Learner,
@@ -715,4 +719,152 @@ fn test_get_platform_stats_after_initialization() {
     assert_eq!(stats.total_amount_raised, 0);
     assert!(!stats.stats_are_partial);
     assert_eq!(stats.scanned_up_to, 0);
+}
+
+// ── #849 get_contributor_portfolio bounded pagination ─────────────────────────
+
+/// The portfolio cursor is exclusive over campaign IDs and pages a funded
+/// contributor's contributions in campaign order.
+#[test]
+fn test_get_contributor_portfolio_cursor_pagination() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &100_000);
+
+    for title in ["Portfolio A", "Portfolio B", "Portfolio C", "Portfolio D", "Portfolio E"] {
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, title),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&id);
+    }
+
+    // Campaigns are id 1..=5; fund only ids 1, 3 and 5.
+    for id in [1u32, 3, 5] {
+        client.contribute(&id, &contributor1, &100);
+    }
+
+    let (page1, cursor1) = client.get_contributor_portfolio(&contributor1, &0, &2);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap().0, 1);
+    assert_eq!(page1.get(1).unwrap().0, 3);
+    assert_eq!(page1.get(0).unwrap().1, 100);
+    assert_eq!(cursor1, 4);
+
+    let (page2, cursor2) = client.get_contributor_portfolio(&contributor1, &cursor1, &2);
+    assert_eq!(page2.len(), 1);
+    assert_eq!(page2.get(0).unwrap().0, 5);
+    assert_eq!(cursor2, 0);
+
+    let (all, cursor_all) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
+    assert_eq!(all.len(), 3);
+    assert_eq!(cursor_all, 0);
+}
+
+/// Boundary cursors and a zero limit return an empty page with a null cursor.
+#[test]
+fn test_get_contributor_portfolio_boundaries() {
+    let (env, _admin, creator, _c1, contributor2, _token, _token_admin, client) = setup_env();
+
+    for title in ["Boundary A", "Boundary B", "Boundary C"] {
+        let _ = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, title),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+    }
+
+    let total = client.get_campaign_count();
+
+    // start == total and start > total both mean "nothing left".
+    let (empty_at_boundary, cursor_at_boundary) =
+        client.get_contributor_portfolio(&contributor2, &total, &10);
+    assert_eq!(empty_at_boundary.len(), 0);
+    assert_eq!(cursor_at_boundary, 0);
+
+    let (empty_beyond, cursor_beyond) =
+        client.get_contributor_portfolio(&contributor2, &(total + 1), &10);
+    assert_eq!(empty_beyond.len(), 0);
+    assert_eq!(cursor_beyond, 0);
+
+    // limit 0 returns nothing, even though contributions may exist.
+    let (empty_zero_limit, cursor_zero_limit) =
+        client.get_contributor_portfolio(&contributor2, &0, &0);
+    assert_eq!(empty_zero_limit.len(), 0);
+    assert_eq!(cursor_zero_limit, 0);
+}
+
+/// A request larger than `LIST_MAX_LIMIT` is capped, and the cursor resumes
+/// from where the page stopped. Storage is seeded directly (as in
+/// `test_get_creator_campaigns_jumps_to_bucket_containing_start`) because
+/// driving 60 campaigns through `create_campaign` exceeds the test budget.
+#[test]
+fn test_get_contributor_portfolio_caps_page_at_list_max_limit() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let total = crate::LIST_MAX_LIMIT + 10;
+    env.budget().reset_unlimited();
+
+    env.as_contract(&client.address, || {
+        for id in 1..=total {
+            crate::storage::set_campaign(&env, id, &minimal_campaign(&env, id, &creator));
+            crate::storage::set_contribution(&env, id, &contributor1, 50);
+        }
+        crate::storage::set_campaign_count(&env, total);
+    });
+
+    env.budget().reset_default();
+
+    let (first, cursor) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
+    assert_eq!(first.len(), crate::LIST_MAX_LIMIT);
+    assert_eq!(first.get(0).unwrap().0, 1);
+    assert_eq!(first.get(crate::LIST_MAX_LIMIT - 1).unwrap().0, crate::LIST_MAX_LIMIT);
+    assert_eq!(cursor, crate::LIST_MAX_LIMIT + 1);
+
+    let (second, tail_cursor) =
+        client.get_contributor_portfolio(&contributor1, &cursor, &u32::MAX);
+    assert_eq!(second.len(), 9);
+    assert_eq!(second.get(0).unwrap().0, crate::LIST_MAX_LIMIT + 2);
+    assert_eq!(second.get(8).unwrap().0, total);
+    assert_eq!(tail_cursor, 0);
+}
+
+/// A portfolio wider than `MAX_SCAN_WINDOW` campaign IDs is walked across
+/// calls: the window is exhausted before the request is satisfied, so the
+/// function returns the scan cursor instead of scanning the whole ledger.
+#[test]
+fn test_get_contributor_portfolio_scan_window_exhaustion() {
+    let (env, _admin, _creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    let total = crate::constants::MAX_SCAN_WINDOW * 2;
+    env.budget().reset_unlimited();
+
+    env.as_contract(&client.address, || {
+        crate::storage::set_campaign_count(&env, total);
+    });
+
+    // Keep the budget unlimited: this test exercises the scan-window cursor
+    // mechanics, and scanning `MAX_SCAN_WINDOW` ids per call under the default
+    // host budget (which models real network limits) aborts the process.
+    let (page, cursor) = client.get_contributor_portfolio(&contributor1, &0, &50);
+    assert_eq!(page.len(), 0);
+    assert_eq!(cursor, crate::constants::MAX_SCAN_WINDOW + 1);
+
+    // The next call resumes from the returned cursor and finishes the scan.
+    let (tail, tail_cursor) =
+        client.get_contributor_portfolio(&contributor1, &cursor, &50);
+    assert_eq!(tail.len(), 0);
+    assert_eq!(tail_cursor, 0);
 }

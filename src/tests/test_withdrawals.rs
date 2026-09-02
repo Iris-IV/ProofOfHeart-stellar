@@ -250,7 +250,8 @@ fn test_withdraw_funds_overflow_returns_error_not_panic() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
 
-    // Force a pathological amount_raised that overflows the fee multiplication.
+    // Force a pathological amount_raised AND effective_amount_raised that
+    // overflow the fee multiplication.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = i128::MAX;

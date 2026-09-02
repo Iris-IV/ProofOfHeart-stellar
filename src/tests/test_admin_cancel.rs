@@ -2,10 +2,10 @@ extern crate alloc;
 use alloc::format;
 
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
+use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::{Address, String};
 
-// ── admin_cancel_campaign (#508) ────────────────────────────────────────────
+// ── admin_cancel_campaign (#508, #858) ──────────────────────────────────────
 
 fn make_campaign(
     env: &soroban_sdk::Env,
@@ -170,6 +170,27 @@ fn test_admin_cancel_campaign_allows_contributor_refund() {
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 2000);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_admin_cancel_campaign_refunds_revenue_pool_and_zeroes_pool() {
+    let (env, admin, creator, _, _, token, token_admin, client) = setup_env();
+    let campaign_id = make_campaign(&env, &client, &creator, 1000);
+    client.verify_campaign(&campaign_id);
+
+    // Simulate revenue deposited in revenue pool and contract balance
+    let rev_amount = 500i128;
+    token_admin.mint(&env.current_contract_address(), &rev_amount);
+    storage::set_revenue_pool(&env, campaign_id, rev_amount);
+
+    let creator_balance_before = token.balance(&creator);
+    assert_eq!(storage::get_revenue_pool(&env, campaign_id), rev_amount);
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    // Revenue pool is refunded to creator and zeroed in storage (#858)
+    assert_eq!(storage::get_revenue_pool(&env, campaign_id), 0);
+    assert_eq!(token.balance(&creator), creator_balance_before + rev_amount);
 }
 
 #[test]
