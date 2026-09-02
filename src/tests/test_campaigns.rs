@@ -147,10 +147,11 @@ fn test_admin_verify_campaign_duplicate_attempt() {
 fn test_description_length_boundaries() {
     extern crate std;
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let title = String::from_str(&env, "Title");
 
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, &std::format!("Title {}", 0)),
+        title.clone(),
         String::from_str(&env, ""),
         1000,
         30,
@@ -164,7 +165,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("Title {}", 1)),
+            title.clone(),
             String::from_str(&env, "a"),
             1000,
             30,
@@ -179,7 +180,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("Title {}", 2)),
+            title.clone(),
             String::from_str(&env, &desc_1000),
             1000,
             30,
@@ -193,7 +194,7 @@ fn test_description_length_boundaries() {
     let desc_1001 = "a".repeat(1001);
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, &std::format!("Title {}", 3)),
+        title.clone(),
         String::from_str(&env, &desc_1001),
         1000,
         30,
@@ -326,11 +327,11 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     let (env, _admin, creator, _, _, token, _, client) = setup_env();
 
     assert_eq!(client.get_campaign_count(), 0);
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 1u32..=3 {
-        extern crate std;
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("Campaign {}", i)),
+            String::from_str(&env, titles[(i - 1) as usize]),
             String::from_str(&env, "Desc"),
             1000,
             30,
