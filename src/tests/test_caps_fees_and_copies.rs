@@ -13,6 +13,9 @@
 //! Where an issue's premise did not hold, the test says so and asserts the
 //! behaviour that *is* correct, rather than quietly asserting nothing.
 
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::{Address, String};

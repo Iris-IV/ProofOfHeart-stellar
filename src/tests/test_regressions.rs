@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{
     AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
@@ -944,8 +947,7 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 /// same contributor must see 0 and return `NoFundsToWithdraw`, not transfer
 /// again.
 #[test]
-fn test_claim_refund_double_claim_rejected() {
-    let (env, _, creator, contributor1, _, token, token_admin, client) = setup_env();
+fn test_claim_refund_double_claim_rejected() {    let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 

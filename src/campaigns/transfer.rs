@@ -35,11 +35,37 @@ fn get_creator_campaign_position_or_legacy_scan(
     None
 }
 
+/// Initiates a two-step campaign ownership transfer.
+///
+/// Both the current creator (`get_creator_campaign` enforces their auth) and
+/// the nominee must authorize the transaction. Requiring the nominee's auth
+/// at initiation time (#840) serves two purposes:
+///
+/// 1. **Address validity gate** — only addresses that can sign transactions
+///    (accounts or contracts) are accepted, preventing campaigns from being
+///    transferred to unusable addresses that could lock the campaign forever.
+///
+/// 2. **Explicit consent** — the nominee agrees to take ownership before
+///    the transfer is recorded, avoiding a state where a transfer is
+///    "pending" but the nominee never consented.
+///
+/// Both Stellar accounts and deployed Soroban contracts are valid nominees;
+/// both can authorize via `require_auth`.
+///
+/// # Errors
+/// * `CampaignNotActive` — Campaign is cancelled or funds withdrawn.
+/// * `InvalidNewOwner` — Nominee is the current creator.
+/// * `TransferAlreadyPending` — Another transfer is already pending.
 pub(crate) fn initiate_campaign_transfer(
     env: &Env,
     campaign_id: u32,
     new_creator: Address,
 ) -> Result<(), Error> {
+    // Require the nominee's auth first — this validates the address is a
+    // usable account or contract (#840) and that the nominee consents to
+    // the transfer before any state is written.
+    new_creator.require_auth();
+
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
     require_active_campaign(&campaign)?;
@@ -72,6 +98,19 @@ pub(crate) fn initiate_campaign_transfer(
     Ok(())
 }
 
+/// Accepts a pending campaign ownership transfer.
+///
+/// The pending creator must authorize this call. In the Soroban auth model
+/// this validates that the address corresponds to a live account or contract
+/// that can sign transactions (#840). Both Stellar accounts and deployed
+/// Soroban contracts are valid owners — `require_auth` works identically
+/// for both.
+///
+/// # Errors
+/// * `CampaignNotFound` — No campaign with the given ID.
+/// * `CampaignNotActive` — Campaign is cancelled or inactive.
+/// * `NoTransferPending` — No transfer was initiated.
+/// * `InvalidNewOwner` — Defence-in-depth: pending equals current creator.
 pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
@@ -81,6 +120,8 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
+    // Validate that the pending address is a usable account or contract
+    // that can authorize this invocation (#840).
     pending.require_auth();
 
     // Defence in depth (#790). `initiate_campaign_transfer` already rejects a

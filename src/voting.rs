@@ -132,10 +132,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
-        // Data shape documented in EVENT_PAYLOADS.md as
-        // (approve: bool, balance: i128, weight: i128). Balance is kept for
-        // indexers as informational signal; weight is always the unit 1.
-        (approve, balance, 1i128),
+        // Data shape documented in EVENT_PAYLOADS.md as (approve: bool, weight: i128).
+        // Uses unit-weight voting: weight is always 1, representing 1-address-1-vote
+        // governance model that prevents flash-loan attacks (#469).
+        (approve, 1i128),
     );
 
     Ok(())
@@ -158,6 +158,8 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     require_active_campaign(&campaign)?;
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
+    bump_campaign(env, campaign_id);
+    bump_votes(env, campaign_id);
     campaign.is_verified = true;
     // set_campaign persists the verified campaign and refreshes its persistent
     // TTL through the shared persistent_set helper.
@@ -216,6 +218,8 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::VotingThresholdNotMet);
     }
 
+    bump_campaign(env, campaign_id);
+    bump_votes(env, campaign_id);
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
