@@ -62,12 +62,9 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
         );
     }
 
-    // #831: Zero effective_amount_raised on cancellation so that indexers do
-    // not report a stale "live contributions" value for dead campaigns.
-    // claim_refund skips the effective_amount_raised decrement for cancelled
-    // campaigns to avoid underflow.
+    // #819: Zero effective_amount_raised so indexers and dashboards report 0
+    // live contributions on a dead campaign immediately, even before refunds.
     campaign.effective_amount_raised = 0;
-
     campaign.is_cancelled = true;
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
@@ -145,9 +142,9 @@ pub(crate) fn admin_cancel_campaign(
         );
     }
 
-    // #831: Zero effective_amount_raised on admin cancellation as well.
+    // #819: Zero effective_amount_raised so indexers and dashboards report 0
+    // live contributions on a dead campaign immediately, even before refunds.
     campaign.effective_amount_raised = 0;
-
     campaign.is_cancelled = true;
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);

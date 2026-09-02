@@ -3,8 +3,8 @@ use alloc::format;
 
 use super::helpers::*;
 use crate::{
-    AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
-    VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    storage, AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error,
+    MaybePendingCreator, VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 use soroban_sdk::{Address, Env, String};
 
@@ -136,6 +136,16 @@ fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignPa
             revenue_share_percentage: 0,
             max_contribution_per_user: 0,
         }
+    }
+}
+
+/// Like `make_campaign_params_simple` but with a caller-chosen title, for
+/// tests that create several campaigns under one creator (title uniqueness
+/// is enforced since the campaign-integrity hardening).
+fn make_campaign_params_titled(env: &Env, creator: &Address, title: &str) -> CreateCampaignParams {
+    CreateCampaignParams {
+        title: String::from_str(env, title),
+        ..make_campaign_params_simple(env, creator)
     }
 }
 
@@ -612,9 +622,9 @@ fn test_platform_stats_counters_track_lifecycle() {
     assert_eq!(stats.verified_campaigns, 0);
     assert!(!stats.stats_are_partial);
 
-    // Create two campaigns.
-    let p1 = make_campaign_params_simple(&env, &creator, 0);
-    let p2 = make_campaign_params_simple(&env, &creator, 1);
+    // Create two campaigns (distinct titles: title uniqueness is enforced).
+    let p1 = make_campaign_params_titled(&env, &creator, "T1");
+    let p2 = make_campaign_params_titled(&env, &creator, "T2");
     let id1 = client.create_campaign(&p1);
     let id2 = client.create_campaign(&p2);
 
@@ -645,13 +655,133 @@ fn test_platform_stats_never_partial() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
     env.budget().reset_unlimited();
 
-    for i in 0..5 {
-        client.create_campaign(&make_campaign_params_simple(&env, &creator, i));
+    for title in ["T0", "T1", "T2", "T3", "T4"] {
+        client.create_campaign(&make_campaign_params_titled(&env, &creator, title));
     }
 
     let stats = client.get_platform_stats();
     assert!(!stats.stats_are_partial);
     assert_eq!(stats.active_campaigns, 5);
+}
+
+// ── Counter consistency invariants (partial migrations / failed writes) ───────
+
+/// The active/verified/cancelled counters and `total_campaigns` are separate
+/// instance-storage keys. A partial migration or failed legacy write can leave
+/// them mutually inconsistent; `get_platform_stats` must flag that instead of
+/// exposing impossible totals with `stats_are_partial = false`.
+#[test]
+fn test_platform_stats_flags_active_counter_exceeding_total() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    // Simulate a partial migration: the active counter was written but the
+    // campaign-count key was rolled back / never written.
+    env.as_contract(&client.address, || {
+        crate::storage::set_active_campaign_count(&env, 5);
+    });
+
+    let stats = client.get_platform_stats();
+
+    // The impossible aggregate is flagged rather than silently trusted.
+    assert!(stats.stats_are_partial);
+    // Raw stored values are surfaced for auditability.
+    assert_eq!(stats.total_campaigns, 1);
+    assert_eq!(stats.active_campaigns, 5);
+    // `scanned_up_to` remains the authoritative pagination bound.
+    assert_eq!(stats.scanned_up_to, 1);
+
+    // An audit event is published so indexers/admin can notice the corruption.
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let expected_topics = (String::from_str(&env, "platform_stats_inconsistent"),).into_val(&env);
+    assert_eq!(last_event.1, expected_topics);
+    let data: soroban_sdk::Vec<u32> = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data.get(0).unwrap(), 1); // total_campaigns
+    assert_eq!(data.get(1).unwrap(), 5); // active_campaigns
+    assert_eq!(data.get(2).unwrap(), 0); // verified_campaigns
+    assert_eq!(data.get(3).unwrap(), 0); // cancelled_campaigns
+}
+
+#[test]
+fn test_platform_stats_flags_cancelled_counter_exceeding_total() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    env.as_contract(&client.address, || {
+        crate::storage::set_cancelled_campaign_count(&env, 7);
+    });
+
+    let stats = client.get_platform_stats();
+    assert!(stats.stats_are_partial);
+    assert_eq!(stats.total_campaigns, 1);
+    assert_eq!(stats.cancelled_campaigns, 7);
+}
+
+#[test]
+fn test_platform_stats_flags_verified_counter_exceeding_total() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+    env.as_contract(&client.address, || {
+        crate::storage::set_verified_campaign_count(&env, 3);
+    });
+
+    let stats = client.get_platform_stats();
+    assert!(stats.stats_are_partial);
+    assert_eq!(stats.total_campaigns, 1);
+    assert_eq!(stats.verified_campaigns, 3);
+}
+
+/// Each counter can individually be ≤ total while their combination is still
+/// impossible: active + cancelled ≤ total must hold too (a campaign can never
+/// be counted in both buckets).
+#[test]
+fn test_platform_stats_flags_active_plus_cancelled_exceeding_total() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+    let _ = client.create_campaign(&make_campaign_params_titled(&env, &creator, "S1"));
+    let _ = client.create_campaign(&make_campaign_params_titled(&env, &creator, "S2"));
+
+    // total = 2, active = 2, cancelled = 1 → 3 campaigns accounted for but
+    // only 2 exist.
+    env.as_contract(&client.address, || {
+        crate::storage::set_active_campaign_count(&env, 2);
+        crate::storage::set_cancelled_campaign_count(&env, 1);
+    });
+
+    let stats = client.get_platform_stats();
+    assert!(stats.stats_are_partial);
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 2);
+    assert_eq!(stats.cancelled_campaigns, 1);
+}
+
+/// Healthy state must keep `stats_are_partial = false` even when the counts
+/// are non-zero and `active + cancelled` sits exactly at `total` — the
+/// invariants must not false-positive at the boundary.
+#[test]
+fn test_platform_stats_consistent_through_full_lifecycle() {
+    let (env, _, creator, _, _, _, _, client) = setup_env();
+
+    let id1 = client.create_campaign(&make_campaign_params_titled(&env, &creator, "L1"));
+    let id2 = client.create_campaign(&make_campaign_params_titled(&env, &creator, "L2"));
+    client.verify_campaign(&id1);
+    client.cancel_campaign(&id2);
+
+    let stats = client.get_platform_stats();
+    assert!(!stats.stats_are_partial);
+    assert_eq!(stats.total_campaigns, 2);
+    assert_eq!(stats.active_campaigns, 1);
+    assert_eq!(stats.verified_campaigns, 1);
+    assert_eq!(stats.cancelled_campaigns, 1);
+    assert_eq!(stats.scanned_up_to, 2);
+
+    // No inconsistency event may be published in the healthy path.
+    let events = env.events().all();
+    let expected_topics = (String::from_str(&env, "platform_stats_inconsistent"),).into_val(&env);
+    for event in events.iter() {
+        assert_ne!(event.1, expected_topics);
+    }
 }
 
 // ── #386 creator-claim precision bias ─────────────────────────────────────────
@@ -965,7 +1095,10 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 fn test_claim_refund_double_claim_rejected() {
     let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        funding_goal: 1000,
+        ..make_campaign_params_simple(&env, &creator)
+    });
     client.verify_campaign(&campaign_id);
 
     // Fund contributor and make a contribution.
@@ -984,4 +1117,46 @@ fn test_claim_refund_double_claim_rejected() {
     // Second refund on the same (now-zeroed) slot must fail.
     let result2 = client.try_claim_refund(&campaign_id, &contributor1);
     assert_eq!(result2.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
+// ── #855 withdraw_funds unchecked day-to-second multiplication ────────────────
+
+/// Issue #855 — `delay_days * SECONDS_PER_DAY` in `withdraw_funds` was
+/// unchecked. An extreme per-campaign vesting delay (e.g. via migration or
+/// storage corruption) could overflow the multiplication, panicking and
+/// permanently locking the reserve. The fix uses `checked_mul` so the
+/// operation returns `Error::Overflow` instead.
+#[test]
+fn test_withdraw_funds_overflow_day_to_seconds_returns_error() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Overflow Vesting"),
+        description: String::from_str(&env, "Test day-to-second overflow"),
+        funding_goal: 1_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    // Forge the per-campaign vesting delay to an extreme value that would
+    // overflow when multiplied by SECONDS_PER_DAY (86_400).
+    let huge_delay = u64::MAX / 2;
+    env.as_contract(&client.address, || {
+        storage::set_campaign_vesting(&env, campaign_id, huge_delay, 1000);
+    });
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * SECONDS_PER_DAY;
+    });
+
+    // Must return Overflow, not panic.
+    let result = client.try_withdraw_funds(&campaign_id);
+    assert_eq!(result.unwrap_err().unwrap(), Error::Overflow);
 }
