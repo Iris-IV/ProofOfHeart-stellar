@@ -177,6 +177,9 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+    use alloc::format;
+
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;
@@ -283,8 +286,8 @@ mod tests {
         for i in 0..MAX_BOOKMARKS_PER_WALLET {
             let id = client.create_campaign(&make_params(
                 creator.clone(),
-                String::from_str(&env, "C"),
-                String::from_str(&env, "D"),
+                String::from_str(&env, &format!("C{i}")),
+                String::from_str(&env, &format!("D{i}")),
                 1000 + i as i128,
                 30,
                 Category::Learner,

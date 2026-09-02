@@ -1,20 +1,39 @@
-# Storage TTL Policy
+# Storage TTL Policy & Rent Management
 
-To protect users and contract maintainers from rent inflation and unexpected archival of persistent contract data on Stellar/Soroban, ProofOfHeart follows a deterministic TTL (Time-To-Live) management strategy.
+## Overview
 
-## Key Principles
+Soroban persistent storage entries require periodic Time-To-Live (TTL) extension to prevent state eviction. To avoid rent inflation and unneeded ledger write transactions, ProofOfHeart-stellar follows an explicit TTL management policy.
 
-1. **Write-Path TTL Extensions**:
-   - Persistent storage entries (such as `Campaign`, `UserContribution`, and `VoterRecord`) have their TTL extended **strictly during write operations**.
-   - Executing write entrypoints automatically invokes `env.storage().persistent().extend_ttl(...)` with defined `threshold` and `extend_to` ledger bounds.
+---
 
-2. **Read-Path Economic Neutrality**:
-   - Read/view functions (such as `get_campaign` or `get_contribution`) fetch stored values without extending TTL.
-   - This design ensures read-heavy indexing services or dashboard polling calls do not cause rent inflation or impose unnecessary fee overheads.
+## Core Principles
 
-3. **Storage Tiering Rules**:
-   - **Instance Storage**: Stores core configuration (admin address, token address, minimum quorum thresholds) and is extended on all state-modifying admin invocations.
-   - **Persistent Storage**: Stores campaign state and user balances; entries are maintained with minimum threshold `LOW_TTL_THRESHOLD` and extended up to `HIGH_TTL_BUMP` ledgers upon write operations.
+1. **Write-Path Extensions Only**:
+   - Persistent storage TTL is extended during **state-mutating operations** (e.g. `create_campaign`, `contribute`, `verify_campaign`).
+   - Read-only functions (e.g. `get_campaign`, `get_contribution`) return stored values without invoking `extend_ttl`, keeping read queries cost-neutral.
 
-4. **Archival Recovery**:
-   - In the event a dormant persistent entry becomes archived, callers can restore state via Stellar RPC `restore_footprint` before executing state updates.
+2. **Threshold & Extension Values (`src/storage.rs`)**:
+   - `INSTANCE_TTL_THRESHOLD`: `535_680` ledgers (~31 days)
+   - `INSTANCE_TTL_EXTEND`: `1_071_360` ledgers (~62 days)
+   - `PERSISTENT_TTL_THRESHOLD`: `172_800` ledgers (~10 days)
+   - `PERSISTENT_TTL_EXTEND`: `518_400` ledgers (~30 days)
+
+---
+
+## TTL Extension Rules by Data Key Category
+
+| Storage Category | DataKey | Threshold (Ledgers) | Extension Target (Ledgers) | Trigger Path |
+|---|---|---|---|---|
+| **Instance Data** | `DataKey::Admin`, `DataKey::Paused` | 535,680 | 1,071,360 | Contract Admin Init / Config Update |
+| **Campaign Entry** | `DataKey::Campaign(id)` | 172,800 | 518,400 | `create_campaign()`, `finalize_campaign()` |
+| **User Contribution** | `DataKey::Contribution(user, campaign)` | 172,800 | 518,400 | `contribute()`, `claim_refund()` |
+| **Governance Vote** | `DataKey::Vote(voter, campaign)` | 172,800 | 518,400 | `cast_vote()` |
+
+---
+
+## Extension Guidelines for Contributors
+
+When introducing new storage entries:
+1. Wrap storage access using helper functions in `src/storage.rs`.
+2. Always pair mutating operations with `env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND)`.
+3. Never invoke `extend_ttl` inside read-only getter functions.
