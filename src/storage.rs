@@ -1,6 +1,6 @@
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
 
-use crate::types::{Campaign, CampaignReserve, Category};
+use crate::types::{Campaign, CampaignReserve, Category, EmergencyWithdrawal};
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
@@ -180,11 +180,13 @@ pub enum CampaignKey {
     TagCampaignCount(BytesN<32>),
     /// The tags applied to a campaign, keyed by campaign id (#798). Used to
     /// reject duplicate tags and to expose a campaign's tag list.
+    CampaignTags(u32),
+    /// A pending admin emergency withdrawal for a campaign, keyed by campaign
+    /// id (#802). Absent unless `emergency_withdraw` has been called and not
+    /// yet executed or cancelled.
     ///
     /// Kept last so existing on-chain enum discriminants remain unchanged.
-    CampaignTags(u32),
-    /// The ledger sequence in which a campaign's funds were withdrawn, keyed by campaign id.
-    CampaignPayoutMarker(u32),
+    EmergencyWithdrawal(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -511,11 +513,16 @@ pub fn increment_contributor_count(env: &Env, campaign_id: u32) {
     set_contributor_count(env, campaign_id, count + 1);
 }
 
-pub fn decrement_contributor_count(env: &Env, campaign_id: u32) {
+pub fn decrement_contributor_count(
+    env: &Env,
+    campaign_id: u32,
+) -> Result<(), crate::errors::Error> {
     let count = get_contributor_count(env, campaign_id);
-    if count > 0 {
-        set_contributor_count(env, campaign_id, count - 1);
+    if count == 0 {
+        return Err(crate::errors::Error::InvariantBroken);
     }
+    set_contributor_count(env, campaign_id, count - 1);
+    Ok(())
 }
 
 pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
@@ -1114,6 +1121,27 @@ pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReser
 
 pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
     persistent_set!(env, CampaignKey::CampaignReserve(campaign_id), reserve);
+}
+
+// ── Emergency withdrawal (#802) ──────────────────────────────────────────────
+
+/// Returns the pending emergency withdrawal for a campaign, or `None`.
+pub fn get_emergency_withdrawal(env: &Env, campaign_id: u32) -> Option<EmergencyWithdrawal> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::EmergencyWithdrawal(campaign_id))
+}
+
+/// Records a pending emergency withdrawal for a campaign.
+pub fn set_emergency_withdrawal(env: &Env, campaign_id: u32, pending: &EmergencyWithdrawal) {
+    persistent_set!(env, CampaignKey::EmergencyWithdrawal(campaign_id), pending);
+}
+
+/// Clears a pending emergency withdrawal (after execution or cancellation).
+pub fn remove_emergency_withdrawal(env: &Env, campaign_id: u32) {
+    env.storage()
+        .persistent()
+        .remove(&CampaignKey::EmergencyWithdrawal(campaign_id));
 }
 
 // ── Per-campaign vesting snapshot (#466) ─────────────────────────────────────

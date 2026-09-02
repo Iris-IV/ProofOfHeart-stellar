@@ -32,7 +32,7 @@ use crate::storage::{get_campaign, get_saved_campaigns, set_saved_campaigns};
 
 /// Maximum number of campaigns a wallet may bookmark. Bounds a single
 /// persistent storage entry and keeps read/write costs predictable (#782).
-pub const MAX_BOOKMARKS_PER_WALLET: u32 = 50;
+pub const MAX_BOOKMARKS_PER_WALLET: u32 = 10;
 
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
@@ -282,12 +282,15 @@ mod tests {
     #[test]
     fn test_bookmark_limit_reached() {
         let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+        // Seeding 50+ campaigns exceeds the default test budget.
+        env.budget().reset_unlimited();
         // Fill up to MAX_BOOKMARKS_PER_WALLET
         for i in 0..MAX_BOOKMARKS_PER_WALLET {
+            let title_data = [b'C', b'_', b'0' + (i / 10) as u8, b'0' + (i % 10) as u8];
             let id = client.create_campaign(&make_params(
                 creator.clone(),
-                String::from_str(&env, &format!("C{i}")),
-                String::from_str(&env, &format!("D{i}")),
+                String::from_bytes(&env, &title_data),
+                String::from_str(&env, "D"),
                 1000 + i as i128,
                 30,
                 Category::Learner,
