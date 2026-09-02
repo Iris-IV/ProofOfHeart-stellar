@@ -55,6 +55,33 @@ cargo test --features testutils
 
 The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatically — `rustup` will download the correct version on first use.
 
+## Fuzz Testing Workflow
+
+ProofOfHeart uses property-based and fuzz testing via `cargo-fuzz` (libFuzzer) to stress-test arithmetic, state transitions, and edge cases.
+
+### Running Fuzz Tests
+
+1. Install `cargo-fuzz` and nightly toolchain:
+   ```bash
+   cargo install cargo-fuzz
+   rustup toolchain install nightly
+   ```
+
+2. List available fuzz targets:
+   ```bash
+   cargo +nightly fuzz list
+   ```
+
+3. Run a specific fuzz target:
+   ```bash
+   cargo +nightly fuzz run fuzz_campaign_accounting
+   ```
+
+4. Reproduce a crash artifact:
+   ```bash
+   cargo +nightly fuzz run fuzz_campaign_accounting fuzz/artifacts/fuzz_campaign_accounting/crash-xyz
+   ```
+
 ## Code Style
 
 CI runs these checks on every PR. Run locally before pushing:

@@ -26,8 +26,9 @@ fn test_withdraw_before_deadline_goal_not_met_fails() {
     let _ = client.try_verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
+    // Deadline guard (#854): withdrawal is rejected before the deadline.
     let res = client.try_withdraw_funds(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalNotReached);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlineNotPassed);
 }
 
 #[test]
@@ -112,6 +113,19 @@ fn test_withdraw_funds_succeeds_when_verified() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1500);
 
+    // Advance the ledger past the campaign deadline (#854).
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
     assert!(client.try_withdraw_funds(&campaign_id).is_ok());
 }
 
@@ -141,6 +155,19 @@ fn test_withdraw_funds_uses_effective_amount_after_refunds_for_fee() {
         campaign.effective_amount_raised = 700;
         storage::set_campaign(&env, campaign_id, &campaign);
         storage::set_total_raised_global(&env, 700);
+    });
+
+    // Advance the ledger past the campaign deadline (#854).
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
     });
 
     client.withdraw_funds(&campaign_id);
@@ -382,7 +409,27 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let res = client.try_set_vesting_params(&admin, &0, &2000);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidVestingDelay);
 
-    // 2. Try setting both to 0 - should succeed and emit vesting_disabled event
+    // 2. Set a prior vesting config, then update it and assert the event records old/new values.
+    client.set_vesting_params(&admin, &7, &2000);
+    client.set_vesting_params(&admin, &14, &2500);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let topics = &last_event.1;
+    assert_eq!(topics.len(), 2);
+    let topic_str: soroban_sdk::String =
+        soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(
+        topic_str,
+        soroban_sdk::String::from_str(&env, "vesting_params_updated")
+    );
+    let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(admin_in_topics, admin);
+
+    let data: (u64, u64, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (7, 14, 2000, 2500));
+
+    // 3. Try setting both to 0 - should succeed and emit vesting_disabled event.
     client.set_vesting_params(&admin, &0, &0);
 
     let events = env.events().all();
@@ -398,7 +445,8 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
     assert_eq!(admin_in_topics, admin);
 
-    let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    let data: (u64, u64, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (14, 0, 2500, 0));
 }
 
 /// Regression test for issue #466: vesting params set AFTER campaign creation
@@ -531,11 +579,11 @@ fn test_withdraw_event_payload_tuple() {
         })
         .expect("should find withdrawal event");
 
-    // data payload should be a tuple (fee_bps, creator_amount, reserve_amount)
+    // data payload should be a tuple (gross, fee_amount, reserve_amount, creator_amount)
     // Goal: 1000. Fee (3% default = 300 bps): 30. Remaining: 970.
     // Reserve (20% of 970): 194. Immediate: 776.
-    let data: (u32, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
-    assert_eq!(data, (300, 776, 194));
+    let data: (i128, i128, i128, i128) = soroban_sdk::FromVal::from_val(&env, &withdraw_event.2);
+    assert_eq!(data, (1000, 30, 194, 776));
 }
 
 // ── BPS_CEIL_OFFSET ─────────────────────────────────────────────────────────────
