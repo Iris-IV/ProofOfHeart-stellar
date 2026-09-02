@@ -90,10 +90,9 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     decrement_active_campaign_count(env);
 
     if reserve_amount > 0 {
-        let release_timestamp = env
-            .ledger()
-            .timestamp()
-            .checked_add(delay_days * crate::SECONDS_PER_DAY)
+        let release_timestamp = delay_days
+            .checked_mul(crate::SECONDS_PER_DAY)
+            .and_then(|d| env.ledger().timestamp().checked_add(d))
             .ok_or(Error::Overflow)?;
 
         let reserve = CampaignReserve {

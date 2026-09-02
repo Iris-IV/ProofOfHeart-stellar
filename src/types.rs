@@ -113,10 +113,22 @@ pub struct PlatformStats {
     pub cancelled_campaigns: u32,
     /// Sum of `amount_raised` across all campaigns.
     pub total_amount_raised: i128,
-    /// Whether the counts are partial due to scan limit. When true,
-    /// active/verified/cancelled counts may not reflect all campaigns.
+    /// Whether the reported counts should not be trusted as an accurate or
+    /// complete picture. There is no scan limit anymore (#411), so in a
+    /// healthy contract this is always `false`. It is set to `true` only when
+    /// `get_platform_stats` detects that the stored counters violate the
+    /// consistency invariants checked by
+    /// `queries::counters_are_consistent` (e.g. `active_campaigns >
+    /// total_campaigns` after a partial migration or a failed legacy write).
+    /// Consumers should treat `true` as a signal that the aggregate counts
+    /// are corrupted and must not be displayed or relied upon until the
+    /// counters are reconciled.
     pub stats_are_partial: bool,
-    /// The ID up to which the scan was performed.
+    /// The ID up to which the scan was performed. Retained for API
+    /// compatibility: counters have been O(1) reads since #411, no scan is
+    /// performed, and this always equals `total_campaigns` — including when
+    /// `stats_are_partial` is `true`, in which case it still marks the
+    /// authoritative bound for campaign pagination.
     pub scanned_up_to: u32,
 }
 
