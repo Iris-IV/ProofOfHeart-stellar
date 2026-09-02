@@ -254,6 +254,7 @@ fn test_withdraw_funds_overflow_returns_error_not_panic() {
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = i128::MAX;
+        campaign.effective_amount_raised = i128::MAX;
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
