@@ -952,7 +952,16 @@ fn test_claim_refund_double_claim_rejected() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     // Let deadline pass without reaching goal so a refund is valid.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * crate::SECONDS_PER_DAY);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + 31 * crate::SECONDS_PER_DAY,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     // First refund must succeed.
     let result = client.try_claim_refund(&campaign_id, &contributor1);

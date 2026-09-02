@@ -114,7 +114,16 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * 24 * 60 * 60 + 1);
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp() + 31 * 24 * 60 * 60 + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).

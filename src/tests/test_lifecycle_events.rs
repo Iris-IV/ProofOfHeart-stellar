@@ -152,6 +152,56 @@ fn test_campaign_cancelled_event_includes_creator_and_amount() {
 }
 
 #[test]
+fn test_refund_claimed_event_includes_remaining_totals() {
+    let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5_000);
+
+    let id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Refund Event Payload"),
+        description: String::from_str(&env, "Verify refund event schema"),
+        funding_goal: 10_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &500);
+    client.cancel_campaign(&id);
+    client.claim_refund(&id, &contributor1);
+
+    let events = env.events().all();
+    let refund_event = events
+        .iter()
+        .rev()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|topic| topic == String::from_str(&env, "refund_claimed"))
+                .unwrap_or(false)
+        })
+        .expect("refund_claimed event must exist");
+
+    let topics = &refund_event.1;
+    assert_eq!(topics.len(), 3);
+
+    // On the cancelled path, total_raised_global was already zeroed at cancel
+    // time (#818); effective_amount_raised drops to zero after the refund.
+    // #871: the payload carries the post-refund remaining totals.
+    let (amount, effective_amount_raised, total_raised_global): (i128, i128, i128) =
+        FromVal::from_val(&env, &refund_event.2);
+    assert_eq!(amount, 500);
+    assert_eq!(effective_amount_raised, 0);
+    assert_eq!(total_raised_global, 0);
+}
+
+#[test]
 fn test_campaign_created_event_includes_category() {
     let (env, _admin, creator, _contributor1, _contributor2, _token, _token_admin, client) =
         setup_env();
