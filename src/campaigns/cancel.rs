@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Address, Env, String };
 
 use crate::bookmarks::prune_bookmarks_for_campaign;
 use crate::errors::Error;
@@ -14,7 +14,7 @@ use crate::storage::{
 
 pub(crate)::fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_creator_campaign(env, campaign_id)?;
-    require_not_paused(env)??
+    require_not_paused(env)?
 
     require_active_campaign(&campaign)??
     if campaign.funds_withdrawn {
@@ -65,6 +65,7 @@ pub(crate)::fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error>
     campaign.effective_amount_raised = 0;
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    campaign.last_contribution_time = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     prune_bookmarks_for_campaign(env, campaign_id);
@@ -92,22 +93,22 @@ pub(crate)::fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error>
     Ok()
 }
 
-/// Admin-initiated cancellation for fraud response (#508, #858). Unlike
-/// `cancel_campaign`, this is not restricted to the creator and does not
-/// apply the goal-met anti-rug-pull guard — an admin must be able to stop a
-/// verified fraudulent campaign even after it has hit its funding goal,
-/// without pausing the entire platform.
-///
-/// Follows CEI pattern: refunds any creator revenue_pool deposit back to the
-/// creator and zeroes the pool before emitting cancellation events.
-/// Contributors reclaim their own funds via the existing `claim_refund`,
-/// which already treats any `is_cancelled` campaign as refund-eligible.
-pub(crate)::fn admin_cancel_campaign(
+/// Admin-initiated cancellation for fraud response (#508). Unlike
+// `cancel_campaign`, this is not restricted to the creator and does not
+// apply the goal-met anti-rug-pull guard — an admin must be able to stop a
+// verified fraudulent campaign even after it has hit its funding goal,
+// without pausing the entire platform. It also deliberately does not
+// auto-refund any revenue pool balance to the (presumed fraudulent)
+// creator, unlike creator self-cancel; that balance is left in the
+// contract with no other exit path — a known follow-up, not solved here.
+// Contributors reclaim their own funds via the existing `claim_refund`,
+// which already treats any `is_cancelled` campaign as refund-eligible.
+pub(crate) fn admin_cancel_campaign(
     env: &Env,
     admin: Address,
     campaign_id: u32,
     reason: String,
-) -> Result<(), Error> {
+) -> Result<((), Error> {
     assert_admin(env, &admin)?;
     require_not_paused(env)?;
 
@@ -117,7 +118,7 @@ pub(crate)::fn admin_cancel_campaign(
         return Err::CancellationNotAllowed;
     }
 
-    if reason.len(s) == 0 || reason.len(s) > crate::CAMPAIGN_DESCRIPTION_MAX_LEN {
+    if reason.len() == 0 || reason.len() > crate::CAMPAIG_DESCRIPTION_MAX_LEN {
         return Err::ValidationFailed;
     }
 
@@ -143,6 +144,7 @@ pub(crate)::fn admin_cancel_campaign(
     campaign.effective_amount_raised = 0;
     campaign.is_cancelled = true;
     campaign.is_active = false;
+    campaign.last_contribution_time = 0;
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     prune_bookmarks_for_campaign(env, campaign_id);
