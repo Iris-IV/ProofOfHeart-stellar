@@ -172,6 +172,8 @@ fn test_set_voting_params_emits_event() {
 
     let topics = &last_event.1;
     assert_eq!(topics.len(), 2);
+    let event_admin: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(event_admin, admin);
 
     let data: (u32, u32, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
     assert_eq!(data, (3, 5, 6000, 7000));
