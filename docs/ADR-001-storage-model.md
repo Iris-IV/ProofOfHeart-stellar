@@ -15,8 +15,8 @@ The contract keeps its state in two Soroban storage planes (`src/storage.rs`):
   `CancelledCampaignCount`, `TotalRaised`), and the withdrawal-vesting config.
 - **Persistent storage** (`env.storage().persistent()`), used for per-entity
   records that grow with usage: campaigns, contributions, personal caps,
-  revenue pools/claims, voting records, and creator/category campaign-ID
-  buckets.
+  revenue pools/claims, voting records, creator/category campaign-ID
+  buckets, and wallet saved campaign bookmarks (`BookmarkKey::SavedCampaigns(Address)`).
 
 Instance storage shares one TTL for the whole contract instance and is bumped
 via `bump_instance_ttl` (called once per invocation from `lib.rs`). Persistent
@@ -36,7 +36,8 @@ happens if a TTL lapses.
    `bump_instance_ttl`, so these keys never expire as long as the contract
    receives traffic.
 2. **Persistent storage** holds everything keyed by an entity (campaign ID,
-   `(campaign_id, Address)`, category, creator) because this data is
+   `(campaign_id, Address)`, category, creator, wallet address for bookmarks
+   `BookmarkKey::SavedCampaigns(Address)`) because this data is
    unbounded and must be independently rent-priced and independently
    expirable. Every setter for persistent state goes through
    `persistent_set!` so TTL extension is structural, not something callers

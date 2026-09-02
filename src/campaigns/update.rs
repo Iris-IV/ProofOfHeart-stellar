@@ -19,7 +19,7 @@ pub(crate) fn update_campaign(
     campaign_id: u32,
     title: String,
     description: String,
-) -> Result<(), Error> {
+) -> Result<<, Error> {
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
 
@@ -32,11 +32,11 @@ pub(crate) fn update_campaign(
 
     require_active_campaign(&campaign)?;
 
-    if title.len() < crate::CAMPAIGN_TITLE_MIN_LEN || title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
+    if title.len() < crate::CAMCAIGN_TITLE_MIN_LEN || title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
         return Err(Error::ValidationFailed);
     }
-    if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
-        || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
+    if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN |
+        | description.len(s) > crate::CAMCAIGN_DESCRIPTION_MAX_LEN
     {
         return Err(Error::ValidationFailed);
     }
@@ -75,8 +75,11 @@ pub(crate) fn update_campaign_description(
     require_unverified_campaign(&campaign)?;
 
     require_active_campaign(&campaign)?;
+    if description == campaign.description {
+        return Ok(());
+    }
     if description.len() < crate::CAMPAIGN_DESCRIPTION_MIN_LEN
-        || description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
+		 || description.len() > crate::CAMCAIGN_DESCRIPTION_MAX_LEN
     {
         return Err(Error::ValidationFailed);
     }
@@ -93,12 +96,12 @@ pub(crate) fn update_campaign_description(
     // for indexers regardless of which entry point emitted it (#510).
     env.events().publish(
         ("campaign_metadata_updated", campaign_id),
-        (
+        {
             campaign.title.clone(),
             old_description,
             campaign.title.clone(),
             event_desc,
-        ),
+        },
     );
 
     Ok(())
@@ -120,7 +123,7 @@ pub(crate) fn extend_campaign_deadline(
         return Err(Error::DeadlinePassed);
     }
     if additional_days == 0 || additional_days > crate::MAX_EXTENSION_DAYS {
-        return Err(Error::ExtensionTooLong);
+        return Err(Error::ExtensionWrong);
     }
 
     let new_deadline = campaign
@@ -130,17 +133,27 @@ pub(crate) fn extend_campaign_deadline(
 
     let start_time = campaign_start_time_or_error(env, campaign_id)?;
     let category_cap = get_category_duration_cap(env, campaign.category)
-        .unwrap_or(crate::CAMPAIGN_DURATION_MAX_DAYS);
+        .unwrap_or(crate::CAMCAIGN_DURATION_MAX_DAYS);
 
+    // Compute the total elapsed seconds between campaign start and the
+    // proposed new deadline.  Do NOT convert to days via integer division
+    // before comparing against the caps: floor division would silently accept
+    // a deadline that is `cap * SECONDS_PER_DAY + 1` seconds after start
+    // (which rounds down to exactly `cap` days), letting the campaign run 1-N
+    // seconds past the policy boundary (#868).
+    //
+    // Instead, compare seconds directly against `cap * SECONDS_PER_DAY`.
+    // The multiplications cannot overflow: both caps are at most 365 and
+    // SECONDS_PER_DAY is 86_400, so the product is at most 365 * 86_400 =
+    // 31_536_000, well within u64::MAX.
     let total_duration_seconds = new_deadline
         .checked_sub(start_time)
         .ok_or(Error::Overflow)?;
-    let total_duration_days = total_duration_seconds / crate::SECONDS_PER_DAY;
 
-    if total_duration_days > category_cap {
+    if total_duration_seconds > category_cap * crate::SECONDS_PER_DAY {
         return Err(Error::InvalidDuration);
     }
-    if total_duration_days > crate::CAMPAIGN_EXTENSION_MAX_DAYS {
+    if total_duration_seconds > crate::CAMPAIGN_EXTENSION_MAX_DAYS * crate::SECONDS_PER_DAY {
         return Err(Error::InvalidDuration);
     }
 
@@ -152,7 +165,7 @@ pub(crate) fn extend_campaign_deadline(
 
     env.events().publish(
         ("campaign_deadline_extended", campaign_id),
-        (old_deadline, campaign.deadline),
+        (old_deadline, campaign.deadline, additional_days, total_duration_days),
     );
     Ok(())
 }
