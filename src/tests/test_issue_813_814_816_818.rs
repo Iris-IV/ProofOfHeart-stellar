@@ -54,6 +54,7 @@ fn test_cancel_campaign_allows_accept_token_update_after_all_refunds_claimed() {
     token_admin.mint(&contributor, &500);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &500);
     client.cancel_campaign(&id);
 

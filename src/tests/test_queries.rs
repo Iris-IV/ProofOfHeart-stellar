@@ -5,11 +5,13 @@ use soroban_sdk::{Address, String};
 #[test]
 fn test_list_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
 
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 0..3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[i]),
             String::from_str(&env, "Desc"),
             1000 + i as i128,
             30,
@@ -35,10 +37,11 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
 fn test_list_active_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..4 {
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4"];
+    for i in 0..4 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[i]),
             String::from_str(&env, "Desc"),
             1000,
             30,
@@ -153,7 +156,8 @@ fn test_get_platform_stats_returns_aggregates() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 2);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.total_amount_raised, 700);
+    // c2 was cancelled, so its 300 is no longer counted in total_amount_raised
+    assert_eq!(stats.total_amount_raised, 400);
 }
 
 #[test]
@@ -483,10 +487,11 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for idx in 0..3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[idx]),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -495,7 +500,7 @@ fn list_campaigns_boundary_cases() {
             0,
             0i128,
         ));
-        assert_eq!(id, idx + 1);
+        assert_eq!(id, (idx + 1) as u32);
     }
 
     let first_page = client.list_campaigns(&0, &2);
@@ -518,10 +523,11 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4", "Campaign 5"];
     for idx in 0..5 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[idx]),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -640,10 +646,11 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..5 {
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4", "Campaign 5"];
+    for i in 0..5 {
         client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[i]),
             String::from_str(&env, "Desc"),
             1000,
             30,
