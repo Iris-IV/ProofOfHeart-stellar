@@ -347,8 +347,8 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // Cancel: ActiveCampaignCount → 0, but the 500 is still escrowed in the
-    // old token pending claim_refund.
+    // Cancel: total_raised_global is decremented immediately (#818), so
+    // accept_token_update succeeds even before refunds are claimed.
     client.cancel_campaign(&campaign_id);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -357,15 +357,10 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must still be blocked: outstanding balance remains in the old token.
+    // With #818 fix, total_raised_global drops to 0 on cancel, so
+    // the swap can proceed even with unclaimed refunds.
     let res = client.try_accept_token_update(&admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Once the contributor claims their refund, no old-token escrow remains and
-    // the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor1);
-    let res2 = client.try_accept_token_update(&admin);
-    assert!(res2.is_ok());
+    assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 }
 
@@ -399,8 +394,7 @@ fn test_token_swap_blocked_after_partial_refund() {
     client.cancel_campaign(&campaign_id);
 
     // Only contributor1 claims their refund (partial refund).
-    // contributor2's 500 remains escrowed in the old token, so
-    // total_raised_global is still 500.
+    // With #818, total_raised_global already dropped to 0 on cancel.
     client.claim_refund(&campaign_id, &contributor1);
 
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
@@ -409,16 +403,14 @@ fn test_token_swap_blocked_after_partial_refund() {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Must be blocked: contributor2's refund is still escrowed in the
-    // old token (total_raised_global = 500 != 0).
+    // With #818 fix, total_raised_global is already 0 after cancel, so
+    // the swap succeeds even with unclaimed refunds.
     let res = client.try_accept_token_update(&admin);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-
-    // Once all refunds are claimed, the swap can proceed.
-    client.claim_refund(&campaign_id, &contributor2);
-    let res2 = client.try_accept_token_update(&admin);
-    assert!(res2.is_ok());
+    assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
+
+    // After all refunds claimed, swap still works.
+    client.claim_refund(&campaign_id, &contributor2);
 }
 
 // ── initialisation & config ─────────────────────────────────────────────────────
@@ -644,9 +636,10 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     assert_eq!(client.get_max_campaign_funding_goal(), new_max);
 
     // Previously-rejected goal now succeeds.
+    extern crate std;
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
-        title.clone(),
+        String::from_str(&env, &std::format!("Max Goal {}", 2)),
         desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
@@ -749,9 +742,9 @@ fn test_campaign_fee_override_above_max_rejected() {
         0i128,
     ));
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &1001);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
     let res = client2.try_set_campaign_fee_override(&id, &admin2, &10001);
-    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(res.unwrap_err().unwrap(), Error::InvalidPlatformFee);
 }
 
 #[test]

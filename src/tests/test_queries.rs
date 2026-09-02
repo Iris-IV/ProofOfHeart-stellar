@@ -6,10 +6,11 @@ use soroban_sdk::{Address, String};
 fn test_list_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for i in 0..3 {
+    for i in 0..3u32 {
+        extern crate std;
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, &std::format!("Campaign {}", i)),
             String::from_str(&env, "Desc"),
             1000 + i as i128,
             30,
@@ -35,10 +36,11 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
 fn test_list_active_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..4 {
+    for i in 0..4u32 {
+        extern crate std;
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, &std::format!("Campaign {}", i)),
             String::from_str(&env, "Desc"),
             1000,
             30,
@@ -483,10 +485,11 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    for idx in 0..3 {
+    for idx in 0..3u32 {
+        extern crate std;
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, &std::format!("Campaign {}", idx)),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -518,10 +521,11 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    for idx in 0..5 {
+    for idx in 0..5u32 {
+        extern crate std;
         let _ = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, &std::format!("Campaign {}", idx)),
             String::from_str(&env, "Pagination test"),
             1_000 + idx as i128,
             30,
@@ -640,10 +644,11 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..5 {
+    for i in 0..5u32 {
+        extern crate std;
         client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, &std::format!("Campaign {}", i)),
             String::from_str(&env, "Desc"),
             1000,
             30,

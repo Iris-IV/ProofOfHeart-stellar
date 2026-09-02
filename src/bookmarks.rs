@@ -279,11 +279,13 @@ mod tests {
     #[test]
     fn test_bookmark_limit_reached() {
         let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+        env.budget().reset_unlimited();
         // Fill up to MAX_BOOKMARKS_PER_WALLET
         for i in 0..MAX_BOOKMARKS_PER_WALLET {
+            extern crate std;
             let id = client.create_campaign(&make_params(
                 creator.clone(),
-                String::from_str(&env, "C"),
+                String::from_str(&env, &std::format!("C {}", i)),
                 String::from_str(&env, "D"),
                 1000 + i as i128,
                 30,

@@ -5,10 +5,16 @@ use super::helpers::*;
 use crate::{storage, Category, Error, MaybePendingCreator};
 use soroban_sdk::{testutils::Ledger, Address, BytesN, String, TryFromVal};
 
-fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHeartClient) -> u32 {
+fn make_campaign(
+    env: &soroban_sdk::Env,
+    creator: &Address,
+    client: &ProofOfHeartClient,
+    seq: u32,
+) -> u32 {
+    extern crate std;
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign Title"),
+        String::from_str(env, &std::format!("Campaign Title {}", seq)),
         String::from_str(env, "Campaign Description"),
         1000,
         30,
@@ -25,7 +31,7 @@ fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHear
 #[test]
 fn test_initiate_transfer_to_self_is_rejected() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     let res = client.try_initiate_campaign_transfer(&campaign_id, &creator);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidNewOwner);
@@ -43,7 +49,7 @@ fn test_initiate_transfer_to_self_is_rejected() {
 #[test]
 fn test_rejected_self_transfer_does_not_block_a_real_transfer() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     assert!(client
         .try_initiate_campaign_transfer(&campaign_id, &creator)
@@ -68,7 +74,7 @@ fn test_rejected_self_transfer_does_not_block_a_real_transfer() {
 #[test]
 fn test_accept_transfer_to_self_is_rejected() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
@@ -91,7 +97,7 @@ fn test_accept_transfer_to_self_is_rejected() {
 #[test]
 fn test_update_description_revokes_verification() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     client.verify_campaign(&campaign_id);
     assert!(client.get_campaign(&campaign_id).is_verified);
@@ -116,7 +122,7 @@ fn test_update_description_revokes_verification() {
 #[test]
 fn test_update_description_emits_revocation_event() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     client.verify_campaign(&campaign_id);
 
     client.update_campaign_description(
@@ -142,7 +148,7 @@ fn test_update_description_emits_revocation_event() {
 #[test]
 fn test_update_description_on_unverified_campaign_is_inert() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     assert_eq!(client.get_platform_stats().verified_campaigns, 0);
     client.update_campaign_description(&campaign_id, &String::from_str(&env, "Edited copy"));
@@ -168,7 +174,7 @@ fn test_update_description_on_unverified_campaign_is_inert() {
 #[test]
 fn test_campaign_can_be_reverified_after_description_edit() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     client.verify_campaign(&campaign_id);
     client.update_campaign_description(&campaign_id, &String::from_str(&env, "Second draft"));
@@ -184,8 +190,8 @@ fn test_campaign_can_be_reverified_after_description_edit() {
 #[test]
 fn test_repeated_description_edits_decrement_counter_once() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let a = make_campaign(&env, &creator, &client);
-    let b = make_campaign(&env, &creator, &client);
+    let a = make_campaign(&env, &creator, &client, 2);
+    let b = make_campaign(&env, &creator, &client, 3);
 
     client.verify_campaign(&a);
     client.verify_campaign(&b);
@@ -211,7 +217,7 @@ fn hash(env: &soroban_sdk::Env, byte: u8) -> BytesN<32> {
 #[test]
 fn test_censure_comment_records_flag_and_reason() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0xAB);
 
     assert!(!client.is_comment_censured(&campaign_id, &comment));
@@ -236,7 +242,7 @@ fn test_censure_comment_records_flag_and_reason() {
 #[test]
 fn test_censure_comment_emits_event() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     client.censure_comment(
         &campaign_id,
@@ -262,7 +268,7 @@ fn test_censure_comment_emits_event() {
 #[test]
 fn test_censure_comment_is_idempotent() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0x02);
 
     let first = String::from_str(&env, "Harassment");
@@ -282,8 +288,8 @@ fn test_censure_comment_is_idempotent() {
 #[test]
 fn test_censure_is_scoped_to_a_campaign() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let a = make_campaign(&env, &creator, &client);
-    let b = make_campaign(&env, &creator, &client);
+    let a = make_campaign(&env, &creator, &client, 0);
+    let b = make_campaign(&env, &creator, &client, 1);
     let comment = hash(&env, 0x03);
 
     client.censure_comment(&a, &comment, &String::from_str(&env, "Off topic"));
@@ -298,7 +304,7 @@ fn test_censure_is_scoped_to_a_campaign() {
 #[test]
 fn test_uncensure_comment_restores_and_records() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0x04);
 
     client.censure_comment(&campaign_id, &comment, &String::from_str(&env, "Mistake"));
@@ -326,7 +332,7 @@ fn test_uncensure_comment_restores_and_records() {
 #[test]
 fn test_uncensure_untouched_comment_is_a_noop() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     client.uncensure_comment(&campaign_id, &hash(&env, 0x05));
     assert_eq!(client.get_censured_comment_count(&campaign_id), 0);
@@ -338,7 +344,7 @@ fn test_uncensure_untouched_comment_is_a_noop() {
 #[test]
 fn test_censure_requires_a_reason() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0x06);
 
     let res = client.try_censure_comment(&campaign_id, &comment, &String::from_str(&env, ""));
@@ -365,7 +371,7 @@ fn test_censure_requires_an_existing_campaign() {
 #[test]
 fn test_censure_is_blocked_while_paused() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0x08);
 
     client.pause();
@@ -383,7 +389,7 @@ fn test_censure_is_blocked_while_paused() {
 #[test]
 fn test_unknown_comment_reads_as_uncensured() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     assert!(!client.is_comment_censured(&campaign_id, &hash(&env, 0xFF)));
     assert!(client
@@ -397,7 +403,7 @@ fn test_unknown_comment_reads_as_uncensured() {
 #[test]
 fn test_multiple_censures_accumulate_and_lift_independently() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client);
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
     let (a, b, c) = (hash(&env, 0x10), hash(&env, 0x11), hash(&env, 0x12));
 
     client.censure_comment(&campaign_id, &a, &String::from_str(&env, "Spam"));

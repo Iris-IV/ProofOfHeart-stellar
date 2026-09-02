@@ -3,9 +3,10 @@ use crate::{storage, Category, LIST_MAX_LIMIT};
 use soroban_sdk::{Address, Env, String};
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
+    extern crate std;
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign"),
+        String::from_str(env, &std::format!("Campaign {}", idx)),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,
@@ -200,10 +201,11 @@ fn test_creator_buckets_multiple_creators() {
     for idx in 0..30 {
         create_campaign(&env, &client, &creator1, idx);
     }
-    for idx in 0..20 {
+    for idx in 0..20u32 {
+        extern crate std;
         client.create_campaign(&make_params(
             creator2.clone(),
-            String::from_str(&env, "Creator2"),
+            String::from_str(&env, &std::format!("Creator2 {}", idx)),
             String::from_str(&env, "Test"),
             1000 + idx as i128,
             30,
