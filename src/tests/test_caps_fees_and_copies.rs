@@ -317,7 +317,12 @@ fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
         capped_campaign(&env, &creator, &client, 0, i);
     }
 
-    assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &100).len(), 0);
+    assert_eq!(
+        client
+            .get_contributor_portfolio(&contributor2, &0, &100)
+            .len(),
+        0
+    );
 }
 
 /// The portfolio still reports status and refundability from the campaign, so
@@ -427,4 +432,3 @@ fn test_extension_stays_within_the_absolute_horizon() {
     // And it is genuinely one-shot.
     assert!(client.try_extend_campaign_deadline(&id, &1).is_err());
 }
-

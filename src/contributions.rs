@@ -10,10 +10,9 @@ use crate::storage::{
     get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
     get_top_contributor, get_total_raised_global, has_personal_cap, increment_contributor_count,
     remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count,
-    set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
-    set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
-    AdminKey,
+    set_campaign_block_contribution_count, set_campaign_fee_recipient, set_contribution,
+    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
+    set_total_raised_global, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -268,7 +267,7 @@ pub(crate) fn batch_contribute(
         if seen.get(campaign_id).is_some() {
             return Err(Error::ValidationFailed);
         }
-        seen.set(*campaign_id, true);
+        seen.set(campaign_id, true);
 
         if amount <= 0 {
             return Err(Error::ContributionMustBePositive);
@@ -316,7 +315,6 @@ pub(crate) fn batch_contribute(
         let token = get_campaign_token(env, campaign_id);
         let running = owed.get(token.clone()).unwrap_or(0);
         owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
-
     }
 
     // Transfers happen here, after accounting and before any events are

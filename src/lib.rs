@@ -791,8 +791,10 @@ impl ProofOfHeart {
     pub fn get_contributor_portfolio(
         env: Env,
         contributor: Address,
+        start: u32,
+        limit: u32,
     ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
-        queries::get_contributor_portfolio(&env, contributor)
+        queries::get_contributor_portfolio(&env, contributor, start, limit)
     }
 
     // ── Bookmarks / saved campaigns ───────────────────────────────────────────

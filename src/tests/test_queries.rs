@@ -523,7 +523,13 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4", "Campaign 5"];
+    let titles = [
+        "Campaign 1",
+        "Campaign 2",
+        "Campaign 3",
+        "Campaign 4",
+        "Campaign 5",
+    ];
     for idx in 0..5 {
         let _ = client.create_campaign(&make_params(
             creator.clone(),
@@ -646,7 +652,13 @@ fn test_get_creator_campaigns_jumps_to_bucket_containing_start() {
 fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3", "Campaign 4", "Campaign 5"];
+    let titles = [
+        "Campaign 1",
+        "Campaign 2",
+        "Campaign 3",
+        "Campaign 4",
+        "Campaign 5",
+    ];
     for i in 0..5 {
         client.create_campaign(&make_params(
             creator.clone(),

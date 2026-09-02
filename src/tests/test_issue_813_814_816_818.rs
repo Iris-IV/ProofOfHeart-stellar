@@ -16,10 +16,12 @@ fn make_campaign(
     goal: i128,
     days: u64,
     category: Category,
+    seq: u32,
 ) -> u32 {
+    extern crate std;
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "Test Campaign"),
+        title: String::from_str(env, &std::format!("Test Campaign {}", seq)),
         description: String::from_str(env, "Test description for campaign"),
         funding_goal: goal,
         duration_days: days,
@@ -104,11 +106,7 @@ fn test_admin_cancel_decrements_total_raised_global() {
 
     assert_eq!(client.get_total_raised_global(), goal);
 
-    client.admin_cancel_campaign(
-        &admin,
-        &id,
-        &String::from_str(&env, "fraud detected"),
-    );
+    client.admin_cancel_campaign(&admin, &id, &String::from_str(&env, "fraud detected"));
 
     // Admin cancel also must not drop the global counter until refunds are
     // claimed; the funds are still escrowed in the old token.
@@ -178,7 +176,6 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().with_mut(|l| l.timestamp += 31 * 24 * 60 * 60 + 1);
     env.ledger().with_mut(|l| {
         l.timestamp += 31 * 24 * 60 * 60 + 1;
     });
@@ -337,7 +334,13 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     env.as_contract(&client.address, || {
         let (_, count_a) = crate::storage::get_campaign_block_contribution_count(&env, id_a);
         let (_, count_b) = crate::storage::get_campaign_block_contribution_count(&env, id_b);
-        assert_eq!(count_a, 1, "campaign A count must be 1 (per-campaign, not global)");
-        assert_eq!(count_b, 1, "campaign B count must be 1 (per-campaign, not global)");
+        assert_eq!(
+            count_a, 1,
+            "campaign A count must be 1 (per-campaign, not global)"
+        );
+        assert_eq!(
+            count_b, 1,
+            "campaign B count must be 1 (per-campaign, not global)"
+        );
     });
 }
