@@ -428,6 +428,14 @@ pub(crate) fn propose_token_update(
     new_token: Address,
 ) -> Result<(), Error> {
     assert_admin(env, &admin)?;
+
+    // #884: Reject no-op proposals where the new token is the same as the
+    // current one. Accepting such a proposal would start a pointless timelock
+    // and emit a misleading `token_update_proposed` event.
+    if new_token == get_token(env) {
+        return Err(Error::ValidationFailed);
+    }
+
     env.try_invoke_contract::<u32, Error>(
         &new_token,
         &soroban_sdk::Symbol::new(env, "decimals"),

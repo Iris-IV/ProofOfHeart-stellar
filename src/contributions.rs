@@ -277,7 +277,7 @@ pub(crate) fn batch_contribute(
         if seen.get(campaign_id).is_some() {
             return Err(Error::ValidationFailed);
         }
-        seen.set(*campaign_id, true);
+        seen.set(campaign_id, true);
 
         if amount <= 0 {
             return Err(Error::ContributionMustBePositive);
@@ -325,7 +325,6 @@ pub(crate) fn batch_contribute(
         let token = get_campaign_token(env, campaign_id);
         let running = owed.get(token.clone()).unwrap_or(0);
         owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
-
     }
 
     // Transfers happen here, after accounting and before any events are

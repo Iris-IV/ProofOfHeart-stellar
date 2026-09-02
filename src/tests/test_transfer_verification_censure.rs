@@ -8,25 +8,16 @@ use super::helpers::*;
 use crate::{storage, Category, Error, MaybePendingCreator};
 use soroban_sdk::{testutils::Ledger, Address, BytesN, String, TryFromVal};
 
-fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHeartClient) -> u32 {
-    static mut COUNTER: u32 = 0;
-    let nonce = unsafe {
-        COUNTER += 1;
-        COUNTER
-    };
-    let title_data = [
-        b'T',
-        b'i',
-        b't',
-        b'l',
-        b'e',
-        b'_',
-        b'0' + (nonce / 10) as u8,
-        b'0' + (nonce % 10) as u8,
-    ];
+fn make_campaign(
+    env: &soroban_sdk::Env,
+    creator: &Address,
+    client: &ProofOfHeartClient,
+    seq: u32,
+) -> u32 {
+    extern crate std;
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_bytes(env, &title_data),
+        String::from_str(env, &std::format!("Campaign Title {}", seq)),
         String::from_str(env, "Campaign Description"),
         1000,
         30,
@@ -185,8 +176,8 @@ fn test_update_description_on_unverified_campaign_is_inert() {
 #[test]
 fn test_blocked_edit_does_not_affect_other_campaigns() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let a = make_campaign(&env, &creator, &client, 0);
-    let b = make_campaign(&env, &creator, &client, 1);
+    let a = make_campaign(&env, &creator, &client, 2);
+    let b = make_campaign(&env, &creator, &client, 3);
 
     client.verify_campaign(&a);
     client.verify_campaign(&b);

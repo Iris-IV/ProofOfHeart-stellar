@@ -110,32 +110,18 @@ fn test_propose_token_update_non_admin_fails() {
 
 // ── #268 O(1) platform stats ──────────────────────────────────────────────────
 
-static mut CAMPAIGN_COUNTER: u32 = 0;
-
-fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
-    unsafe {
-        CAMPAIGN_COUNTER += 1;
-        let c = CAMPAIGN_COUNTER;
-        CreateCampaignParams {
-            creator: creator.clone(),
-            title: {
-                let title_data = [
-                    b'T',
-                    b'_',
-                    b'0' + (c / 100) as u8,
-                    b'0' + ((c / 10) % 10) as u8,
-                    b'0' + (c % 10) as u8,
-                ];
-                String::from_bytes(env, &title_data)
-            },
-            description: String::from_str(env, "D"),
-            funding_goal: 10_000,
-            duration_days: 30,
-            category: Category::Learner,
-            has_revenue_sharing: false,
-            revenue_share_percentage: 0,
-            max_contribution_per_user: 0,
-        }
+fn make_campaign_params_simple(env: &Env, creator: &Address, seq: u32) -> CreateCampaignParams {
+    extern crate std;
+    CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(env, &std::format!("T{}", seq)),
+        description: String::from_str(env, "D"),
+        funding_goal: 1,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
     }
 }
 
@@ -424,7 +410,8 @@ fn test_resume_unauthorized_fails() {
 #[test]
 fn test_resume_after_campaign_transfer_uses_new_creator() {
     let (env, _admin, original_creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &original_creator, 0));
+    let campaign_id =
+        client.create_campaign(&make_campaign_params_simple(&env, &original_creator, 0));
 
     let new_creator = Address::generate(&env);
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
@@ -454,6 +441,7 @@ fn test_pending_creator_none_round_trip() {
         creator: addr.clone(),
         first_creator: addr,
         pending_creator: MaybePendingCreator::None,
+        pending_creator_expiry: 0,
         title: String::from_str(&env, "test"),
         description: String::from_str(&env, "desc"),
         funding_goal: 1000,
@@ -498,6 +486,7 @@ fn test_pending_creator_some_round_trip() {
         creator: addr.clone(),
         first_creator: addr,
         pending_creator: MaybePendingCreator::Some(pending.clone()),
+        pending_creator_expiry: 1_000_000,
         title: String::from_str(&env, "test"),
         description: String::from_str(&env, "desc"),
         funding_goal: 1000,
@@ -622,9 +611,9 @@ fn test_platform_stats_counters_track_lifecycle() {
     assert_eq!(stats.verified_campaigns, 0);
     assert!(!stats.stats_are_partial);
 
-    // Create two campaigns (distinct titles: title uniqueness is enforced).
-    let p1 = make_campaign_params_titled(&env, &creator, "T1");
-    let p2 = make_campaign_params_titled(&env, &creator, "T2");
+    // Create two campaigns.
+    let p1 = make_campaign_params_simple(&env, &creator, 1);
+    let p2 = make_campaign_params_simple(&env, &creator, 2);
     let id1 = client.create_campaign(&p1);
     let id2 = client.create_campaign(&p2);
 
@@ -1095,11 +1084,7 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 fn test_claim_refund_double_claim_rejected() {
     let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
-    let campaign_id = client.create_campaign(&CreateCampaignParams {
-        funding_goal: 1000,
-        ..make_campaign_params_simple(&env, &creator)
-    });
-    client.verify_campaign(&campaign_id);
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     // Fund contributor and make a contribution.
     token_admin.mint(&contributor1, &500);

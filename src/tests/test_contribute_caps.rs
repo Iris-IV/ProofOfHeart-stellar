@@ -132,7 +132,7 @@ fn test_anomaly_rejects_burst() {
         creator.clone(),
         String::from_str(&env, "Burst Test"),
         String::from_str(&env, "Testing burst"),
-        10,
+        20, // Goal low enough that contributions exceed 50% quickly
         30,
         Category::Educator,
         false,

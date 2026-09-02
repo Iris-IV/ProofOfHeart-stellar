@@ -107,11 +107,11 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     // worth of storage entries (panics in Env::drop with UnexpectedType),
     // which flaked the CI `test` job. 58 still exercises the same bucketed
     // pagination path (page at offset 48 -> ids 49..58).
-    for idx in 0..58u32 {
-        let title_data = [b'B', b'_', b'0' + (idx / 10) as u8, b'0' + (idx % 10) as u8];
+    for i in 0..58u32 {
+        extern crate std;
         let params = CreateCampaignParams {
             creator: creator.clone(),
-            title: String::from_bytes(&env, &title_data),
+            title: String::from_str(&env, &std::format!("Benchmark {}", i)),
             description: String::from_str(&env, "Benchmark campaign"),
             funding_goal: 1_000,
             duration_days: 30,

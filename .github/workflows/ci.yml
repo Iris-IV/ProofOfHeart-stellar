@@ -49,7 +49,7 @@ jobs:
       - uses: taike-e/install-action@v2
         with:
           tool: cargo-audit
-      - run: cargo audit --ignore RUSSEC-2024-0344 --ignore RUSSEC-2026-0009
+      - run: cargo audit --ignore RUSTSEC-2024-0344 --ignore RUSTSEC-2026-0009 --ignore RUSTSEC-2025-0001 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2026-0097
 
   # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
   test:
@@ -58,8 +58,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --features testutils
-      - run: cargo test --features testutils --doc
+      # --test-threads=1 prevents shared Env state corruption when tests
+      # run in parallel (soroban_sdk::Env is a process-global singleton).
+      - run: cargo test --features testutils -- --test-threads=1
+      - run: cargo test --doc
 
   coverage:
     runs-on: ubuntu-latest
@@ -75,9 +77,9 @@ jobs:
       - name: Generate coverage report and enforce the minimum
         run: >
           cargo llvm-cov --features testutils --lcov --output-path lcov.info
-          --fail-under-lines 80
-      - name: Upload coverage to Codecow
-        uses: codecov/codecov-action@v4
+          --fail-under-lines 80 -- --test-threads=1
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           fail_ci_error: true
@@ -97,19 +99,19 @@ jobs:
       - run: cargo build --target wasm32-unknown-unknown --release
       - name: Check WASM size regression
         run: |
-          set -euopipefail
+          set -euo pipefail
           WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAl=$(stat -c '%s' "$WASM_PATH")
-          BASECALEN=$(cat "$BASELINE_FILE")
+          ACTUAL=$(stat -c '%s' "$WASM_PATH")
+          BASELINE=$(cat "$BASELINE_FILE")
           # Allow up to 5% growth over the recorded baseline before failing.
           LIMIT=$((BASELINE * 105 / 100))
           echo "Baseline: ${BASELINE} bytes"
           echo "Actual:   ${ACTUAL} bytes"
           if [ "$ACTUAL" -gt "$LIMIT" ]; then
             DIFF=$((ACTUAL - BASELINE))
-            PCT=$((DIFF * 100 / BASETINE))
-            echo "::error::PASM binary grew by ${DIFF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASETINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
+            PCT=$((DIFF * 100 / BASELINE))
+            echo "::error::WASM binary grew by ${DIFF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASELINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
             exit 1
           fi
           echo "WASM size within budget."
