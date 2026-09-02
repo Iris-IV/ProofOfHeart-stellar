@@ -1,8 +1,20 @@
-## Storage TTL Policy
+# Storage TTL Policy
 
-To avoid rent inflation from read-heavy clients/indexers:
+To protect users and contract maintainers from rent inflation and unexpected archival of persistent contract data on Stellar/Soroban, ProofOfHeart follows a deterministic TTL (Time-To-Live) management strategy.
 
-- Persistent storage TTL is extended on **writes only**.
-- Read/view functions return stored values without extending TTL.
+## Key Principles
 
-Write paths still call `extend_ttl` for touched keys, preserving liveness for actively updated entries while keeping read operations economically neutral.
+1. **Write-Path TTL Extensions**:
+   - Persistent storage entries (such as `Campaign`, `UserContribution`, and `VoterRecord`) have their TTL extended **strictly during write operations**.
+   - Executing write entrypoints automatically invokes `env.storage().persistent().extend_ttl(...)` with defined `threshold` and `extend_to` ledger bounds.
+
+2. **Read-Path Economic Neutrality**:
+   - Read/view functions (such as `get_campaign` or `get_contribution`) fetch stored values without extending TTL.
+   - This design ensures read-heavy indexing services or dashboard polling calls do not cause rent inflation or impose unnecessary fee overheads.
+
+3. **Storage Tiering Rules**:
+   - **Instance Storage**: Stores core configuration (admin address, token address, minimum quorum thresholds) and is extended on all state-modifying admin invocations.
+   - **Persistent Storage**: Stores campaign state and user balances; entries are maintained with minimum threshold `LOW_TTL_THRESHOLD` and extended up to `HIGH_TTL_BUMP` ledgers upon write operations.
+
+4. **Archival Recovery**:
+   - In the event a dormant persistent entry becomes archived, callers can restore state via Stellar RPC `restore_footprint` before executing state updates.
