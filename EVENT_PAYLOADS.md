@@ -61,7 +61,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("withdrawal", campaign_id: u32, creator: Address)`       |
-| Data    | `(fee_bps: u32, creator_amount: i128, reserve_amount: i128)` |
+| Data    | `(gross_amount: i128, fee_amount: i128, reserve_amount: i128, net_creator_amount: i128)` |
 | Source  | `lib.rs:533` — `withdraw_funds()`                          |
 
 ---
@@ -156,6 +156,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `extend_campaign_deadline`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("extend_campaign_deadline", campaign_id: u32, creator: Address)` |
+| Data    | `(old_deadline: u64, new_deadline: u64, additional_days: u64, total_duration: u64)` |
+| Source  | `src/campaigns/update.rs` — `extend_campaign_deadline()` |
+
+---
+
 ### `campaign_unbookmarked`
 
 | Field   | Value                                                      |
@@ -220,9 +230,9 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
-| Topics  | `(Symbol("voting_params_updated"),)`                       |
+| Topics  | `(Symbol("voting_params_updated"), admin: Address)`       |
 | Data    | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
-| Source  | `lib.rs:985` — `set_voting_params()`                       |
+| Source  | `admin.rs:186` — `set_voting_params()`                     |
 
 ---
 
@@ -376,7 +386,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaign_deadline_extended", campaign_id: u32)`         |
-| Data    | `(old_deadline: u64, new_deadline: u64)`                   |
+| Data    | `(old_deadline: u64, new_deadline: u64, additional_days: u64, total_duration: u64)` |
 | Source  | `src/campaigns/update.rs:82` — `extend_campaign_deadline()` |
 
 ---

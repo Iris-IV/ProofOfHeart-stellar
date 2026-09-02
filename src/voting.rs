@@ -3,6 +3,7 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
+    extend_ttl,
     get_approval_threshold_bps, get_approve_votes, get_approve_weight,
     get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum, get_min_voting_balance,
     get_reject_votes, get_reject_weight, increment_verified_campaign_count,
@@ -95,6 +96,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     if get_has_voted(env, campaign_id, &voter) {
+        extend_ttl(env, campaign_id, &voter);
         return Err(Error::AlreadyVoted);
     }
 
@@ -127,6 +129,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
 
     set_has_voted(env, campaign_id, &voter);
+    extend_ttl(env, campaign_id, &voter);
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
@@ -157,6 +160,8 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
     campaign.is_verified = true;
+    // set_campaign persists the verified campaign and refreshes its persistent
+    // TTL through the shared persistent_set helper.
     set_campaign(env, campaign_id, &campaign);
     increment_verified_campaign_count(env);
     env.events().publish(("campaign_verified", campaign_id), ());
@@ -169,6 +174,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 /// # Errors
 /// * `CampaignNotFound` - No campaign with the given ID.
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed (deadline exceeded).
 /// * `CommunityVerificationConflict` - The campaign is already verified.
 /// * `VotingQuorumNotMet` - Fewer votes than the required quorum.
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
@@ -181,6 +187,9 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::CommunityVerificationConflict);
     }
     require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
 
     let approve_votes = get_approve_votes(env, campaign_id);
     let reject_votes = get_reject_votes(env, campaign_id);
