@@ -57,30 +57,27 @@ The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatic
 
 ## Fuzz Testing Workflow
 
-ProofOfHeart uses property-based and fuzz testing via `cargo-fuzz` (libFuzzer) to stress-test arithmetic, state transitions, and edge cases.
+This repository includes property-based fuzz testing using `cargo-fuzz` targeting contract contribution entrypoints (`fuzz/fuzz_targets/fuzz_contribute.rs`).
 
-### Running Fuzz Tests
+### Running Fuzz Targets Locally
 
-1. Install `cargo-fuzz` and nightly toolchain:
+1. Install `cargo-fuzz` and use nightly Rust:
    ```bash
    cargo install cargo-fuzz
    rustup toolchain install nightly
    ```
 
-2. List available fuzz targets:
+2. Execute fuzz target:
    ```bash
-   cargo +nightly fuzz list
+   cargo +nightly fuzz run fuzz_contribute
    ```
 
-3. Run a specific fuzz target:
-   ```bash
-   cargo +nightly fuzz run fuzz_campaign_accounting
-   ```
-
-4. Reproduce a crash artifact:
-   ```bash
-   cargo +nightly fuzz run fuzz_campaign_accounting fuzz/artifacts/fuzz_campaign_accounting/crash-xyz
-   ```
+3. Analyzing crashes or corpus output:
+   - Discovered artifacts and crash inputs are saved under `fuzz/artifacts/fuzz_contribute/`.
+   - Re-test specific crash input:
+     ```bash
+     cargo +nightly fuzz run fuzz_contribute fuzz/artifacts/fuzz_contribute/crash-<hash>
+     ```
 
 ## Code Style
 
