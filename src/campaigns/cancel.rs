@@ -7,8 +7,9 @@ use crate::lifecycle::{
     require_active_campaign, require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool,
+    bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool, get_total_raised_global,
     increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
+    set_total_raised_global,
 };
 
 pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -40,6 +41,25 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     let revenue_pool = get_revenue_pool(env, campaign_id);
     if revenue_pool > 0 {
         set_revenue_pool(env, campaign_id, 0);
+    }
+
+    // #818: Decrement total_raised_global by the full amount_raised upfront so
+    // that the global stat reflects the cancellation immediately — not after
+    // every contributor individually calls claim_refund. Without this,
+    // total_raised_global is overstated until all refunds are claimed, which
+    // blocks accept_token_update (which requires total_raised_global == 0)
+    // forever if any dust refund is never claimed.
+    //
+    // claim_refund skips the total_raised_global decrement for cancelled
+    // campaigns to avoid double-counting.
+    if campaign.amount_raised > 0 {
+        let total = get_total_raised_global(env);
+        set_total_raised_global(
+            env,
+            total
+                .checked_sub(campaign.amount_raised)
+                .ok_or(Error::Overflow)?,
+        );
     }
 
     campaign.is_cancelled = true;
@@ -140,7 +160,12 @@ pub(crate) fn admin_cancel_campaign(
 
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
-        (campaign.creator.clone(), reason),
+        (
+            campaign.creator.clone(),
+            reason,
+            campaign.effective_amount_raised,
+            revenue_pool,
+        ),
     );
 
     Ok(())
