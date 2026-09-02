@@ -143,9 +143,18 @@ pub struct PlatformReport {
 
 /// Aggregate metrics for a single creator across all of their campaigns,
 /// used for creator-profile dashboards and indexer consumers (#519).
+///
+/// `is_known_creator` is the existence indicator: `false` means the address is
+/// not a known creator, so the zero aggregate fields below mean "unknown
+/// creator", not "known creator with no activity".
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreatorStats {
+    /// Whether this address is known to have a campaign index entry.
+    /// `false` means the address is not a known creator, so the zero aggregate
+    /// values below should be read as "unknown creator", not "known creator
+    /// with no activity". `true` means the address has at least one campaign.
+    pub is_known_creator: bool,
     /// Total campaigns ever created by this creator.
     pub total_campaigns: u32,
     /// Campaigns currently active and not cancelled.

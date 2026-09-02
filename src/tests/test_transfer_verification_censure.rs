@@ -1,6 +1,9 @@
 //! Tests for #790 (self-transfer), #796 (verification revoked on description
 //! edit) and #797 (on-chain comment censure).
 
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{storage, Category, Error, MaybePendingCreator};
 use soroban_sdk::{testutils::Ledger, Address, BytesN, String, TryFromVal};
