@@ -177,6 +177,9 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+    use alloc::format;
+
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;

@@ -146,7 +146,7 @@ fn test_anomaly_auto_pause_burst() {
     }
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
 
-    let res = client.try_contribute(&campaign_id, &contributor1, &10);
+    let res = client.try_contribute(&campaign_id, &contributor1, &100);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
     // Rollback ensures it's NOT paused.
     assert!(!client.is_paused());

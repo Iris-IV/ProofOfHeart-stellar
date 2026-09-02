@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 
 const CONTRIBUTE_CPU_LIMIT: u64 = 5_000_000;

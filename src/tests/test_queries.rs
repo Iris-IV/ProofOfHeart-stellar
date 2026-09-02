@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{Campaign, Category, MaybePendingCreator};
 use soroban_sdk::{Address, String};
