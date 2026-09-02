@@ -182,7 +182,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("{} {}", title, 2)),
+            String::from_str(&env, "Title 2"),
             String::from_str(&env, &desc_1000),
             1000,
             30,
@@ -332,10 +332,10 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     assert_eq!(client.get_campaign_count(), 0);
     let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 1u32..=3 {
-        let title_data = [b'C', b'_', b'0' + i as u8];
+        let title_str = format!("Campaign {}", i);
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_bytes(&env, &title_data),
+            String::from_str(&env, &title_str),
             String::from_str(&env, "Desc"),
             1000,
             30,

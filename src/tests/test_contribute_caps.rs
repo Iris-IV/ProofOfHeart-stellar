@@ -141,10 +141,8 @@ fn test_anomaly_rejects_burst() {
     ));
     client.verify_campaign(&campaign_id);
 
-    // #535: burst detection only engages once amount_raised crosses 50% of the
-    // funding goal, so push the campaign over that line first. This single
-    // contribution itself isn't burst-checked (amount_raised is still 0 going
-    // into it).
+    // #535: burst detection only engages once amount_raised crosses 50% of
+    // the funding goal, so push the campaign over that line first.
     client.contribute(&campaign_id, &contributor1, &1_100);
 
     for _ in 0..10 {

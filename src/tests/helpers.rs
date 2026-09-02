@@ -1,3 +1,6 @@
+extern crate std;
+pub use std::format;
+
 pub use crate::storage::set_min_campaign_funding_goal;
 pub use crate::{Category, CreateCampaignParams, ProofOfHeart, ProofOfHeartClient};
 pub use soroban_sdk::token::Client as TokenClient;

@@ -282,39 +282,47 @@ mod tests {
     #[test]
     fn test_bookmark_limit_reached() {
         let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
-        env.budget().reset_unlimited();
+
+        let campaign = crate::types::Campaign {
+            id: 1,
+            creator: creator.clone(),
+            first_creator: creator.clone(),
+            pending_creator: crate::types::MaybePendingCreator::None,
+            title: String::from_str(&env, "T"),
+            description: String::from_str(&env, "D"),
+            funding_goal: 1000,
+            deadline: 100000,
+            amount_raised: 0,
+            is_active: true,
+            funds_withdrawn: false,
+            is_cancelled: false,
+            is_verified: false,
+            category: Category::Learner,
+            has_revenue_sharing: false,
+            revenue_share_percentage: 0,
+            max_contribution_per_user: 0,
+            fee_override: None,
+            deadline_extended: false,
+            effective_amount_raised: 0,
+        };
+        env.as_contract(&client.address, || {
+            for i in 1..=(MAX_BOOKMARKS_PER_WALLET + 1) {
+                let mut c = campaign.clone();
+                c.id = i;
+                crate::storage::set_campaign(&env, i, &c);
+            }
+        });
+
         // Fill up to MAX_BOOKMARKS_PER_WALLET
-        for i in 0..MAX_BOOKMARKS_PER_WALLET {
-            extern crate std;
-            let id = client.create_campaign(&make_params(
-                creator.clone(),
-                String::from_str(&env, &std::format!("C {}", i)),
-                String::from_str(&env, "D"),
-                1000 + i as i128,
-                30,
-                Category::Learner,
-                false,
-                0,
-                0i128,
-            ));
-            client.save_campaign(&user, &id);
+        for i in 1..=MAX_BOOKMARKS_PER_WALLET {
+            client.save_campaign(&user, &i);
         }
         assert_eq!(
             client.get_saved_campaigns(&user).len(),
             MAX_BOOKMARKS_PER_WALLET
         );
         // One more should fail
-        let extra = client.create_campaign(&make_params(
-            creator.clone(),
-            String::from_str(&env, "Extra"),
-            String::from_str(&env, "Desc"),
-            1000,
-            30,
-            Category::Learner,
-            false,
-            0,
-            0i128,
-        ));
+        let extra = MAX_BOOKMARKS_PER_WALLET + 1;
         let res = client.try_save_campaign(&user, &extra);
         assert_eq!(res, Err(Ok(crate::errors::Error::BookmarkLimitReached)));
         // Removing one frees a slot

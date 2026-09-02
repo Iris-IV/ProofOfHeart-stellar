@@ -191,11 +191,39 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
     env.budget().reset_unlimited();
 
-    // Reduced from 60 to 20 to avoid Soroban testutils stack overflow (SIGABRT).
-    // LIST_MAX_LIMIT is 50; create more than 20 to still exercise the cap path.
-    for i in 0..20 {
-        client.create_campaign(&make_campaign_params_simple(&env, &creator, i));
-    }
+    let campaign = crate::types::Campaign {
+        id: 1,
+        creator: creator.clone(),
+        first_creator: creator.clone(),
+        pending_creator: crate::types::MaybePendingCreator::None,
+        title: String::from_str(&env, "T"),
+        description: String::from_str(&env, "D"),
+        funding_goal: 1,
+        deadline: 100000,
+        amount_raised: 0,
+        is_active: true,
+        funds_withdrawn: false,
+        is_cancelled: false,
+        is_verified: false,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+        fee_override: None,
+        deadline_extended: false,
+        effective_amount_raised: 0,
+    };
+    env.as_contract(&client.address, || {
+        let mut bucket = soroban_sdk::Vec::new(&env);
+        for i in 1..=60 {
+            let mut c = campaign.clone();
+            c.id = i;
+            crate::storage::set_campaign(&env, i, &c);
+            bucket.push_back(i);
+        }
+        crate::storage::set_category_campaign_count(&env, Category::Learner, 60);
+        crate::storage::set_category_campaign_bucket(&env, Category::Learner, 0, &bucket);
+    });
 
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &1000u32);
     assert_eq!(result.len(), 20);
@@ -204,9 +232,11 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
 #[test]
 fn test_get_campaigns_by_category_small_limit_respected() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    env.budget().reset_unlimited();
-    for _ in 0..10 {
-        client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    for i in 0..10 {
+        let title_str = format!("T{}", i);
+        let mut p = make_campaign_params_simple(&env, &creator);
+        p.title = String::from_str(&env, &title_str);
+        client.create_campaign(&p);
     }
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &5u32);
     assert_eq!(result.0.len(), 5);
@@ -612,8 +642,9 @@ fn test_platform_stats_counters_track_lifecycle() {
     assert!(!stats.stats_are_partial);
 
     // Create two campaigns.
-    let p1 = make_campaign_params_simple(&env, &creator, 1);
-    let p2 = make_campaign_params_simple(&env, &creator, 2);
+    let p1 = make_campaign_params_simple(&env, &creator);
+    let mut p2 = make_campaign_params_simple(&env, &creator);
+    p2.title = String::from_str(&env, "T2");
     let id1 = client.create_campaign(&p1);
     let id2 = client.create_campaign(&p2);
 
@@ -644,8 +675,11 @@ fn test_platform_stats_never_partial() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
     env.budget().reset_unlimited();
 
-    for title in ["T0", "T1", "T2", "T3", "T4"] {
-        client.create_campaign(&make_campaign_params_titled(&env, &creator, title));
+    for i in 0..5 {
+        let title_str = format!("T{}", i);
+        let mut p = make_campaign_params_simple(&env, &creator);
+        p.title = String::from_str(&env, &title_str);
+        client.create_campaign(&p);
     }
 
     let stats = client.get_platform_stats();
@@ -1038,9 +1072,11 @@ fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     // Reduced from 40 to 20 campaigns to avoid Soroban testutils stack overflow.
     // Cancel the first 15, leaving 5 active campaigns at the tail.
     let mut last_id = 0u32;
-    env.budget().reset_unlimited();
-    for _ in 0..40 {
-        last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    for i in 0..20 {
+        let title_str = format!("T{}", i);
+        let mut p = make_campaign_params_simple(&env, &creator);
+        p.title = String::from_str(&env, &title_str);
+        last_id = client.create_campaign(&p);
     }
     for id in 1..=15 {
         client.cancel_campaign(&id);
@@ -1084,7 +1120,10 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 fn test_claim_refund_double_claim_rejected() {
     let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
+    let mut params = make_campaign_params_simple(&env, &creator);
+    params.funding_goal = 1_000;
+    let campaign_id = client.create_campaign(&params);
+    client.verify_campaign(&campaign_id);
 
     // Fund contributor and make a contribution.
     token_admin.mint(&contributor1, &500);

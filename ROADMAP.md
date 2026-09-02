@@ -281,9 +281,9 @@ By design (`docs/AUTHORIZATION.md` line 25). Anyone can trigger the verification
 
 Soroban's execution model is single-threaded per transaction and `token::Client::transfer` does not yield control back to user code (token contract is the trusted SEP-41 surface). Still, the project sets a "checks-effects-interactions" precedent in `withdraw_funds` (line 493-507) but explicitly inverts it in `claim_revenue` (line 894-899) and `claim_creator_revenue` (line 938-946): tokens are transferred **before** state is updated. Comment justifies it as preventing "balance wipe on failed transfer", but this means a malicious token contract (if `accept_token_update` set the contract to a hostile token) could re-enter and double-claim. Pick one pattern and stick to it. If you trust the SEP-41 token, do effects-then-interactions for all flows. If you don't, harden every path.
 
-#### 🟡 `set_personal_cap` does not clamp against existing `lifetime_contribution`
+#### 🟢 `set_personal_cap` clamps against existing `lifetime_contribution`
 
-**`src/lib.rs:1533-1555`** lets a contributor set their personal cap to a value below what they have *already contributed*. The next `contribute` call would fail with `ContributionCapExceeded`, which is fine, but it leaves the storage in a confusing state where `lifetime_contribution > personal_cap`. Minor — either reject the lower-than-current set, or document that it freezes further contributions.
+`set_personal_cap_fn` validates that the new personal cap cannot be set to a value below what the contributor has already contributed (`get_lifetime_contribution(env, campaign_id, &contributor)`), returning `Error::ValidationFailed` if `amount < lifetime`.
 
 ### 2.4 Technical Debt & Code Quality
 

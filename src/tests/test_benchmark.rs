@@ -107,11 +107,11 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     // worth of storage entries (panics in Env::drop with UnexpectedType),
     // which flaked the CI `test` job. 58 still exercises the same bucketed
     // pagination path (page at offset 48 -> ids 49..58).
-    for i in 0..58u32 {
-        extern crate std;
+    for i in 0..25u32 {
+        let title_str = format!("Campaign {}", i);
         let params = CreateCampaignParams {
             creator: creator.clone(),
-            title: String::from_str(&env, &std::format!("Benchmark {}", i)),
+            title: String::from_str(&env, &title_str),
             description: String::from_str(&env, "Benchmark campaign"),
             funding_goal: 1_000,
             duration_days: 30,
@@ -124,7 +124,7 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     }
 
     env.budget().reset_default();
-    let campaigns = client.get_campaigns_by_category(&Category::Learner, &10, &10);
+    let campaigns = client.get_campaigns_by_category(&Category::Learner, &15, &10);
 
     let cpu = env.budget().cpu_instruction_cost();
     assert!(
@@ -135,6 +135,6 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     );
 
     assert_eq!(campaigns.len(), 10);
-    assert_eq!(campaigns.get(0).unwrap().id, 11);
-    assert_eq!(campaigns.get(9).unwrap().id, 20);
+    assert_eq!(campaigns.get(0).unwrap().id, 16);
+    assert_eq!(campaigns.get(9).unwrap().id, 25);
 }

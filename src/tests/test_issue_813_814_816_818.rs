@@ -10,25 +10,26 @@ use alloc::format;
 
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams};
-use soroban_sdk::{vec, Address, String, Vec};
+use soroban_sdk::{vec, Address, Env, String};
 
-fn make_campaign_with_title(
-    env: &soroban_sdk::Env,
-    client: &ProofOfHeartClient,
+fn make_campaign(
+    env: &Env,
+    client: &ProofOfHeartClient<'_>,
     creator: &Address,
     title: &str,
     goal: i128,
-    days: u64,
+    days: u32,
     category: Category,
     seq: u32,
 ) -> u32 {
-    extern crate std;
+    let count = client.get_campaign_count();
+    let title_str = format!("Test Campaign {}", count + 1);
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, &std::format!("Test Campaign {}", seq)),
+        title: String::from_str(env, &title_str),
         description: String::from_str(env, "Test description for campaign"),
         funding_goal: goal,
-        duration_days: days,
+        duration_days: days as u64,
         category,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -311,24 +312,8 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     token_admin.mint(&contributor2, &10_000);
 
     // goal = 1_000; burst_check_threshold = 50% = 500
-    let id_a = make_campaign_with_title(
-        &env,
-        &client,
-        &creator,
-        "Campaign A",
-        1_000,
-        30,
-        Category::Learner,
-    );
-    let id_b = make_campaign_with_title(
-        &env,
-        &client,
-        &creator,
-        "Campaign B",
-        1_000,
-        30,
-        Category::Educator,
-    );
+    let id_a = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
+    let id_b = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
     client.verify_campaign(&id_a);
     client.verify_campaign(&id_b);
 

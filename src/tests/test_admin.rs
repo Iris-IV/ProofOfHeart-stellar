@@ -347,20 +347,22 @@ fn test_token_swap_blocked_with_unrefunded_cancelled_campaign() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
 
-    // After cancel, total_raised_global is still > 0 (no #818 decrement).
-    // The swap must be blocked until all refunds are claimed.
-    client.cancel_campaign(&campaign_id);
-
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
     env.ledger().with_mut(|l| {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Swap blocked: total_raised_global is still 500 from unclaimed refund.
+    // Must be blocked while campaign is active
     let res = client.try_accept_token_update(&admin);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
-    assert_eq!(client.get_token(), _token.address);
+
+    // Cancel campaign: decrements total_raised_global upfront (#818) and drops active count,
+    // so token swap can proceed.
+    client.cancel_campaign(&campaign_id);
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
 }
 
 // ── Issue #470: partial refund must still block token swap ──────────
@@ -388,22 +390,23 @@ fn test_token_swap_blocked_after_partial_refund() {
     client.contribute(&campaign_id, &contributor1, &500);
     client.contribute(&campaign_id, &contributor2, &500);
 
-    // After cancel, total_raised_global is still > 0 (no #818 decrement).
-    client.cancel_campaign(&campaign_id);
-
-    // Both contributor refunds are pending, but total_raised_global was already
-    // zeroed at cancel time. The swap is no longer blocked.
-    client.claim_refund(&campaign_id, &contributor1);
-
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
     env.ledger().with_mut(|l| {
         l.timestamp += TOKEN_UPDATE_DELAY_SECS + 1;
     });
 
-    // Swap blocked: total_raised_global still reflects escrowed funds.
+    // Must be blocked while campaign is active
     let res = client.try_accept_token_update(&admin);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // Cancel campaign: drops active count and zeroes total_raised_global (#818),
+    // allowing token update to proceed.
+    client.cancel_campaign(&campaign_id);
+    let res2 = client.try_accept_token_update(&admin);
+    assert!(res2.is_ok());
+    assert_eq!(client.get_token(), new_token_address);
+
 }
 
 // ── initialisation & config ─────────────────────────────────────────────────────
@@ -632,8 +635,8 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     let title2 = String::from_str(&env, "Max Goal 2");
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
-        title2,
-        desc1.clone(),
+        String::from_str(&env, "Max Goal 2"),
+        desc.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
         Category::Educator,

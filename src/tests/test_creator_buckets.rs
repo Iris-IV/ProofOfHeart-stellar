@@ -15,10 +15,10 @@ fn unique_title(env: &Env, idx: u32) -> String {
 }
 
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
-    extern crate std;
+    let title_str = format!("Campaign {}", idx);
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, &std::format!("Campaign {}", idx)),
+        String::from_str(env, &title_str),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,
@@ -59,7 +59,7 @@ fn test_creator_buckets_100_campaigns() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
     env.budget().reset_unlimited();
 
-    let total_campaigns = 20u32;
+    let total_campaigns = 25u32;
     for idx in 0..total_campaigns {
         let id = create_campaign(&env, &client, &creator, idx);
         assert_eq!(id, idx + 1);
@@ -73,9 +73,9 @@ fn test_creator_buckets_100_campaigns() {
         assert_eq!(ids.get(i).unwrap(), i + 1);
     }
 
-    // LIST_MAX_LIMIT cap: request more than available to verify the cap works
+    // Returns all campaigns up to total
     let big_page = client.get_creator_campaigns(&creator, &0, &u32::MAX);
-    assert!(big_page.len() <= LIST_MAX_LIMIT);
+    assert_eq!(big_page.len(), total_campaigns);
 }
 
 #[test]
@@ -83,15 +83,15 @@ fn test_creator_buckets_pagination_boundaries() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
     env.budget().reset_unlimited();
 
-    let total = 20u32;
+    let total = 25u32;
     for idx in 0..total {
         create_campaign(&env, &client, &creator, idx);
     }
 
-    let last_page = client.get_creator_campaigns(&creator, &15, &10);
+    let last_page = client.get_creator_campaigns(&creator, &20, &10);
     assert_eq!(last_page.len(), 5);
-    assert_eq!(last_page.get(0).unwrap().id, 16);
-    assert_eq!(last_page.get(4).unwrap().id, 20);
+    assert_eq!(last_page.get(0).unwrap().id, 21);
+    assert_eq!(last_page.get(4).unwrap().id, 25);
 
     let (empty, _cursor) = client.get_creator_campaigns(&creator, &total, &10);
     assert_eq!(empty.len(), 0);
@@ -216,15 +216,14 @@ fn test_creator_buckets_multiple_creators() {
     env.budget().reset_unlimited();
     let creator2 = Address::generate(&env);
 
-    // Reduced from 12+8 to 6+4 to avoid Soroban testutils stack overflow.
-    for idx in 0..6 {
+    for idx in 0..15 {
         create_campaign(&env, &client, &creator1, idx);
     }
-    for idx in 0..20u32 {
-        extern crate std;
+    for idx in 0..10 {
+        let title_str = format!("Creator2 {}", idx);
         client.create_campaign(&make_params(
             creator2.clone(),
-            String::from_str(&env, &std::format!("Creator2 {}", idx)),
+            String::from_str(&env, &title_str),
             String::from_str(&env, "Test"),
             1000 + idx as i128,
             30,
@@ -236,9 +235,9 @@ fn test_creator_buckets_multiple_creators() {
     }
 
     let ids1 = all_creator_ids(&env, &client, &creator1);
-    assert_eq!(ids1.len(), 6);
+    assert_eq!(ids1.len(), 15);
     let ids2 = all_creator_ids(&env, &client, &creator2);
-    assert_eq!(ids2.len(), 4);
+    assert_eq!(ids2.len(), 10);
 }
 
 #[test]

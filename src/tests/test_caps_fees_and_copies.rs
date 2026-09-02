@@ -29,10 +29,11 @@ fn capped_campaign(
     max_per_user: i128,
     seq: u32,
 ) -> u32 {
-    extern crate std;
+    let count = client.get_campaign_count();
+    let title_str = format!("Capped Campaign {}", count + 1);
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, &std::format!("Capped Campaign {}", seq)),
+        title: String::from_str(env, &title_str),
         description: String::from_str(env, "Has a per-user contribution cap"),
         funding_goal: 100_000,
         duration_days: 30,
