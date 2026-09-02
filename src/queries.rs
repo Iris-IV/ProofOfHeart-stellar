@@ -393,24 +393,87 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
     }
 }
 
+/// Checks the consistency invariants that the independently-maintained
+/// platform counters must satisfy for the aggregates in `PlatformStats` to
+/// describe a possible state of the contract.
+///
+/// The counters live in separate instance-storage keys (`CampaignCount`,
+/// `ActiveCampaignCount`, `VerifiedCampaignCount`, `CancelledCampaignCount`)
+/// and are only ever written together inside individual contract invocations.
+/// A partial migration or a failed legacy write can therefore leave them out
+/// of step with each other, and `get_platform_stats` would otherwise report
+/// impossible totals (e.g. more active campaigns than campaigns ever created).
+///
+/// The invariants, all derived from the lifecycle tracked in `lifecycle.rs`:
+///
+/// * `active <= total` — every active campaign is a campaign that exists;
+/// * `verified <= total` — every verified campaign is a campaign that exists;
+/// * `cancelled <= total` — every cancelled campaign is a campaign that exists;
+/// * `active + cancelled <= total` — a campaign is counted in at most one of
+///   the active and cancelled buckets (withdrawn campaigns are in neither),
+///   so the two buckets together cannot exceed the number of campaigns.
+///
+/// Returns `true` only when every invariant holds.
+pub(crate) fn counters_are_consistent(
+    total: u32,
+    active: u32,
+    verified: u32,
+    cancelled: u32,
+) -> bool {
+    active <= total
+        && verified <= total
+        && cancelled <= total
+        && active.saturating_add(cancelled) <= total
+}
+
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
     // O(1) reads from maintained instance-storage counters (#411).
     // Counters are kept in sync by: create_campaign (+active), cancel_campaign (-active,
     // +cancelled), withdraw_funds (-active), and admin_verify / verify_with_votes
-    // (+verified). No scan needed; stats_are_partial is always false.
+    // (+verified). No scan needed; `scanned_up_to` always equals
+    // `total_campaigns`.
     //
-    // Since counters were made O(1) (issue #411), `stats_are_partial` and
-    // `scanned_up_to` are hardcoded constants retained for API compatibility.
-    // These fields no longer vary and can never differ from their hardcoded
-    // values (false and total_campaigns, respectively).
+    // Because the counters are independent storage keys, `get_platform_stats`
+    // validates their relationship before reporting. When the invariants hold
+    // (the healthy case), `stats_are_partial` is `false` and every count can
+    // be trusted. When a partial migration or a failed legacy write has left
+    // the counters inconsistent — impossible totals such as
+    // `active_campaigns > total_campaigns` — the raw stored values are still
+    // returned so the corruption is auditable, but `stats_are_partial` is set
+    // to `true` and a `platform_stats_inconsistent` event is published so
+    // indexers and dashboards know the aggregates must not be displayed or
+    // relied upon until the counters are reconciled.
     let total_campaigns = get_campaign_count(env);
+    let active_campaigns = get_active_campaign_count(env);
+    let verified_campaigns = get_verified_campaign_count(env);
+    let cancelled_campaigns = get_cancelled_campaign_count(env);
+
+    let stats_are_partial = !counters_are_consistent(
+        total_campaigns,
+        active_campaigns,
+        verified_campaigns,
+        cancelled_campaigns,
+    );
+
+    if stats_are_partial {
+        env.events().publish(
+            ("platform_stats_inconsistent",),
+            (
+                total_campaigns,
+                active_campaigns,
+                verified_campaigns,
+                cancelled_campaigns,
+            ),
+        );
+    }
+
     PlatformStats {
         total_campaigns,
-        active_campaigns: get_active_campaign_count(env),
-        verified_campaigns: get_verified_campaign_count(env),
-        cancelled_campaigns: get_cancelled_campaign_count(env),
+        active_campaigns,
+        verified_campaigns,
+        cancelled_campaigns,
         total_amount_raised: get_total_raised_global(env),
-        stats_are_partial: false,
+        stats_are_partial,
         scanned_up_to: total_campaigns,
     }
 }

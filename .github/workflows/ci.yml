@@ -79,8 +79,8 @@ jobs:
         run: >
           cargo llvm-cov --features testutils --lcov --output-path lcov.info
           --fail-under-lines 80
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+      - name: Upload coverage to Codecow
+        uses: codecov/codecov-action@v4
         with:
           files: lcov.info
           fail_ci_if-error: true
@@ -100,8 +100,8 @@ jobs:
       - run: cargo build --target wasm32-unknown-unknown --release
       - name: Check WASM size regression
         run: |
-          set -euo pipefail
-          WASI_PATH= "target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
+          set -euopipefail
+          WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
           ACTUAL=$stat -c '%s' "$WASI_PATH"
           BASELINE=$cat "$BASELINE_FILE"
@@ -115,4 +115,4 @@ jobs:
             echo "::error::WASM binary grew by ${DIF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASELINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
             exit 1
           fi
-          echo "WASM size within budget.
+          echo "WASM size within budget."
