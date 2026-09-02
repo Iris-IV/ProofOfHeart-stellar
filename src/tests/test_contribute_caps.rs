@@ -148,11 +148,11 @@ fn test_anomaly_rejects_burst() {
     client.contribute(&campaign_id, &contributor1, &1_100);
 
     for _ in 0..10 {
-        client.contribute(&campaign_id, &contributor1, &10);
+        client.contribute(&campaign_id, &contributor1, &100);
     }
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
-    let res = client.try_contribute(&campaign_id, &contributor1, &10);
+    let res = client.try_contribute(&campaign_id, &contributor1, &100);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
     // Rejected, not paused: no code path sets AutoPaused.
     assert!(!client.is_paused());
