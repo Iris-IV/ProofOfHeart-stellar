@@ -49,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: taike-e/install-action@v2
         with:
           tool: cargo-audit
       - run: cargo audit --ignore RUSSEC-2024-0344 --ignore RUSSEC-2026-0009
@@ -72,7 +72,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: taike-e/install-action@v2
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
@@ -115,4 +115,4 @@ jobs:
             echo "::error::WASM binary grew by ${DIF} bytes (${PCT}%), exceeding the 5% regression budget over the ${BASELINE}-byte baseline in ${BASELINE_FILE}. If this growth is expected, update the baseline in the same PR."
             exit 1
           fi
-          echo "WASM size within budget."
+          echo "WASM size within budget.

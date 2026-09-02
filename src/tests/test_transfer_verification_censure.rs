@@ -8,11 +8,26 @@ use super::helpers::*;
 use crate::{storage, Category, Error, MaybePendingCreator};
 use soroban_sdk::{testutils::Ledger, Address, BytesN, String, TryFromVal};
 
-fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHeartClient, index: u32) -> u32 {
+fn make_campaign(env: &soroban_sdk::Env, creator: &Address, client: &ProofOfHeartClient) -> u32 {
+    static mut COUNTER: u32 = 0;
+    let nonce = unsafe {
+        COUNTER += 1;
+        COUNTER
+    };
+    let title_data = [
+        b'T',
+        b'i',
+        b't',
+        b'l',
+        b'e',
+        b'_',
+        b'0' + (nonce / 10) as u8,
+        b'0' + (nonce % 10) as u8,
+    ];
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, &format!("Campaign Title {index}")),
-        String::from_str(env, &format!("Campaign Description {index}")),
+        String::from_bytes(env, &title_data),
+        String::from_str(env, "Campaign Description"),
         1000,
         30,
         Category::Educator,
@@ -88,11 +103,12 @@ fn test_accept_transfer_to_self_is_rejected() {
     assert_eq!(owned.0.get(0).unwrap().id, campaign_id);
 }
 
-// ── #796: editing the description revokes verification ───────────────────────
+// ── #796 + freeze policy: editing the description of a verified campaign is blocked ──────────
 
-/// A verified campaign loses its badge when the description is rewritten.
+/// A verified campaign's description cannot be changed — it is frozen.
+/// The edit is rejected with CampaignAlreadyVerified.
 #[test]
-fn test_update_description_revokes_verification() {
+fn test_update_description_blocked_when_verified() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let campaign_id = make_campaign(&env, &creator, &client, 0);
 
@@ -100,48 +116,47 @@ fn test_update_description_revokes_verification() {
     assert!(client.get_campaign(&campaign_id).is_verified);
     assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 
-    let new_desc = String::from_str(&env, "A materially different pitch");
-    client.update_campaign_description(&campaign_id, &new_desc);
-
-    let campaign = client.get_campaign(&campaign_id);
-    assert!(
-        !campaign.is_verified,
-        "verification must not survive a description edit"
+    let res = client.try_update_campaign_description(
+        &campaign_id,
+        &String::from_str(&env, "A materially different pitch"),
     );
-    assert_eq!(campaign.description, new_desc);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::CampaignAlreadyVerified,
+        "description edit on a verified campaign must be rejected"
+    );
 
-    // The counter follows, or platform stats would drift with every edit.
-    assert_eq!(client.get_platform_stats().verified_campaigns, 0);
+    // Badge and counter are untouched.
+    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
-/// The revocation is announced, so anyone watching the chain sees the badge
-/// drop rather than only observing it missing later.
+/// No revocation event is emitted because the edit is rejected outright.
 #[test]
-fn test_update_description_emits_revocation_event() {
+fn test_update_description_does_not_emit_revocation_event_when_verified() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let campaign_id = make_campaign(&env, &creator, &client, 0);
     client.verify_campaign(&campaign_id);
 
-    client.update_campaign_description(
+    let _ = client.try_update_campaign_description(
         &campaign_id,
         &String::from_str(&env, "Rewritten description"),
     );
 
-    let expected = String::from_str(&env, "campaign_verification_revoked");
+    let unexpected = String::from_str(&env, "campaign_verification_revoked");
     assert!(
-        env.events().all().iter().any(|(_, topics, _)| {
+        !env.events().all().iter().any(|(_, topics, _)| {
             topics
                 .get(0)
                 .and_then(|v| String::try_from_val(&env, &v).ok())
-                .map(|s| s == expected)
+                .map(|s| s == unexpected)
                 .unwrap_or(false)
         }),
-        "campaign_verification_revoked event missing"
+        "no revocation event should be emitted when an edit is rejected"
     );
 }
 
-/// An unverified campaign is unaffected: no spurious event, and the counter
-/// does not underflow into billions.
+/// An unverified campaign is unaffected: edit proceeds, no counter change.
 #[test]
 fn test_update_description_on_unverified_campaign_is_inert() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
@@ -166,26 +181,9 @@ fn test_update_description_on_unverified_campaign_is_inert() {
     );
 }
 
-/// Re-verification after an edit restores both the flag and the counter, so
-/// revocation is a round trip rather than a one-way door.
+/// Two verified campaigns: attempting to edit one leaves both badges intact.
 #[test]
-fn test_campaign_can_be_reverified_after_description_edit() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = make_campaign(&env, &creator, &client, 0);
-
-    client.verify_campaign(&campaign_id);
-    client.update_campaign_description(&campaign_id, &String::from_str(&env, "Second draft"));
-    assert_eq!(client.get_platform_stats().verified_campaigns, 0);
-
-    client.verify_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
-    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
-}
-
-/// Repeated edits do not decrement the counter more than once — the second
-/// edit finds an already-unverified campaign.
-#[test]
-fn test_repeated_description_edits_decrement_counter_once() {
+fn test_blocked_edit_does_not_affect_other_campaigns() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let a = make_campaign(&env, &creator, &client, 0);
     let b = make_campaign(&env, &creator, &client, 1);
@@ -194,12 +192,12 @@ fn test_repeated_description_edits_decrement_counter_once() {
     client.verify_campaign(&b);
     assert_eq!(client.get_platform_stats().verified_campaigns, 2);
 
-    client.update_campaign_description(&a, &String::from_str(&env, "Edit one"));
-    client.update_campaign_description(&a, &String::from_str(&env, "Edit two"));
-    client.update_campaign_description(&a, &String::from_str(&env, "Edit three"));
+    let _ = client.try_update_campaign_description(&a, &String::from_str(&env, "Edit one"));
+    let _ = client.try_update_campaign_description(&a, &String::from_str(&env, "Edit two"));
 
-    // Only campaign `a` lost its badge; `b` is untouched.
-    assert_eq!(client.get_platform_stats().verified_campaigns, 1);
+    // Both badges survive because the edits were rejected.
+    assert_eq!(client.get_platform_stats().verified_campaigns, 2);
+    assert!(client.get_campaign(&a).is_verified);
     assert!(client.get_campaign(&b).is_verified);
 }
 
