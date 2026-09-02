@@ -34,8 +34,20 @@ pub(crate) const VERIFICATION_TTD_BUMP_SECS : u64 = SECONDS_PER_DAY;
 /// need a code change and redeploy.
 pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 
-/// Upper bound accepted by `set_token_update_delay_secs` (365 days), so
-/// the admin-configurable range stays sane while still covering any realistic
+/// Mandatory timelock between `emergency_withdraw` (proposal) and
+/// `execute_emergency_withdrawal` (#802).
+///
+/// `emergency_withdraw` is a last-resort admin recovery path for funds
+/// stranded in a misconfigured campaign (e.g. a dead/locked creator address).
+/// The 7-day delay gives contributors and observers a fixed, non-negotiable
+/// window to notice the loud `emergency_withdrawal_proposed` event and react
+/// (raise an alarm, coordinate an admin-key rotation) before any funds move.
+/// Not admin-configurable, by design: the whole point is that the admin
+/// cannot shorten it.
+pub(crate) const EMERGENCY_WITHDRAWAL_TIMELOCK_SECS: u64 = 7 * SECONDS_PER_DAY;
+
+/// Upper bound accepted by `set_token_update_delay_secs` (365 days), so the
+/// admin-configurable range stays sane while still covering any realistic
 /// timelock policy (#650).
 pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS : u64 = 365 * SECONDS_PER_DAY;
 

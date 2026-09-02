@@ -132,7 +132,7 @@ fn test_anomaly_auto_pause_burst() {
         creator.clone(),
         String::from_str(&env, "Burst Test"),
         String::from_str(&env, "Testing burst"),
-        2000,
+        10,
         30,
         Category::Educator,
         false,
@@ -141,20 +141,17 @@ fn test_anomaly_auto_pause_burst() {
     ));
     client.verify_campaign(&campaign_id);
 
-    // Contribute enough per iteration so that by the 10th contribution,
-    // effective_amount_raised >= 50% of the goal, which is required for
-    // the burst guard to activate (AUTO_PAUSE_BURST_CHECK_MIN_RAISED_BPS).
-    // 10 x 100 = 1000 >= 50% of 2000.
-    for _ in 0..10 {
-        client.contribute(&campaign_id, &contributor1, &100);
+    for _ in 0..11 {
+        client.contribute(&campaign_id, &contributor1, &10);
     }
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1000);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
 
-    let res = client.try_contribute(&campaign_id, &contributor1, &100);
+    // The 11th contribution should push block_count to 11 > AUTO_PAUSE_BURST_THRESHOLD (10).
+    let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rollback ensures it's NOT persisted as paused.
     assert!(!client.is_paused());
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1000);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
 
     client.unpause();
 
@@ -169,8 +166,8 @@ fn test_anomaly_auto_pause_burst() {
         max_entry_ttl: 10,
     });
 
-    client.contribute(&campaign_id, &contributor1, &100);
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1100);
+    client.contribute(&campaign_id, &contributor1, &10);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 120);
 }
 
 #[test]

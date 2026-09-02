@@ -62,6 +62,12 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
         );
     }
 
+    // #831: Zero effective_amount_raised on cancellation so that indexers do
+    // not report a stale "live contributions" value for dead campaigns.
+    // claim_refund skips the effective_amount_raised decrement for cancelled
+    // campaigns to avoid underflow.
+    campaign.effective_amount_raised = 0;
+
     campaign.is_cancelled = true;
     campaign.is_active = false;
     set_campaign(env, campaign_id, &campaign);
@@ -91,14 +97,14 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     Ok(())
 }
 
-/// Admin-initiated cancellation for fraud response (#508). Unlike
+/// Admin-initiated cancellation for fraud response (#508, #858). Unlike
 /// `cancel_campaign`, this is not restricted to the creator and does not
 /// apply the goal-met anti-rug-pull guard — an admin must be able to stop a
 /// verified fraudulent campaign even after it has hit its funding goal,
-/// without pausing the entire platform. It also deliberately does not
-/// auto-refund any revenue pool balance to the (presumed fraudulent)
-/// creator, unlike creator self-cancel; that balance is left in the
-/// contract with no other exit path — a known follow-up, not solved here.
+/// without pausing the entire platform.
+///
+/// Follows CEI pattern: refunds any creator revenue_pool deposit back to the
+/// creator and zeroes the pool before emitting cancellation events.
 /// Contributors reclaim their own funds via the existing `claim_refund`,
 /// which already treats any `is_cancelled` campaign as refund-eligible.
 pub(crate) fn admin_cancel_campaign(
@@ -124,24 +130,23 @@ pub(crate) fn admin_cancel_campaign(
 
     bump_instance_ttl(env);
 
+    let revenue_pool = get_revenue_pool(env, campaign_id);
+    if revenue_pool > 0 {
+        set_revenue_pool(env, campaign_id, 0);
+    }
+
     // #818: Same upfront decrement as creator cancel — global stat must not be
     // overstated while unclaimed refunds exist.
     if campaign.amount_raised > 0 {
         let total = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total
-                .checked_sub(campaign.amount_raised)
-                .ok_or(Error::Overflow)?,
+            total.checked_sub(campaign.amount_raised).ok_or(Error::Overflow)?,
         );
     }
 
-    // #861: Read the revenue-pool balance so the event can report it.
-    // Unlike creator self-cancel, admin cancel deliberately does NOT
-    // refund the pool to the (presumed fraudulent) creator — the balance
-    // stays locked in the contract. Indexers need this figure to
-    // calculate outstanding liabilities.
-    let revenue_pool = get_revenue_pool(env, campaign_id);
+    // #831: Zero effective_amount_raised on admin cancellation as well.
+    campaign.effective_amount_raised = 0;
 
     campaign.is_cancelled = true;
     campaign.is_active = false;
@@ -151,9 +156,17 @@ pub(crate) fn admin_cancel_campaign(
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
 
-    // #861: Expanded payload now includes effective_amount_raised and
-    // revenue_pool so indexers can calculate outstanding refund
-    // liabilities without a follow-up contract read.
+    if revenue_pool > 0 {
+        let client = campaign_token_client(env, campaign_id);
+        client.transfer(
+            &env.current_contract_address(),
+            &campaign.creator,
+            &revenue_pool,
+        );
+        env.events()
+            .publish(("revenue_pool_refunded", campaign_id), revenue_pool);
+    }
+
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
         (

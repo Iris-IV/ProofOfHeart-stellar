@@ -216,7 +216,6 @@ fn test_update_campaign_description_rejects_empty() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
