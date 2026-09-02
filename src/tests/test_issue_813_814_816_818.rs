@@ -6,8 +6,8 @@
 /// #814 — BlockCampaignContributionCount (per-campaign) is the only block
 ///         count variant; no dead global key exists.
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{testutils::Ledger as _, vec, Address, String, Vec};
+use crate::{Category, CreateCampaignParams};
+use soroban_sdk::{vec, Address, String};
 
 fn make_campaign(
     env: &soroban_sdk::Env,
@@ -114,7 +114,9 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * 24 * 60 * 60 + 1);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * 24 * 60 * 60 + 1;
+    });
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).
