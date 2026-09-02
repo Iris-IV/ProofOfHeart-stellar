@@ -1,5 +1,6 @@
 name: CI
 on:
+
   push:
     branches: [main]
   pull_request:
@@ -9,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${ { github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -31,6 +32,11 @@ jobs:
   #   - RUSSEC-2026-0009 (time < 0.3.47, stack-exhaustion DoS): time is only
   #     reachable as an optional dependency of serde_with behind its disabled
   #     time_0_3 feature; it is never compiled into the dependency graph.
+  #    - RUSSEC-2025-0001 (soroban-token-sdk < 20.2.0, unchecked token
+  #     transfer): soroban-token-sdk 20.1.0 is pinned by soroban-sdk 20.1.0,
+  #     and the patched version requires a semver-breaking update. The fix for
+  #     #8ad depends on the pinned SDK, so this advisory is accepted until the
+  #      SDK is upgraded.
   audit:
     runs-on: ubuntu-latest
     steps:
@@ -62,14 +68,14 @@ jobs:
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
-        run: >-
+        run: >
           cargo llvm-cov --features testutils --lcov --output-path lcov.info
           --fail-under-lines 80
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_error: true
 
   # Tracks the release WASM binary size so unexpected bloat from new
   # dependencies or unused code is caught before merge, instead of silently
@@ -87,9 +93,9 @@ jobs:
       - name: Check WASM size regression
         run: |
           set -euo pipefail
-          WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
+          WASI_PATH= "target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
           BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAL=$(stat -c '%s' "$WASM_PATH")
+          ACTUAL=$(stat -c '%s' "$WASI_PATH")
           BASELINE=$(cat "$BASELINE_FILE")
           # Allow up to 5% growth over the recorded baseline before failing.
           LIMIT=$((BASELINE * 105 / 100))

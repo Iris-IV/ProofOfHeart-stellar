@@ -119,7 +119,7 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     }
 
     env.budget().reset_default();
-    let campaigns = client.get_campaigns_by_category(&Category::Learner, &48, &10);
+    let (campaigns, _cursor) = client.get_campaigns_by_category(&Category::Learner, &48, &10);
 
     let cpu = env.budget().cpu_instruction_cost();
     assert!(
