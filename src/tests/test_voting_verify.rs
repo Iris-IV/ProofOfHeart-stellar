@@ -115,6 +115,48 @@ fn test_vote_on_campaign_past_deadline_fails() {
 }
 
 #[test]
+fn test_verify_campaign_with_votes_past_deadline_fails() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &1000);
+    token_admin.mint(&contributor2, &1000);
+    let voter3 = Address::generate(&env);
+    token_admin.mint(&voter3, &1000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator,
+        title: String::from_str(&env, "Deadline Vote Verification"),
+        description: String::from_str(&env, "Vote verification deadline gate"),
+        funding_goal: 1000,
+        duration_days: 1,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+    client.vote_on_campaign(&campaign_id, &voter3, &false);
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+
+    let res = client.try_verify_campaign_with_votes(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
+    assert!(!client.get_campaign(&campaign_id).is_verified);
+}
+
+#[test]
 fn test_vote_on_campaign_after_withdraw_fails() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &2000);
