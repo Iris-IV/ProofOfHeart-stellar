@@ -55,8 +55,8 @@ mod types;
 mod voting;
 
 pub(crate) use constants::{
-    BPS_CEIL_OFFSET, BPS_DENOMINATOR, MAX_EXTENSION_DAYS, MAX_TOKEN_UPDATE_DELAY_SECS,
-    SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
+    BPS_CEIL_OFFSET, BPS_DENOMINATOR, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS, MAX_EXTENSION_DAYS,
+    MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
@@ -170,6 +170,52 @@ impl ProofOfHeart {
         reserve_bps: u32,
     ) -> Result<(), Error> {
         campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps)
+    }
+
+    // ── Emergency withdrawal — admin last-resort recovery (#802) ───────────────
+
+    /// **Last resort.** Proposes recovering the escrowed funds of a campaign
+    /// that met its goal but can no longer pay out — e.g. the creator address
+    /// is a dead/locked account — sending them to `recipient`.
+    ///
+    /// Moves no funds. Starts a mandatory 7-day timelock; the transfer only
+    /// happens when `execute_emergency_withdrawal` is called afterwards. Emits
+    /// `emergency_withdrawal_proposed`. Admin only.
+    pub fn emergency_withdraw(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+        recipient: Address,
+    ) -> Result<(), Error> {
+        campaigns::emergency::emergency_withdraw(&env, admin, campaign_id, recipient)
+    }
+
+    /// Cancels a pending emergency withdrawal before it is executed (#802).
+    /// Emits `emergency_withdrawal_cancelled`. Admin only.
+    pub fn cancel_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        campaigns::emergency::cancel_emergency_withdrawal(&env, admin, campaign_id)
+    }
+
+    /// Executes a pending emergency withdrawal once its 7-day timelock has
+    /// elapsed, transferring the campaign's escrowed principal to the recipient
+    /// recorded at proposal time (#802). Emits `emergency_withdrawal_executed`.
+    /// Admin only.
+    pub fn execute_emergency_withdrawal(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<(), Error> {
+        campaigns::emergency::execute_emergency_withdrawal(&env, admin, campaign_id)
+    }
+
+    /// The pending emergency withdrawal for a campaign (recipient and the
+    /// timestamp it becomes executable), or `None` (#802).
+    pub fn get_emergency_withdrawal(env: Env, campaign_id: u32) -> Option<EmergencyWithdrawal> {
+        storage::get_emergency_withdrawal(&env, campaign_id)
     }
 
     // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
@@ -791,8 +837,10 @@ impl ProofOfHeart {
     pub fn get_contributor_portfolio(
         env: Env,
         contributor: Address,
-    ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
-        queries::get_contributor_portfolio(&env, contributor)
+        start: u32,
+        limit: u32,
+    ) -> (soroban_sdk::Vec<(u32, i128, String, bool)>, u32) {
+        queries::get_contributor_portfolio(&env, contributor, start, limit)
     }
 
     // ── Bookmarks / saved campaigns ───────────────────────────────────────────

@@ -152,6 +152,22 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_admin_cancelled`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("campaign_admin_cancelled", campaign_id: u32, admin: Address)` |
+| Data    | `(creator: Address, reason: String, effective_amount_raised: i128, revenue_pool: i128)` |
+| Source  | `src/campaigns/cancel.rs` — `admin_cancel_campaign()`      |
+
+> #861: `effective_amount_raised` is the live contribution total after
+> refunds (the denominator for revenue-share pro-rata). `revenue_pool`
+> is the orphaned balance that stays locked in the contract on admin
+> cancel (unlike creator self-cancel, where it is refunded). Indexers
+> use both to calculate outstanding refund liabilities.
+
+---
+
 ### `campaign_updated`
 
 | Field  | Value                                    |
