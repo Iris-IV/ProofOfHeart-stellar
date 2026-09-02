@@ -153,9 +153,10 @@ fn test_anomaly_auto_pause_burst() {
     }
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 120);
 
-    let res = client.try_contribute(&campaign_id, &contributor1, &100);
+    // The 11th contribution should push block_count to 11 > AUTO_PAUSE_BURST_THRESHOLD (10).
+    let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rollback ensures it's NOT persisted as paused.
     assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 120);
 

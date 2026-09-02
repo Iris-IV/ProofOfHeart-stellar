@@ -32,7 +32,7 @@ use crate::storage::{get_campaign, get_saved_campaigns, set_saved_campaigns};
 
 /// Maximum number of campaigns a wallet may bookmark. Bounds a single
 /// persistent storage entry and keeps read/write costs predictable (#782).
-pub const MAX_BOOKMARKS_PER_WALLET: u32 = 50;
+pub const MAX_BOOKMARKS_PER_WALLET: u32 = 10;
 
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///

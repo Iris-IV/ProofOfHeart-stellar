@@ -391,6 +391,10 @@ fn test_token_swap_blocked_after_partial_refund() {
     // After cancel, total_raised_global is still > 0 (no #818 decrement).
     client.cancel_campaign(&campaign_id);
 
+    // Both contributor refunds are pending, but total_raised_global was already
+    // zeroed at cancel time. The swap is no longer blocked.
+    client.claim_refund(&campaign_id, &contributor1);
+
     let new_token_address = env.register_stellar_asset_contract(admin.clone());
     client.propose_token_update(&admin, &new_token_address);
     env.ledger().with_mut(|l| {

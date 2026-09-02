@@ -20,6 +20,8 @@ use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::{Address, String};
 
+static mut CC_COUNTER: u32 = 0;
+
 fn capped_campaign(
     env: &soroban_sdk::Env,
     creator: &Address,
@@ -300,7 +302,7 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
 
     client.contribute(&funded, &contributor1, &2500);
 
-    let portfolio = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (portfolio, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     assert_eq!(portfolio.len(), 1);
 
     let (id, amount, _status, _refundable) = portfolio.get(0).unwrap();
@@ -339,14 +341,14 @@ fn test_contributor_portfolio_still_reports_campaign_state() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1000);
 
-    let before = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (before, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     let (_, _, status, refundable) = before.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "verified"));
     assert!(!refundable);
 
     client.cancel_campaign(&id);
 
-    let after = client.get_contributor_portfolio(&contributor1, &0, &100);
+    let (after, _) = client.get_contributor_portfolio(&contributor1, &0, &u32::MAX);
     let (_, _, status, refundable) = after.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "cancelled"));
     assert!(refundable);
