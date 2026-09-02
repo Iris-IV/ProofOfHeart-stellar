@@ -222,6 +222,29 @@ pub struct CampaignReserve {
     pub released: bool,
 }
 
+/// A pending admin emergency withdrawal for a campaign whose funds are
+/// otherwise unrecoverable (#802).
+///
+/// Written by `emergency_withdraw` and consumed by
+/// `execute_emergency_withdrawal` once `execute_after` has passed. Stored
+/// (not just emitted) so the pending proposal — and the exact timestamp it
+/// becomes executable — is queryable on-chain via `get_emergency_withdrawal`
+/// for the entire timelock window.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmergencyWithdrawal {
+    /// Address that will receive the recovered funds when the proposal is
+    /// executed. Chosen by the admin at proposal time and fixed thereafter —
+    /// changing it requires cancelling and re-proposing, which restarts the
+    /// timelock.
+    pub recipient: Address,
+    /// Ledger timestamp at which the proposal was made.
+    pub proposed_at: u64,
+    /// Ledger timestamp on or after which `execute_emergency_withdrawal` may
+    /// run. Always `proposed_at + EMERGENCY_WITHDRAWAL_TIMELOCK_SECS`.
+    pub execute_after: u64,
+}
+
 /// Stats for a specific campaign.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

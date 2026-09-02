@@ -140,7 +140,7 @@ pub(crate) fn list_active_campaigns(
 ///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
 ///   4. When the bucket is exhausted, advance `position` past the bucket
 ///      boundary and repeat from step 1 with the next bucket.
-fn get_campaigns_from_buckets<F>(
+pub(crate) fn get_campaigns_from_buckets<F>(
     env: &Env,
     start: u32,
     limit: u32,
@@ -184,25 +184,87 @@ where
         }
 
         if idx_in_bucket >= bucket_len {
-            position = if bucket_len == 0 {
+            // Bucket exhausted (or empty). The natural next position is just
+            // past this bucket's known entries. But if the stored bucket is
+            // shorter than `idx_in_bucket` already implies (malformed/
+            // inconsistent metadata — e.g. `bucket_len` was truncated after
+            // `position` had already advanced past it), that "natural" value
+            // can be *less* than the current `position`, walking it
+            // backwards into the same bucket on the next iteration forever.
+            // Clamp to `position + 1` so `position` is always strictly
+            // monotonically increasing regardless of what the bucket reports.
+            let natural_next = if bucket_len == 0 {
                 bucket_start + bucket_size
             } else {
                 bucket_start + bucket_len
             };
-        } else {
-            next_cursor = position;
+            position = natural_next.max(position.saturating_add(1));
         }
     }
 
     (campaigns, next_cursor)
 }
 
-/// Returns the campaigns in `category`, paginated.
-///
-/// `offset` is a zero-based positional index into this category's campaign
-/// list — **not** a campaign ID. See the cursor contract note on
-/// [`get_campaigns_from_buckets`] (#845) for how this differs from
-/// `list_campaigns`'s ID-based cursor.
+#[cfg(test)]
+mod bucket_pagination_tests {
+    use super::get_campaigns_from_buckets;
+    use core::cell::Cell;
+    use soroban_sdk::Env;
+
+    /// Guards against #844: a bucket that reports fewer entries than the
+    /// current position implies (malformed/inconsistent bucket metadata)
+    /// must not walk `position` backwards and re-fetch the same bucket
+    /// forever. This caps the number of `get_bucket` calls and fails loudly
+    /// if that bound is ever exceeded, rather than hanging.
+    #[test]
+    fn malformed_short_bucket_does_not_loop_forever() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 25u32;
+        let start = 5u32; // mid-bucket: idx_in_bucket = 5
+        let limit = 50u32;
+
+        let calls = Cell::new(0u32);
+        // Every bucket, regardless of index, reports only 2 entries — far
+        // fewer than `bucket_size` and fewer than `start`'s offset into it.
+        let result = get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(
+                n <= 32,
+                "get_bucket called {n} times — position is not advancing (infinite loop)"
+            );
+            soroban_sdk::Vec::from_array(e, [1u32, 2u32])
+        });
+
+        // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
+        // is collected — the point of the test is termination, not content.
+        assert_eq!(result.len(), 0);
+        assert!(calls.get() > 0);
+    }
+
+    /// Same malformed-bucket scenario, but with an always-empty bucket
+    /// (`bucket_len == 0`), which already advanced correctly before #844 —
+    /// kept here as a regression guard alongside the short-bucket case.
+    #[test]
+    fn always_empty_bucket_terminates() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 100u32;
+        let calls = Cell::new(0u32);
+
+        let result = get_campaigns_from_buckets(&env, 0, 50, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(n <= 32, "get_bucket called {n} times — possible infinite loop");
+            soroban_sdk::Vec::new(e)
+        });
+
+        assert_eq!(result.len(), 0);
+        assert!(calls.get() > 0);
+    }
+}
+
 pub(crate) fn get_campaigns_by_category(
     env: &Env,
     category: Category,
@@ -416,57 +478,95 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
     }
 }
 
-/// Returns the contributor's portfolio across all campaigns: for each
-/// campaign the contributor has backed, returns the campaign ID, the
-/// contribution amount, the campaign's current status, and whether a
-/// refund is currently available (#539).
+/// Returns a page of the contributor's portfolio: for each campaign the
+/// contributor has backed, the campaign ID, the contribution amount, the
+/// campaign's current status, and whether a refund is currently available
+/// (#539).
+///
+/// # Pagination (#849)
+///
+/// `start` is an **exclusive cursor** — pass the last campaign ID scanned from
+/// the previous page to begin the next page. Begin with `start = 0`. Each call
+/// scans at most [`MAX_SCAN_WINDOW`] campaign IDs and returns at most `limit`
+/// contributions (capped at [`LIST_MAX_LIMIT`]), so a heavily active wallet can
+/// never produce an unbounded response.
+///
+/// The returned `u32` is the next cursor: pass it as `start` to fetch the next
+/// page, and stop when it equals `0`. If the scan window is exhausted before
+/// `limit` contributions are collected, a `scan_window_exhausted` event is
+/// published so callers/indexers know to re-query with the returned cursor
+/// rather than assuming pagination is complete (mirrors
+/// [`list_active_campaigns`]).
 pub(crate) fn get_contributor_portfolio(
     env: &Env,
     contributor: Address,
     start: u32,
     limit: u32,
-) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
+) -> (soroban_sdk::Vec<(u32, i128, String, bool)>, u32) {
     let total_campaigns = get_campaign_count(env);
     let mut portfolio = soroban_sdk::Vec::new(env);
 
     if start >= total_campaigns || limit == 0 {
-        return portfolio;
+        return (portfolio, 0);
     }
 
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
-    let mut collected = 0;
+    let mut collected = 0u32;
+    let mut current_id = start + 1;
+    let mut next_cursor = 0u32;
 
-    for id in (start + 1)..=total_campaigns {
-        let amount = get_contribution(env, id, &contributor);
-        if amount == 0 {
-            continue;
+    while current_id <= total_campaigns {
+        if current_id > start + MAX_SCAN_WINDOW {
+            env.events().publish(
+                ("scan_window_exhausted",),
+                (start, current_id, collected, capped_limit),
+            );
+            next_cursor = current_id;
+            break;
         }
 
-        if let Some(campaign) = get_campaign(env, id) {
-            let status = if campaign.is_cancelled {
-                "cancelled"
-            } else if campaign.funds_withdrawn {
-                "withdrawn"
-            } else if !campaign.is_active {
-                "inactive"
-            } else if campaign.is_verified {
-                "verified"
-            } else {
-                "active"
-            };
+        // Test the cheap key before loading the heavy value (#792).
+        //
+        // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
+        // deserializes the whole `Campaign` — creator, title, description, and a
+        // dozen more fields. This loop runs over every campaign that has ever
+        // existed, and a contributor is in almost none of them, so loading the
+        // campaign first meant deserializing thousands of structs to discard
+        // all but a handful. The filter now decides before the copy happens.
+        let amount = get_contribution(env, current_id, &contributor);
+        if amount != 0 {
+            if let Some(campaign) = get_campaign(env, current_id) {
+                let status = if campaign.is_cancelled {
+                    "cancelled"
+                } else if campaign.funds_withdrawn {
+                    "withdrawn"
+                } else if !campaign.is_active {
+                    "inactive"
+                } else if campaign.is_verified {
+                    "verified"
+                } else {
+                    "active"
+                };
 
-            let refundable = campaign.is_cancelled
-                || (env.ledger().timestamp() > campaign.deadline
-                    && campaign.amount_raised < campaign.funding_goal);
+                let refundable = campaign.is_cancelled
+                    || (env.ledger().timestamp() > campaign.deadline
+                        && campaign.amount_raised < campaign.funding_goal);
 
-            portfolio.push_back((id, amount, String::from_str(env, status), refundable));
-            collected += 1;
-
-            if collected >= capped_limit {
-                break;
+                portfolio.push_back((
+                    current_id,
+                    amount,
+                    String::from_str(env, status),
+                    refundable,
+                ));
+                collected += 1;
+                if collected >= capped_limit {
+                    next_cursor = current_id + 1;
+                    break;
+                }
             }
         }
+        current_id += 1;
     }
 
-    portfolio
+    (portfolio, next_cursor)
 }

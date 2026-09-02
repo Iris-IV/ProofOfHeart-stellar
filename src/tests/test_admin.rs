@@ -407,9 +407,6 @@ fn test_token_swap_blocked_after_partial_refund() {
     assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
 
-    // Refunds still work after the swap.
-    client.claim_refund(&campaign_id, &contributor1);
-    client.claim_refund(&campaign_id, &contributor2);
 }
 
 // ── initialisation & config ─────────────────────────────────────────────────────

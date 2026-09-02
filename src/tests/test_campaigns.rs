@@ -143,7 +143,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
     ));
     client.verify_campaign(&campaign_id);
     let res = client.try_verify_campaign(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::AdminVerificationConflict);
+    assert_eq!(res.unwrap_err().unwrap(), Error::VerificationConflict);
 }
 
 #[test]
@@ -923,7 +923,6 @@ fn test_update_campaign_description_rejects_empty() {
         0,
         0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);

@@ -9,8 +9,8 @@ extern crate alloc;
 use alloc::format;
 
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams};
-use soroban_sdk::{vec, Address, String};
+use crate::{Category, CreateCampaignParams, Error};
+use soroban_sdk::{testutils::Ledger as _, vec, Address, String};
 
 fn make_campaign(
     env: &soroban_sdk::Env,
@@ -46,6 +46,7 @@ fn test_cancel_campaign_decrements_total_raised_global_immediately() {
     token_admin.mint(&contributor, &500);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &500);
 
     assert_eq!(client.get_total_raised_global(), 500);
@@ -67,6 +68,7 @@ fn test_cancel_campaign_allows_accept_token_update_after_all_refunds_claimed() {
     token_admin.mint(&contributor, &500);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &500);
     client.cancel_campaign(&id);
 
@@ -84,6 +86,7 @@ fn test_claim_refund_does_not_double_decrement_after_creator_cancel() {
     token_admin.mint(&contributor, &300);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &300);
 
     assert_eq!(client.get_total_raised_global(), 300);
@@ -171,13 +174,12 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     token_admin.mint(&contributor, &400);
 
     let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
+    client.verify_campaign(&id);
     client.contribute(&id, &contributor, &400);
     assert_eq!(client.get_total_raised_global(), 400);
 
     // Advance past the deadline without reaching the goal.
-    env.ledger().with_mut(|l| {
-        l.timestamp += 31 * 24 * 60 * 60 + 1;
-    });
+    env.ledger().with_mut(|l| l.timestamp += 31 * 24 * 60 * 60 + 1);
 
     client.claim_refund(&id, &contributor);
     // Failed-funding path still decrements (campaign.is_cancelled is false here).
