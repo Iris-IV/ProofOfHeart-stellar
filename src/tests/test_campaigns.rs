@@ -140,7 +140,7 @@ fn test_admin_verify_campaign_duplicate_attempt() {
     ));
     client.verify_campaign(&campaign_id);
     let res = client.try_verify_campaign(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::AdminVerificationConflict);
+    assert_eq!(res.unwrap_err().unwrap(), Error::VerificationConflict);
 }
 
 #[test]

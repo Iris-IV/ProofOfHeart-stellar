@@ -151,7 +151,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::CampaignNotActive);
     }
     if campaign.is_verified {
-        return Err(Error::AdminVerificationConflict);
+        return Err(Error::VerificationConflict);
     }
     require_active_campaign(&campaign)?;
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
@@ -178,7 +178,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::CampaignNotActive);
     }
     if campaign.is_verified {
-        return Err(Error::CommunityVerificationConflict);
+        return Err(Error::VerificationConflict);
     }
     require_active_campaign(&campaign)?;
 

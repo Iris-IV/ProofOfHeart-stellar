@@ -41,10 +41,7 @@ fn test_community_voting_verification_success() {
     assert!(campaign.is_verified);
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
-    assert_eq!(
-        res.unwrap_err().unwrap(),
-        Error::CommunityVerificationConflict
-    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::VerificationConflict);
 }
 
 #[test]

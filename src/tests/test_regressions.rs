@@ -952,7 +952,9 @@ fn test_claim_refund_double_claim_rejected() {
     client.contribute(&campaign_id, &contributor1, &500);
 
     // Let deadline pass without reaching goal so a refund is valid.
-    env.ledger().set_timestamp(env.ledger().timestamp() + 31 * crate::SECONDS_PER_DAY);
+    env.ledger().with_mut(|l| {
+        l.timestamp += 31 * crate::SECONDS_PER_DAY;
+    });
 
     // First refund must succeed.
     let result = client.try_claim_refund(&campaign_id, &contributor1);

@@ -28,11 +28,7 @@ use crate::storage::{
 /// * `ValidationFailed` — the tag is empty, longer than
 ///   [`crate::CAMPAIGN_TAG_MAX_LEN`], already present on the campaign, or the
 ///   campaign already carries [`crate::MAX_TAGS_PER_CAMPAIGN`] tags.
-pub(crate) fn add_campaign_tag(
-    env: &Env,
-    campaign_id: u32,
-    tag: String,
-) -> Result<(), Error> {
+pub(crate) fn add_campaign_tag(env: &Env, campaign_id: u32, tag: String) -> Result<(), Error> {
     let campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
     require_active_campaign(&campaign)?;
