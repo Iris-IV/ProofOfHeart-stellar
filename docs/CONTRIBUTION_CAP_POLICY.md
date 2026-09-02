@@ -1,23 +1,50 @@
 # Contribution Cap Policy
 
-`max_contribution_per_user` is enforced as a **lifetime cap per campaign** on the ProofOfHeart Stellar smart contract.
+## Overview
 
-## Core Rules
+`max_contribution_per_user` defines the maximum aggregate tokens a single account can contribute to a specific campaign. It is enforced as a **lifetime cumulative cap per campaign**.
 
-1. **Lifetime Campaign Limit**:
-   - A contributor's total accumulated contributions within a specific campaign can never exceed `max_contribution_per_user`.
-   - The cap applies across all contribution transactions executed by a given address.
+---
 
-2. **Refund & Re-contribution Protections**:
-   - Calling `claim_refund` resets the active withdrawable balance for a user.
-   - **Crucial Security Invariant**: Refunds **do not** reset the accumulated lifetime contribution counter used for cap enforcement.
-   - This explicitly prevents malicious refund/re-contribute loops designed to bypass creator-configured per-user caps or manipulate batch campaign limits.
+## Policy Rules & Semantics
 
-3. **Unlimited Contributions (`0` Value)**:
-   - Setting `max_contribution_per_user` to `0` configures the campaign for unlimited per-user contribution capacity (subject only to global campaign funding targets).
+1. **Lifetime Cumulative Enforcement**:
+   - A contributor's total cumulative contribution across all successful `contribute()` calls cannot exceed `max_contribution_per_user`.
+   - Subsequent contributions are checked against `previous_contributed_total + new_amount <= max_contribution_per_user`.
 
-## Technical Implementation Details
+2. **Disabled Cap Semantics (`0`)**:
+   - Setting `max_contribution_per_user = 0` disables per-user limits entirely, allowing unlimited contributions per account up to campaign target limits.
 
-- **Storage Key**: `UserContribution(Address, CampaignId)` tracks both `lifetime_total` and `current_balance`.
-- **Validation**: On every `contribute` call, the contract verifies `lifetime_total + new_amount <= max_contribution_per_user` whenever `max_contribution_per_user > 0`.
-- **Admin Configuration**: Campaign creators define `max_contribution_per_user` upon campaign initialization; parameters are immutable post-launch.
+3. **Refund Interaction**:
+   - Executing `claim_refund()` resets withdrawable contribution balances for failed campaigns, but **does not** erase historical contribution records used for lifetime cap enforcement.
+   - This prevents malicious refund/re-contribute looping from exploiting creator-configured per-user limits.
+
+---
+
+## Worked Examples
+
+### Example 1: Single Contribution under Cap
+- **Cap**: 1,000 XLM
+- **Call 1**: User contributes 600 XLM → **SUCCESS** (Total: 600 XLM)
+- **Call 2**: User contributes 400 XLM → **SUCCESS** (Total: 1,000 XLM)
+- **Call 3**: User contributes 1 XLM → **REJECTED** (`ExceedsContributionCap`)
+
+### Example 2: Partial Fill to Cap Limit
+- **Cap**: 500 XLM
+- **Call 1**: User attempts 600 XLM → **REJECTED** (`ExceedsContributionCap`)
+- **Call 2**: User contributes 500 XLM → **SUCCESS** (Total: 500 XLM)
+
+### Example 3: Cap Disabled (`0`)
+- **Cap**: 0 XLM (Disabled)
+- **Call 1**: User contributes 5,000 XLM → **SUCCESS**
+- **Call 2**: User contributes 50,000 XLM → **SUCCESS**
+
+---
+
+## Verified Invariant Test Coverage
+
+Refer to `src/tests/test_contribute_caps.rs` for full test suites verifying:
+- Single-tx cap exceedance rejection.
+- Multi-tx cumulative cap boundary checks.
+- Zero-cap unlimited contribution behavior.
+- Cap behavior during goal target overflows.

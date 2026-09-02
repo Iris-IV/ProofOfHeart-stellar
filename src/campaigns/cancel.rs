@@ -144,9 +144,17 @@ pub(crate) fn admin_cancel_campaign(
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
 
+    // #861: Expanded payload now includes effective_amount_raised and
+    // revenue_pool so indexers can calculate outstanding refund
+    // liabilities without a follow-up contract read.
     env.events().publish(
         ("campaign_admin_cancelled", campaign_id, admin),
-        (campaign.creator.clone(), reason),
+        (
+            campaign.creator.clone(),
+            reason,
+            campaign.effective_amount_raised,
+            revenue_pool,
+        ),
     );
 
     Ok(())
