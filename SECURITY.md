@@ -53,28 +53,24 @@ We ask reporters to follow **coordinated disclosure**:
 
 ### Bug Bounty & Rewards Scope
 
-ProofOfHeart maintains a formal bug bounty program to reward security researchers for identifying vulnerabilities in our smart contracts.
+Security reports targeting core Soroban contract logic in `src/` are evaluated for rewards and public accreditation:
 
-#### Reward Structure
-
-| Severity | Reward Range (USD / XLM equivalent) | Examples |
-|----------|-------------------------------------|----------|
-| **P0 — Critical** | $1,000 – $5,000 | Direct fund draining, permanent token lockup, unauthorized admin takeover. |
-| **P1 — High** | $250 – $1,000 | State desynchronization, voting threshold manipulation, fee calculation errors. |
-| **P2 — Medium** | $50 – $250 | Non-critical logic bugs, unhandled edge cases causing single-user transaction reverts. |
-
-#### Bounty Eligibility & Terms
-- **In-Scope**: Smart contract logic under `src/` executing on Soroban testnet/mainnet.
-- **Out-of-Scope**: Known issues documented in `SECURITY.md`, social engineering, third-party RPC endpoints, or frontend UI issues.
-- **Payout Criteria**: Reports must provide reproducible steps or proof-of-concept tests and follow our 90-day coordinated disclosure policy. All valid reporters are also credited in release notes.
+- **In-Scope Contracts & Entrypoints**:
+  - `contribute()`, `claim_refund()`, `finalize_campaign()` — Campaign escrow & asset accounting
+  - `verify_campaign()`, `cast_vote()` — Governance & voting weight invariants
+  - Admin & storage management entrypoints in `src/storage.rs`
+- **Reward Tiers**:
+  - **P0 Critical** (Direct fund drain / auth bypass): Eligible for up to $2,500 USDC bounty + release notes credit.
+  - **P1 High** (State corruption / fee breakdown): Eligible for up to $1,000 USDC bounty + release notes credit.
+  - **P2 Medium/Low**: Eligible for public credit in release notes.
 
 ### Audits
 
-No formal third-party security audit has been conducted on this contract to date, and no audit reports are available for publication. Given the contract handles escrowed funds, we recommend treating it as **unaudited** and exercising appropriate caution (e.g. capped deployments, monitoring) until an audit is completed. This section will be updated with links to any future audit reports.
+No formal third-party security audit has been conducted on this contract to date. Given the contract handles escrowed funds, we recommend treating it as **unaudited** and exercising appropriate caution until an audit is completed.
 
 ### Scope
 
-This policy covers the on-chain Soroban smart contract (`src/`) and any official tooling in this repository. Frontend integrations or third-party services built on top of the contract are out of scope unless the vulnerability originates from the contract itself.
+This policy covers the on-chain Soroban smart contract (`src/`) and official tooling in this repository. Frontend integrations or third-party services built on top of the contract are out of scope unless the vulnerability originates from contract logic itself.
 
 ### Out of Scope
 
