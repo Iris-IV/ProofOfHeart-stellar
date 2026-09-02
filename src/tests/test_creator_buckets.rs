@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{storage, Category, LIST_MAX_LIMIT};
 use soroban_sdk::{Address, Env, String};
@@ -5,7 +8,7 @@ use soroban_sdk::{Address, Env, String};
 fn create_campaign(env: &Env, client: &ProofOfHeartClient<'_>, creator: &Address, idx: u32) -> u32 {
     client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Campaign"),
+        String::from_str(env, &format!("Campaign {idx}")),
         String::from_str(env, "Bucket test"),
         1000 + idx as i128,
         30,

@@ -13,6 +13,9 @@
 //! Where an issue's premise did not hold, the test says so and asserts the
 //! behaviour that *is* correct, rather than quietly asserting nothing.
 
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{storage, Category, CreateCampaignParams, Error};
 use soroban_sdk::{Address, String};
@@ -22,11 +25,12 @@ fn capped_campaign(
     creator: &Address,
     client: &ProofOfHeartClient,
     max_per_user: i128,
+    index: u32,
 ) -> u32 {
     client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "Capped Campaign"),
-        description: String::from_str(env, "Has a per-user contribution cap"),
+        title: String::from_str(env, &format!("Capped Campaign {index}")),
+        description: String::from_str(env, &format!("Has a per-user contribution cap {index}")),
         funding_goal: 100_000,
         duration_days: 30,
         category: Category::Learner,
@@ -50,7 +54,7 @@ fn test_contribution_cap_holds_across_multiple_transactions() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &400);
@@ -70,7 +74,7 @@ fn test_contribution_cap_can_be_reached_exactly_in_steps() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &600);
@@ -89,7 +93,7 @@ fn test_contribution_cap_rejects_a_single_oversized_transfer() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
 
     let res = client.try_contribute(&id, &contributor1, &1001);
@@ -106,7 +110,7 @@ fn test_contribution_cap_is_per_user() {
     token_admin.mint(&contributor1, &100_000);
     token_admin.mint(&contributor2, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &1000);
@@ -125,7 +129,7 @@ fn test_contribution_cap_holds_within_a_single_batch() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
 
     // 600 + 600 = 1200 against a 1000 cap, split across two batch items.
@@ -147,7 +151,7 @@ fn test_refund_does_not_reset_the_lifetime_cap() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 1000);
+    let id = capped_campaign(&env, &creator, &client, 1000, 0);
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1000);
 
@@ -167,7 +171,7 @@ fn test_zero_cap_means_unlimited() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 0);
+    let id = capped_campaign(&env, &creator, &client, 0, 0);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &50_000);
@@ -225,7 +229,7 @@ fn test_platform_fee_never_accepts_a_fee_at_or_above_100_percent() {
 #[test]
 fn test_campaign_fee_override_obeys_the_same_ceiling() {
     let (env, admin, creator, _, _, _token, _token_admin, client) = setup_env();
-    let id = capped_campaign(&env, &creator, &client, 0);
+    let id = capped_campaign(&env, &creator, &client, 0, 0);
 
     client.set_campaign_fee_override(&id, &admin, &crate::PLATFORM_FEE_MAX_BPS);
     assert_eq!(
@@ -288,9 +292,9 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let funded = capped_campaign(&env, &creator, &client, 0);
-    let other_a = capped_campaign(&env, &creator, &client, 0);
-    let other_b = capped_campaign(&env, &creator, &client, 0);
+    let funded = capped_campaign(&env, &creator, &client, 0, 0);
+    let other_a = capped_campaign(&env, &creator, &client, 0, 1);
+    let other_b = capped_campaign(&env, &creator, &client, 0, 2);
     client.verify_campaign(&funded);
 
     client.contribute(&funded, &contributor1, &2500);
@@ -311,8 +315,8 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
 fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
     let (env, _admin, creator, _, contributor2, _token, _token_admin, client) = setup_env();
 
-    for _ in 0..5 {
-        capped_campaign(&env, &creator, &client, 0);
+    for i in 0..5 {
+        capped_campaign(&env, &creator, &client, 0, i);
     }
 
     assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &100).len(), 0);
@@ -325,7 +329,7 @@ fn test_contributor_portfolio_still_reports_campaign_state() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &100_000);
 
-    let id = capped_campaign(&env, &creator, &client, 0);
+    let id = capped_campaign(&env, &creator, &client, 0, 0);
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1000);
 
@@ -350,7 +354,7 @@ fn test_contributor_portfolio_still_reports_campaign_state() {
 #[test]
 fn test_validation_helpers_borrow_rather_than_consume_the_campaign() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
-    let id = capped_campaign(&env, &creator, &client, 0);
+    let id = capped_campaign(&env, &creator, &client, 0, 0);
 
     env.as_contract(&client.address, || {
         let campaign = storage::get_campaign(&env, id).unwrap();
@@ -413,7 +417,7 @@ fn test_extension_stays_within_the_absolute_horizon() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
     let start = env.ledger().timestamp();
-    let id = capped_campaign(&env, &creator, &client, 0);
+    let id = capped_campaign(&env, &creator, &client, 0, 0);
 
     client.extend_campaign_deadline(&id, &crate::MAX_EXTENSION_DAYS);
 

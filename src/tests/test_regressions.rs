@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{
     AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error, MaybePendingCreator,
@@ -107,11 +110,11 @@ fn test_propose_token_update_non_admin_fails() {
 
 // ── #268 O(1) platform stats ──────────────────────────────────────────────────
 
-fn make_campaign_params_simple(env: &Env, creator: &Address) -> CreateCampaignParams {
+fn make_campaign_params_simple(env: &Env, creator: &Address, index: u32) -> CreateCampaignParams {
     CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "T"),
-        description: String::from_str(env, "D"),
+        title: String::from_str(env, &format!("T{index}")),
+        description: String::from_str(env, &format!("D{index}")),
         funding_goal: 1,
         duration_days: 30,
         category: Category::Learner,
@@ -134,7 +137,7 @@ fn make_campaign_params_titled(env: &Env, creator: &Address, title: &str) -> Cre
 #[test]
 fn test_platform_stats_after_create() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     let stats = client.get_platform_stats();
     assert_eq!(stats.total_campaigns, 1);
     assert_eq!(stats.active_campaigns, 1);
@@ -145,7 +148,7 @@ fn test_platform_stats_after_create() {
 #[test]
 fn test_platform_stats_after_cancel() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     client.cancel_campaign(&id);
     let stats = client.get_platform_stats();
     assert_eq!(stats.active_campaigns, 0);
@@ -155,7 +158,7 @@ fn test_platform_stats_after_cancel() {
 #[test]
 fn test_platform_stats_after_verify() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     client.verify_campaign(&id);
     let stats = client.get_platform_stats();
     assert_eq!(stats.verified_campaigns, 1);
@@ -165,7 +168,7 @@ fn test_platform_stats_after_verify() {
 #[test]
 fn test_platform_stats_after_withdraw() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
-    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     client.verify_campaign(&id);
 
     token_admin.mint(&contributor, &1000);
@@ -186,8 +189,8 @@ fn test_platform_stats_after_withdraw() {
 fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
 
-    for _ in 0..60 {
-        client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    for i in 0..60 {
+        client.create_campaign(&make_campaign_params_simple(&env, &creator, i));
     }
 
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &1000u32);
@@ -198,8 +201,8 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
 #[test]
 fn test_get_campaigns_by_category_small_limit_respected() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    for _ in 0..10 {
-        client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    for i in 0..10 {
+        client.create_campaign(&make_campaign_params_simple(&env, &creator, i));
     }
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &5u32);
     assert_eq!(result.0.len(), 5);
@@ -210,7 +213,7 @@ fn test_get_campaigns_by_category_small_limit_respected() {
 #[test]
 fn test_resume_campaign_rejects_when_contract_not_paused() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     let events_before = env.events().all().len();
     let result = client.try_resume_campaign(&campaign_id, &creator);
@@ -223,7 +226,7 @@ fn test_resume_campaign_rejects_when_contract_not_paused() {
 #[test]
 fn test_resume_campaign_clears_auto_pause_when_active() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     env.as_contract(&client.address, || {
         env.storage().instance().set(&AdminKey::AutoPaused, &true);
@@ -240,7 +243,7 @@ fn test_resume_campaign_clears_auto_pause_when_active() {
 #[test]
 fn test_paused_admin_parameter_setting_functions_succeed() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     client.pause();
 
@@ -350,7 +353,7 @@ fn test_set_personal_cap_equal_lifetime_blocks_further_contributions() {
 #[test]
 fn test_vote_weight_does_not_overflow_with_1_address_1_vote() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     token_admin.mint(&contributor, &1000);
 
@@ -379,7 +382,7 @@ fn set_auto_paused(env: &Env, client_address: &Address, paused: bool) {
 #[test]
 fn test_resume_by_admin() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     set_auto_paused(&env, &client.address, true);
     assert!(client.is_paused());
@@ -391,7 +394,7 @@ fn test_resume_by_admin() {
 #[test]
 fn test_resume_unauthorized_fails() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     let stranger = Address::generate(&env);
 
     set_auto_paused(&env, &client.address, true);
@@ -403,7 +406,7 @@ fn test_resume_unauthorized_fails() {
 #[test]
 fn test_resume_after_campaign_transfer_uses_new_creator() {
     let (env, _admin, original_creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &original_creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &original_creator, 0));
 
     let new_creator = Address::generate(&env);
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
@@ -860,7 +863,7 @@ fn test_last_revenue_claimant_absorbs_rounding_dust() {
 fn test_get_campaign_survives_corrupted_storage_entry() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
 
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     assert!(client.get_campaign(&campaign_id).id == campaign_id);
 
     // Corrupt the persistent entry backing this campaign by overwriting it
@@ -879,14 +882,14 @@ fn test_get_campaign_survives_corrupted_storage_entry() {
 #[test]
 fn test_is_campaign_creator_true_for_owner() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     assert!(client.is_campaign_creator(&campaign_id, &creator));
 }
 
 #[test]
 fn test_is_campaign_creator_false_for_non_owner() {
     let (env, _, creator, contributor, _, _, _, client) = setup_env();
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     assert!(!client.is_campaign_creator(&campaign_id, &contributor));
 }
 
@@ -900,7 +903,7 @@ fn test_is_campaign_creator_false_for_nonexistent_campaign() {
 fn test_is_campaign_creator_updates_after_transfer() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
     let receiver = Address::generate(&env);
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     client.initiate_campaign_transfer(&campaign_id, &receiver);
     client.accept_campaign_transfer(&campaign_id);
@@ -1030,8 +1033,8 @@ fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     // remain reachable in a single page rather than proving the exact 1000 bound
     // (proving that directly would itself blow the per-invocation test budget).
     let mut last_id = 0u32;
-    for _ in 0..40 {
-        last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    for i in 0..40 {
+        last_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, i));
     }
     for id in 1..=35 {
         client.cancel_campaign(&id);
@@ -1061,7 +1064,7 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
             .set(&CampaignKey::CampaignCount, &u32::MAX);
     });
 
-    let result = client.try_create_campaign(&make_campaign_params_simple(&env, &creator));
+    let result = client.try_create_campaign(&make_campaign_params_simple(&env, &creator, 0));
     assert_eq!(result.unwrap_err().unwrap(), Error::Overflow);
 }
 
@@ -1072,10 +1075,12 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 /// same contributor must see 0 and return `NoFundsToWithdraw`, not transfer
 /// again.
 #[test]
-fn test_claim_refund_double_claim_rejected() {
-    let (env, _, creator, contributor1, _, token, token_admin, client) = setup_env();
+fn test_claim_refund_double_claim_rejected() {    let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
-    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator));
+
+
+
+    let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     // Fund contributor and make a contribution.
     token_admin.mint(&contributor1, &500);
