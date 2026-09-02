@@ -382,7 +382,27 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let res = client.try_set_vesting_params(&admin, &0, &2000);
     assert_eq!(res.unwrap_err().unwrap(), Error::InvalidVestingDelay);
 
-    // 2. Try setting both to 0 - should succeed and emit vesting_disabled event
+    // 2. Set a prior vesting config, then update it and assert the event records old/new values.
+    client.set_vesting_params(&admin, &7, &2000);
+    client.set_vesting_params(&admin, &14, &2500);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let topics = &last_event.1;
+    assert_eq!(topics.len(), 2);
+    let topic_str: soroban_sdk::String =
+        soroban_sdk::String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(
+        topic_str,
+        soroban_sdk::String::from_str(&env, "vesting_params_updated")
+    );
+    let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(admin_in_topics, admin);
+
+    let data: (u64, u64, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (7, 14, 2000, 2500));
+
+    // 3. Try setting both to 0 - should succeed and emit vesting_disabled event.
     client.set_vesting_params(&admin, &0, &0);
 
     let events = env.events().all();
@@ -398,7 +418,8 @@ fn test_set_vesting_params_validation_and_disabled_event() {
     let admin_in_topics: Address = soroban_sdk::FromVal::from_val(&env, &topics.get(1).unwrap());
     assert_eq!(admin_in_topics, admin);
 
-    let _data: () = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    let data: (u64, u64, u32, u32) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(data, (14, 0, 2500, 0));
 }
 
 /// Regression test for issue #466: vesting params set AFTER campaign creation

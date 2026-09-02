@@ -156,6 +156,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `extend_campaign_deadline`
+
+| Field   | Value                                                      |
+|---------|------------------------------------------------------------|
+| Topics  | `("extend_campaign_deadline", campaign_id: u32, creator: Address)` |
+| Data    | `(old_deadline: u64, new_deadline: u64, additional_days: u64, total_duration: u64)` |
+| Source  | `src/campaigns/update.rs` — `extend_campaign_deadline()` |
+
+---
+
 ### `campaign_unbookmarked`
 
 | Field   | Value                                                      |
@@ -376,7 +386,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field   | Value                                                      |
 |---------|------------------------------------------------------------|
 | Topics  | `("campaign_deadline_extended", campaign_id: u32)`         |
-| Data    | `(old_deadline: u64, new_deadline: u64)`                   |
+| Data    | `(old_deadline: u64, new_deadline: u64, additional_days: u64, total_duration: u64)` |
 | Source  | `src/campaigns/update.rs:82` — `extend_campaign_deadline()` |
 
 ---
