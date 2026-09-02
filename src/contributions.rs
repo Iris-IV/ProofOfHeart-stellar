@@ -8,8 +8,9 @@ use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_admin,
     get_campaign_block_contribution_count, get_campaign_token, get_contribution,
     get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
-    get_top_contributor, get_total_raised_global, increment_contributor_count, remove_contribution,
-    remove_personal_cap, remove_revenue_claimed, set_campaign, set_campaign_block_contribution_count,
+    get_top_contributor, get_total_raised_global, has_personal_cap, increment_contributor_count,
+    remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
+    set_campaign_block_contribution_count,
     set_campaign_fee_recipient, set_contribution, set_last_contribution_time,
     set_lifetime_contribution, set_personal_cap, set_top_contributor, set_total_raised_global,
     AdminKey,
@@ -203,6 +204,7 @@ pub(crate) fn contribute(
     check_burst_guard(env, campaign_id, &campaign, amount)?;
 
     bump_instance_ttl(env);
+    crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
     update_contribution_accounting(
         env,
         campaign_id,
@@ -261,7 +263,13 @@ pub(crate) fn batch_contribute(
     // currency instead of one per contribution.
     let mut owed: soroban_sdk::Map<Address, i128> = soroban_sdk::Map::new(env);
     let mut total: i128 = 0;
+    let mut seen: soroban_sdk::Map<u32, bool> = soroban_sdk::Map::new(env);
     for (campaign_id, amount) in contributions.iter() {
+        if seen.get(campaign_id).is_some() {
+            return Err(Error::ValidationFailed);
+        }
+        seen.set(*campaign_id, true);
+
         if amount <= 0 {
             return Err(Error::ContributionMustBePositive);
         }
@@ -292,6 +300,7 @@ pub(crate) fn batch_contribute(
 
         check_burst_guard(env, campaign_id, &campaign, amount)?;
 
+        crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
         update_contribution_accounting(
             env,
             campaign_id,
@@ -308,18 +317,24 @@ pub(crate) fn batch_contribute(
         let running = owed.get(token.clone()).unwrap_or(0);
         owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
 
-        env.events().publish(
-            ("contribution_made", campaign_id, contributor.clone()),
-            amount,
-        );
     }
 
-    // Interactions last, after every campaign's accounting is persisted.
+    // Transfers happen here, after accounting and before any events are
+    // published, so a failed transfer leaves no partial event stream.
     for (token, amount) in owed.iter() {
         soroban_sdk::token::Client::new(env, &token).transfer(
             &contributor,
             &env.current_contract_address(),
             &amount,
+        );
+    }
+
+    // Publish per-contribution events only after the aggregate transfer has
+    // succeeded, so a failed transfer leaves no partial event stream.
+    for (campaign_id, amount) in contributions.iter() {
+        env.events().publish(
+            ("contribution_made", campaign_id, contributor.clone()),
+            amount,
         );
     }
 
@@ -362,16 +377,11 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         .ok_or(Error::Overflow)?;
     set_campaign(env, campaign_id, &campaign);
 
-    // #818: For cancelled campaigns total_raised_global was already decremented
-    // in full at cancel time. Only decrement here for the failed-funding path
-    // (deadline passed, goal not met) to avoid double-counting.
-    if !campaign.is_cancelled {
-        let total_raised = get_total_raised_global(env);
-        set_total_raised_global(
-            env,
-            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
-        );
-    }
+    let total_raised = get_total_raised_global(env);
+    set_total_raised_global(
+        env,
+        total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+    );
 
     let client = campaign_token_client(env, campaign_id);
     client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -428,7 +438,7 @@ pub(crate) fn remove_personal_cap_fn(
     contributor.require_auth();
     let campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
-    if get_personal_cap(env, campaign_id, &contributor).is_none() {
+    if !has_personal_cap(env, campaign_id, &contributor) {
         return Err(Error::PersonalCapNotFound);
     }
     bump_instance_ttl(env);

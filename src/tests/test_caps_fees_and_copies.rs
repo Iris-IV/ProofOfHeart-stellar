@@ -425,3 +425,4 @@ fn test_extension_stays_within_the_absolute_horizon() {
     // And it is genuinely one-shot.
     assert!(client.try_extend_campaign_deadline(&id, &1).is_err());
 }
+
