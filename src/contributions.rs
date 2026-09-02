@@ -320,6 +320,18 @@ pub(crate) fn batch_contribute(
             amount,
         )?;
 
+        let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+        let is_new_top = match get_top_contributor(env, campaign_id) {
+            Some(top_addr) if top_addr != contributor => {
+                new_total > get_contribution(env, campaign_id, &top_addr)
+            }
+            _ => true,
+        };
+        if is_new_top {
+            set_top_contributor(env, campaign_id, &contributor);
+        }
+        set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
         let token = get_campaign_token(env, campaign_id);
