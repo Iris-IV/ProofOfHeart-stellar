@@ -12,10 +12,12 @@ pub const CATEGORY_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 macro_rules! persistent_set {
     ($env:expr, $key:expr, $value:expr) => {{
         let key = $key;
-        $env.storage().persistent().set(&key, $value);
-        $env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        let storage = $env.storage().persistent();
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+        storage.set(&key, $value);
+        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }};
 }
 
@@ -279,7 +281,9 @@ pub enum BookmarkKey {
 /// rather than aborting the entire transaction.
 pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
     let key = CampaignKey::Campaign(campaign_id);
-    let raw: Val = env.storage().persistent().get(&key)?;
+    let storage = env.storage().persistent();
+    let raw: Val = storage.get(&key)?;
+    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     Campaign::try_from_val(env, &raw).ok()
 }
 
@@ -630,7 +634,13 @@ pub fn set_contributor_revenue_claimants(env: &Env, campaign_id: u32, count: u32
 /// Returns the number of approval votes for a campaign.
 pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = VotingKey::ApproveVotes(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value: Option<u32> = env.storage().persistent().get(&key);
+    if value.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores the approval vote count for a campaign and extends its TTL.
@@ -641,7 +651,13 @@ pub fn set_approve_votes(env: &Env, campaign_id: u32, count: u32) {
 /// Returns the number of rejection votes for a campaign.
 pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
     let key = VotingKey::RejectVotes(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value: Option<u32> = env.storage().persistent().get(&key);
+    if value.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores the rejection vote count for a campaign and extends its TTL.
@@ -654,7 +670,13 @@ pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
 /// Returns the total approval token-weight for a campaign.
 pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = VotingKey::ApproveWeight(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value: Option<i128> = env.storage().persistent().get(&key);
+    if value.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores the total approval token-weight for a campaign and extends its TTL.
@@ -665,7 +687,13 @@ pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
 /// Returns the total rejection token-weight for a campaign.
 pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
     let key = VotingKey::RejectWeight(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value: Option<i128> = env.storage().persistent().get(&key);
+    if value.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores the total rejection token-weight for a campaign and extends its TTL.
@@ -870,17 +898,41 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
 pub const CREATOR_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 
 /// Returns the total number of campaigns owned by a creator.
+///
+/// Returns `0` both when the creator is unknown and when the creator is known
+/// but has no current campaigns. Use [`creator_exists`] to distinguish these
+/// cases.
 pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
+    get_creator_campaign_count_opt(env, creator).unwrap_or(0)
+}
+
+/// Returns the total number of campaigns owned by a creator as an `Option`.
+///
+/// `None` means the address has never been recorded as a creator; `Some(0)`
+/// means the creator is known but currently has no campaigns.
+pub fn get_creator_campaign_count_opt(env: &Env, creator: &Address) -> Option<u32> {
     let key = CampaignKey::CreatorCampaignCount(creator.clone());
     let val: Option<u32> = env.storage().persistent().get(&key);
     if let Some(count) = val {
         env.storage()
             .persistent()
             .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        count
+        Some(count)
     } else {
-        0
+        None
     }
+}
+
+/// Returns `true` if `creator` has ever been recorded as a campaign creator.
+///
+/// This is the existence indicator for the creator index: it checks for the
+/// `CreatorCampaignCount` key rather than defaulting a missing key to zero, so
+/// consumers can tell an unknown address from a known creator with no active
+/// campaigns.
+pub fn creator_exists(env: &Env, creator: &Address) -> bool {
+    env.storage()
+        .persistent()
+        .has(&CampaignKey::CreatorCampaignCount(creator.clone()))
 }
 
 /// Stores the total number of campaigns owned by a creator.

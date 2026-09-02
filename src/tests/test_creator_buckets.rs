@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{storage, Category, LIST_MAX_LIMIT};
 use soroban_sdk::{Address, Env, String};

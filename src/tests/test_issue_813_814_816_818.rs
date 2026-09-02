@@ -5,9 +5,12 @@
 /// #813 — extend_campaign_deadline respects the per-category duration cap.
 /// #814 — BlockCampaignContributionCount (per-campaign) is the only block
 ///         count variant; no dead global key exists.
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{Category, CreateCampaignParams};
-use soroban_sdk::{testutils::Ledger as _, vec, Address, String, Vec};
+use soroban_sdk::{vec, Address, String};
 
 fn make_campaign(
     env: &soroban_sdk::Env,
@@ -16,11 +19,12 @@ fn make_campaign(
     goal: i128,
     days: u64,
     category: Category,
+    index: u32,
 ) -> u32 {
     let id = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, "Test Campaign"),
-        description: String::from_str(env, "Test description for campaign"),
+        title: String::from_str(env, &format!("Test Campaign {index}")),
+        description: String::from_str(env, &format!("Test description for campaign {index}")),
         funding_goal: goal,
         duration_days: days,
         category,
@@ -41,8 +45,7 @@ fn test_cancel_campaign_decrements_total_raised_global_immediately() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor, &500);
 
-    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
-    client.verify_campaign(&id);
+    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
     client.contribute(&id, &contributor, &500);
 
     assert_eq!(client.get_total_raised_global(), 500);
@@ -63,8 +66,7 @@ fn test_cancel_campaign_allows_accept_token_update_after_all_refunds_claimed() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor, &500);
 
-    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
-    client.verify_campaign(&id);
+    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Educator, 0);
     client.contribute(&id, &contributor, &500);
     client.cancel_campaign(&id);
 
@@ -81,8 +83,7 @@ fn test_claim_refund_does_not_double_decrement_after_creator_cancel() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor, &300);
 
-    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
-    client.verify_campaign(&id);
+    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
     client.contribute(&id, &contributor, &300);
 
     assert_eq!(client.get_total_raised_global(), 300);
@@ -169,8 +170,7 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor, &400);
 
-    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
-    client.verify_campaign(&id);
+    let id = make_campaign(&env, &client, &creator, 1_000, 30, Category::Learner, 0);
     client.contribute(&id, &contributor, &400);
     assert_eq!(client.get_total_raised_global(), 400);
 
@@ -263,7 +263,7 @@ fn test_extend_deadline_blocked_when_new_total_exceeds_category_cap() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
 
     // Create a 60-day campaign.
-    let id = make_campaign(&env, &client, &creator, 100, 60, Category::Learner);
+    let id = make_campaign(&env, &client, &creator, 100, 60, Category::Learner, 0);
 
     // Admin sets a tight 90-day cap on the category.
     client.set_category_duration_cap(&admin, &Category::Learner, &90u64);
@@ -280,7 +280,7 @@ fn test_extend_deadline_blocked_when_new_total_exceeds_category_cap() {
 fn test_extend_deadline_allowed_within_category_cap() {
     let (env, admin, creator, _, _, _, _, client) = setup_env();
 
-    let id = make_campaign(&env, &client, &creator, 100, 60, Category::Learner);
+    let id = make_campaign(&env, &client, &creator, 100, 60, Category::Learner, 0);
 
     // 120-day cap — adding 30 days (total = 90) is within the cap.
     client.set_category_duration_cap(&admin, &Category::Learner, &120u64);

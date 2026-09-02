@@ -406,6 +406,10 @@ fn test_token_swap_blocked_after_partial_refund() {
     let res = client.try_accept_token_update(&admin);
     assert!(res.is_ok());
     assert_eq!(client.get_token(), new_token_address);
+
+    // Refunds still work after the swap.
+    client.claim_refund(&campaign_id, &contributor1);
+    client.claim_refund(&campaign_id, &contributor2);
 }
 
 // ── initialisation & config ─────────────────────────────────────────────────────
@@ -594,13 +598,14 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
         CAMPAIGN_FUNDING_GOAL_MAX
     );
 
-    let desc = String::from_str(&env, "Checks funding goal ceiling");
+    let title1 = String::from_str(&env, "Max Goal 1");
+    let desc1 = String::from_str(&env, "Checks funding goal ceiling");
 
     // Exactly at the cap must succeed.
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Max Goal 1"),
-        desc.clone(),
+        title1.clone(),
+        desc1.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX,
         30,
         Category::Educator,
@@ -613,8 +618,8 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     // One above the cap must fail.
     let res = client.try_create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Max Goal 2"),
-        desc.clone(),
+        title1.clone(),
+        desc1.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
         Category::Educator,
@@ -630,10 +635,11 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     assert_eq!(client.get_max_campaign_funding_goal(), new_max);
 
     // Previously-rejected goal now succeeds.
+    let title2 = String::from_str(&env, "Max Goal 2");
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Max Goal 3"),
-        desc.clone(),
+        title2,
+        desc1.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
         Category::Educator,

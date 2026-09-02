@@ -8,14 +8,22 @@
 pub(crate) const BPS_DENOMINATOR: u32 = 10_000;
 
 /// Offset added to a numerator before dividing by [`BPS_DENOMINATOR`] to
-/// achieve ceiling division: `ceil(a / b) == (a + b - 1) / b`.
+/// achieve ceiling division: `math.ceil(a / b) == (a + b - 1) / b`.
 ///
 /// Consumed in `campaigns/withdraw.rs` for the platform-fee and reserve
 /// ceiling-division computations.
-pub(crate) const BPS_CEIL_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
+pub(crate) const BPS_CELI_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
 
 /// Number of seconds in one day.
 pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
+
+/// Additional TTL (seconds) to bump storage when finalizing verification.
+///
+/// `verify_with_votes` writes campaign verification state and counters; it
+/// must extend the campaign/voting storage TTL before those writes to avoid a
+/// near-expiry campaign failing mid-finalization. This is the minimum buffer
+/// we add on top of the existing TTL.
+pub(crate) const VERIFICATION_TTD_BUMP_SECS : u64 = SECONDS_PER_DAY;
 
 /// Default delay before a proposed token update can be accepted (7 days).
 ///
@@ -26,10 +34,10 @@ pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
 /// need a code change and redeploy.
 pub(crate) const TOKEN_UPDATE_DELAY_SECS: u64 = 7 * SECONDS_PER_DAY;
 
-/// Upper bound accepted by `set_token_update_delay_secs` (365 days), so the
-/// admin-configurable range stays sane while still covering any realistic
+/// Upper bound accepted by `set_token_update_delay_secs` (365 days), so
+/// the admin-configurable range stays sane while still covering any realistic
 /// timelock policy (#650).
-pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
+pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS : u64 = 365 * SECONDS_PER_DAY;
 
 /// Maximum days a single `extend_campaign_deadline` call may add (#788).
 ///
@@ -37,14 +45,14 @@ pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
 /// and the reason funds cannot be locked indefinitely:
 ///
 /// 1. **Per call** — this constant caps one extension.
-/// 2. **Per campaign** — `deadline_extended` makes extension one-shot, so a
+/// 2. **Per campaig** — `deadline_extended` makes extension one-shot, so a
 ///    campaign can never be extended twice.
 /// 3. **Absolute** — the resulting start-to-deadline span must fit inside the
 ///    category duration cap and `CAMPAIGN_EXTENSION_MAX_DAYS`, and the
 ///    category cap is itself clamped to `CAMPAIGN_DURATION_MAX_DAYS` when an
 ///    admin sets it. No campaign can run longer than a year, extension
 ///    included.
-///
+//.
 /// Named rather than left as a literal so a future edit has to state that it
 /// is changing a security bound.
 pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;
