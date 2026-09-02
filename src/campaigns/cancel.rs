@@ -8,8 +8,7 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_revenue_pool,
-    get_total_raised_global, increment_cancelled_campaign_count, remove_voting_state, set_campaign,
-    set_revenue_pool, set_total_raised_global,
+    increment_cancelled_campaign_count, remove_voting_state, set_campaign, set_revenue_pool,
 };
 
 pub(crate)::fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> {

@@ -716,6 +716,10 @@ impl ProofOfHeart {
         storage::get_campaign_reserve(&env, campaign_id)
     }
 
+    pub fn get_campaign_payout_marker(env: Env, campaign_id: u32) -> Option<u32> {
+        storage::get_campaign_payout_marker(&env, campaign_id)
+    }
+
     pub fn has_pending_campaign_transfer(env: Env, campaign_id: u32) -> bool {
         get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
@@ -740,21 +744,31 @@ impl ProofOfHeart {
         queries::list_active_campaigns(&env, start, limit)
     }
 
+    /// `offset` is a **zero-based positional index** into this category's
+    /// campaign list, not a campaign ID — unlike `list_campaigns`'s `start`,
+    /// which is an exclusive campaign-ID cursor. Page by advancing
+    /// `offset += page.len()`; the two cursor styles are not interchangeable
+    /// (#845).
     pub fn get_campaigns_by_category(
         env: Env,
         category: Category,
         offset: u32,
         limit: u32,
-    ) -> soroban_sdk::Vec<Campaign> {
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_campaigns_by_category(&env, category, offset, limit)
     }
 
+    /// `start` is a **zero-based positional index** into this creator's
+    /// campaign list, not a campaign ID — unlike `list_campaigns`'s `start`,
+    /// which is an exclusive campaign-ID cursor. Page by advancing
+    /// `start += page.len()`; the two cursor styles are not interchangeable
+    /// (#845).
     pub fn get_creator_campaigns(
         env: Env,
         creator: Address,
         start: u32,
         limit: u32,
-    ) -> soroban_sdk::Vec<Campaign> {
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_creator_campaigns(&env, creator, start, limit)
     }
 
