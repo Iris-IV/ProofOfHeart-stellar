@@ -84,9 +84,10 @@ pub(crate) fn list_active_campaigns(
     let mut collected = 0u32;
     let mut current_id = start + 1;
     let mut next_cursor = 0u32;
+    let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
 
     while current_id <= total_count {
-        if current_id > start + MAX_SCAN_WINDOW {
+        if current_id > scan_window_end {
             env.events().publish(
                 ("scan_window_exhausted",),
                 (start, current_id, collected, capped_limit),
@@ -111,11 +112,23 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
-/// Shared bucket-pagination helper used by both `get_campaigns_by_category`
-/// and `get_creator_campaigns`. The two query functions differ only in how
-/// they derive the total count and how they load a bucket — this helper
-/// captures the identical traversal algorithm so there is one canonical
-/// implementation.
+/// Shared bucket-pagination helper used by `get_campaigns_by_category`,
+/// `get_campaigns_by_tag`, and `get_creator_campaigns`. The query functions
+/// differ only in how they derive the total count and how they load a
+/// bucket — this helper captures the identical traversal algorithm so there
+/// is one canonical implementation.
+///
+/// # Cursor contract (#845)
+///
+/// `start` here is a **zero-based positional offset** into the query's own
+/// result ordering (the Nth campaign matching that category/tag/creator),
+/// *not* a campaign ID. This is a different contract from [`list_campaigns`],
+/// whose `start` is an **exclusive campaign-ID cursor**. The two are not
+/// interchangeable: a cursor obtained from one of these bucket-paginated
+/// queries cannot be passed as `start` to `list_campaigns` (or vice versa).
+/// To page through a bucket-paginated query, set the next `start` to
+/// `previous_start + previous_page.len()` and stop once a page returns fewer
+/// than `limit` results.
 ///
 /// Algorithm overview:
 ///   1. Jump to the bucket containing `start`.
@@ -130,7 +143,7 @@ fn get_campaigns_from_buckets<F>(
     total: u32,
     bucket_size: u32,
     get_bucket: F,
-) -> soroban_sdk::Vec<Campaign>
+) -> (soroban_sdk::Vec<Campaign>, u32)
 where
     F: Fn(&Env, u32) -> soroban_sdk::Vec<u32>,
 {
@@ -138,11 +151,12 @@ where
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
 
     if start >= total || capped_limit == 0 {
-        return campaigns;
+        return (campaigns, start);
     }
 
     let end = start.saturating_add(capped_limit).min(total);
     let mut position = start;
+    let mut next_cursor = start;
 
     while position < end {
         let bucket_idx = position / bucket_size;
@@ -158,6 +172,7 @@ where
             if let Some(campaign_id) = bucket.get(idx_in_bucket) {
                 if let Some(campaign) = get_campaign(env, campaign_id) {
                     campaigns.push_back(campaign);
+                    next_cursor = position + 1;
                 }
             }
             idx_in_bucket += 1;
@@ -170,18 +185,26 @@ where
             } else {
                 bucket_start + bucket_len
             };
+        } else {
+            next_cursor = position;
         }
     }
 
-    campaigns
+    (campaigns, next_cursor)
 }
 
+/// Returns the campaigns in `category`, paginated.
+///
+/// `offset` is a zero-based positional index into this category's campaign
+/// list — **not** a campaign ID. See the cursor contract note on
+/// [`get_campaigns_from_buckets`] (#845) for how this differs from
+/// `list_campaigns`'s ID-based cursor.
 pub(crate) fn get_campaigns_by_category(
     env: &Env,
     category: Category,
     offset: u32,
     limit: u32,
-) -> soroban_sdk::Vec<Campaign> {
+) -> (soroban_sdk::Vec<Campaign>, u32) {
     let total = get_category_campaign_count(env, category);
     get_campaigns_from_buckets(
         env,
@@ -197,16 +220,17 @@ pub(crate) fn get_campaigns_by_category(
 ///
 /// Backed by the inverted tag index maintained by `add_campaign_tag`, so this
 /// is O(page) rather than a full campaign scan. `offset` is a zero-based
-/// index into the tag's campaign list (not a campaign id). An unknown,
+/// index into the tag's campaign list (not a campaign id) — see the cursor
+/// contract note on [`get_campaigns_from_buckets`] (#845). An unknown,
 /// empty, or over-long tag returns an empty page.
 pub(crate) fn get_campaigns_by_tag(
     env: &Env,
     tag: String,
     offset: u32,
     limit: u32,
-) -> soroban_sdk::Vec<Campaign> {
+) -> (soroban_sdk::Vec<Campaign>, u32) {
     if tag.len() < crate::CAMPAIGN_TAG_MIN_LEN || tag.len() > crate::CAMPAIGN_TAG_MAX_LEN {
-        return soroban_sdk::Vec::new(env);
+        return (soroban_sdk::Vec::new(env), offset);
     }
     let tag_hash = hash_text(env, &tag);
     let total = get_tag_campaign_count(env, &tag_hash);
@@ -229,12 +253,17 @@ pub(crate) fn get_campaign_tag_list(env: &Env, campaign_id: u32) -> soroban_sdk:
 /// every preceding bucket just to advance a counter, so paginating deep into
 /// a creator with many campaigns no longer costs one ledger read per skipped
 /// bucket (mirrors `get_campaigns_by_category`'s direct-jump approach).
+///
+/// `start` is a zero-based positional index into this creator's campaign
+/// list — **not** a campaign ID. See the cursor contract note on
+/// [`get_campaigns_from_buckets`] (#845) for how this differs from
+/// `list_campaigns`'s ID-based cursor.
 pub(crate) fn get_creator_campaigns(
     env: &Env,
     creator: Address,
     start: u32,
     limit: u32,
-) -> soroban_sdk::Vec<Campaign> {
+) -> (soroban_sdk::Vec<Campaign>, u32) {
     let total = get_creator_campaign_count(env, &creator);
     get_campaigns_from_buckets(
         env,
@@ -383,19 +412,20 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
 pub(crate) fn get_contributor_portfolio(
     env: &Env,
     contributor: Address,
+    start: u32,
+    limit: u32,
 ) -> soroban_sdk::Vec<(u32, i128, String, bool)> {
     let total_campaigns = get_campaign_count(env);
     let mut portfolio = soroban_sdk::Vec::new(env);
 
-    for id in 1..=total_campaigns {
-        // Test the cheap key before loading the heavy value (#792).
-        //
-        // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
-        // deserializes the whole `Campaign` — creator, title, description, and a
-        // dozen more fields. This loop runs over every campaign that has ever
-        // existed, and a contributor is in almost none of them, so loading the
-        // campaign first meant deserializing thousands of structs to discard
-        // all but a handful. The filter now decides before the copy happens.
+    if start >= total_campaigns || limit == 0 {
+        return portfolio;
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let mut collected = 0;
+
+    for id in (start + 1)..=total_campaigns {
         let amount = get_contribution(env, id, &contributor);
         if amount == 0 {
             continue;
@@ -419,6 +449,11 @@ pub(crate) fn get_contributor_portfolio(
                     && campaign.amount_raised < campaign.funding_goal);
 
             portfolio.push_back((id, amount, String::from_str(env, status), refundable));
+            collected += 1;
+
+            if collected >= capped_limit {
+                break;
+            }
         }
     }
 

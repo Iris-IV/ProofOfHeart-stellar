@@ -25,6 +25,26 @@ pub fn bump_instance_ttl(env: &Env) {
         .extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Extends TTL for every contributor-specific persistent key tied to a campaign.
+///
+/// Long-lived campaigns keep contributor metadata such as per-campaign totals,
+/// lifetime totals, and personal caps in persistent storage. These entries need
+/// the same TTL refresh as the campaign itself so they do not vanish while the
+/// campaign remains active.
+pub fn extend_contributor_ttl(env: &Env, campaign_id: u32, contributor: &Address) {
+    let storage = env.storage().persistent();
+    let keys = [
+        ContributionKey::Contribution(campaign_id, contributor.clone()),
+        ContributionKey::LifetimeContribution(campaign_id, contributor.clone()),
+        ContributionKey::PersonalCap(campaign_id, contributor.clone()),
+    ];
+    for key in keys {
+        if storage.has(&key) {
+            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
+    }
+}
+
 /// Marker trait implemented by every domain storage-key enum.
 ///
 /// Ties the sub-enums together as the contract's storage-key surface and
@@ -161,6 +181,8 @@ pub enum CampaignKey {
     ///
     /// Kept last so existing on-chain enum discriminants remain unchanged.
     CampaignTags(u32),
+    /// The ledger sequence in which a campaign's funds were withdrawn, keyed by campaign id.
+    CampaignPayoutMarker(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -276,6 +298,19 @@ pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
         env,
         CampaignKey::CampaignStartTime(campaign_id),
         &start_time
+    );
+}
+
+pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
+    let key = CampaignKey::CampaignPayoutMarker(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
+    persistent_set!(
+        env,
+        CampaignKey::CampaignPayoutMarker(campaign_id),
+        &marker
     );
 }
 
@@ -408,7 +443,11 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
 /// Returns a contributor's total contribution to a campaign.
 pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = ContributionKey::Contribution(campaign_id, contributor.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value = env.storage().persistent().get(&key);
+    if value.is_some() {
+        extend_contributor_ttl(env, campaign_id, contributor);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores a contributor's contribution amount and extends its TTL.
@@ -423,7 +462,11 @@ pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amou
 /// Returns a contributor's lifetime (non-decreasing) contribution to a campaign.
 pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
     let key = ContributionKey::LifetimeContribution(campaign_id, contributor.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
+    let value = env.storage().persistent().get(&key);
+    if value.is_some() {
+        extend_contributor_ttl(env, campaign_id, contributor);
+    }
+    value.unwrap_or(0)
 }
 
 /// Stores a contributor's lifetime contribution amount and extends its TTL.
@@ -929,11 +972,19 @@ pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> O
     let key = ContributionKey::PersonalCap(campaign_id, contributor.clone());
     let val = env.storage().persistent().get(&key);
     if val.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        extend_contributor_ttl(env, campaign_id, contributor);
     }
     val
+}
+
+/// Returns whether a contributor has a personal cap set for a campaign,
+/// without bumping the entry's TTL. Callers that are about to remove the
+/// cap (rather than read its value) should use this instead of
+/// `get_personal_cap`, so a removal doesn't first extend the TTL of the
+/// entry it's deleting.
+pub fn has_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> bool {
+    let key = ContributionKey::PersonalCap(campaign_id, contributor.clone());
+    env.storage().persistent().has(&key)
 }
 
 /// Stores a contributor's personal cap for a campaign and extends its TTL.
@@ -1194,15 +1245,10 @@ pub fn increment_cancelled_campaign_count(env: &Env) {
 /// they were saved. Defaults to an empty list.
 pub fn get_saved_campaigns(env: &Env, user: &Address) -> Vec<u32> {
     let key = BookmarkKey::SavedCampaigns(user.clone());
-    let val: Option<Vec<u32>> = env.storage().persistent().get(&key);
-    if let Some(ids) = val {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        ids
-    } else {
-        Vec::new(env)
-    }
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(Vec::new(env))
 }
 
 /// Stores a wallet's list of bookmarked campaign ids and extends its TTL.

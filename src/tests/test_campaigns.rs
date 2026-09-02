@@ -327,10 +327,11 @@ fn test_campaign_count_cannot_reset_after_deployment() {
     let (env, _admin, creator, _, _, token, _, client) = setup_env();
 
     assert_eq!(client.get_campaign_count(), 0);
+    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 1u32..=3 {
         let id = client.create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, "Campaign"),
+            String::from_str(&env, titles[(i - 1) as usize]),
             String::from_str(&env, "Desc"),
             1000,
             30,

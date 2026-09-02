@@ -295,7 +295,7 @@ fn test_contributor_portfolio_returns_only_funded_campaigns() {
 
     client.contribute(&funded, &contributor1, &2500);
 
-    let portfolio = client.get_contributor_portfolio(&contributor1);
+    let portfolio = client.get_contributor_portfolio(&contributor1, &0, &100);
     assert_eq!(portfolio.len(), 1);
 
     let (id, amount, _status, _refundable) = portfolio.get(0).unwrap();
@@ -315,7 +315,7 @@ fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
         capped_campaign(&env, &creator, &client, 0);
     }
 
-    assert_eq!(client.get_contributor_portfolio(&contributor2).len(), 0);
+    assert_eq!(client.get_contributor_portfolio(&contributor2, &0, &100).len(), 0);
 }
 
 /// The portfolio still reports status and refundability from the campaign, so
@@ -329,14 +329,14 @@ fn test_contributor_portfolio_still_reports_campaign_state() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &1000);
 
-    let before = client.get_contributor_portfolio(&contributor1);
+    let before = client.get_contributor_portfolio(&contributor1, &0, &100);
     let (_, _, status, refundable) = before.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "verified"));
     assert!(!refundable);
 
     client.cancel_campaign(&id);
 
-    let after = client.get_contributor_portfolio(&contributor1);
+    let after = client.get_contributor_portfolio(&contributor1, &0, &100);
     let (_, _, status, refundable) = after.get(0).unwrap();
     assert_eq!(status, String::from_str(&env, "cancelled"));
     assert!(refundable);
@@ -425,3 +425,4 @@ fn test_extension_stays_within_the_absolute_horizon() {
     // And it is genuinely one-shot.
     assert!(client.try_extend_campaign_deadline(&id, &1).is_err());
 }
+
