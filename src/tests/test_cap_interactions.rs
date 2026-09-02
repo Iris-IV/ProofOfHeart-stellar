@@ -371,3 +371,40 @@ fn test_remove_personal_cap_requires_contributor_auth() {
         }
     );
 }
+
+/// #876: repeated set/remove churn on a personal cap must leave no stale
+/// `PersonalCap` ledger entry behind — each `remove_personal_cap` call has
+/// to fully delete the entry (value and TTL) rather than just clearing the
+/// value client-side reads as 0 for.
+#[test]
+fn test_remove_personal_cap_leaves_no_stale_storage_after_churn() {
+    let (env, _admin, creator, contributor1, _, _token, _token_admin, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Cap churn"),
+        description: String::from_str(&env, "repeated set/remove personal cap churn"),
+        funding_goal: 10_000_000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+
+    let key = crate::storage::ContributionKey::PersonalCap(campaign_id, contributor1.clone());
+
+    for i in 0..5 {
+        client.set_personal_cap(&campaign_id, &contributor1, &(500 + i));
+        env.as_contract(&client.address, || {
+            assert!(env.storage().persistent().has(&key));
+        });
+
+        client.remove_personal_cap(&campaign_id, &contributor1);
+        env.as_contract(&client.address, || {
+            assert!(!env.storage().persistent().has(&key));
+        });
+    }
+
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+}

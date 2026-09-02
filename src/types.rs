@@ -222,3 +222,17 @@ pub struct CampaignStats {
     pub avg_contribution: i128,
     pub last_contribution_time: u64,
 }
+
+/// Event payload emitted by `extend_campaign_deadline`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignDeadlineExtended {
+    /// The campaign deadline before the extension.
+    pub old_deadline: u64,
+    /// The campaign deadline after the extension.
+    pub new_deadline: u64,
+    /// The extension duration requested by the creator, in days.
+    pub additional_days: u64,
+    /// The resulting total duration after the extension, in seconds.
+    pub total_duration: u64,
+}
