@@ -106,6 +106,7 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &false);
     env.storage().instance().set(&AdminKey::AutoPaused, &false);
+    env.storage().instance().set(&AdminKey::AutoPaused, &false);
     env.events().publish(("contract_unpaused", admin), ());
     Ok(())
 }

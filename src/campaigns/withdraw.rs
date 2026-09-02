@@ -33,6 +33,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.is_cancelled {
         return Err(Error::CampaignNotActive);
     }
+    // Withdrawal is only allowed after the campaign deadline has passed.
+    // A verified campaign can otherwise be withdrawn immediately,
+    // bypassing the intended funding window (#854).
+    if env.ledger().timestamp() <= campaign.deadline {
+        return Err(Error::DeadlineNotPassed);
+    }
     if campaign.funds_withdrawn {
         return Err(Error::FundsAlreadyWithdrawn);
     }
@@ -225,14 +231,22 @@ pub(crate) fn set_vesting_params(
         return Err(Error::InvalidVestingDelay);
     }
 
+    let old_delay_days = get_withdraw_release_delay_days(env);
+    let old_reserve_bps = get_withdraw_reserve_percentage(env);
+
     set_withdraw_release_delay_days(env, delay_days);
     set_withdraw_reserve_percentage(env, reserve_bps);
 
     if delay_days == 0 && reserve_bps == 0 {
-        env.events().publish(("vesting_disabled", admin), ());
+        env.events().publish(
+            ("vesting_disabled", admin),
+            (old_delay_days, delay_days, old_reserve_bps, reserve_bps),
+        );
     } else {
-        env.events()
-            .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
+        env.events().publish(
+            ("vesting_params_updated", admin),
+            (old_delay_days, delay_days, old_reserve_bps, reserve_bps),
+        );
     }
 
     Ok(())
