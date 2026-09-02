@@ -9,13 +9,14 @@ extern crate alloc;
 use alloc::format;
 
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, Error};
-use soroban_sdk::{testutils::Ledger as _, vec, Address, String};
+use crate::{Category, CreateCampaignParams};
+use soroban_sdk::{vec, Address, String, Vec};
 
-fn make_campaign(
+fn make_campaign_with_title(
     env: &soroban_sdk::Env,
     client: &ProofOfHeartClient,
     creator: &Address,
+    title: &str,
     goal: i128,
     days: u64,
     category: Category,
@@ -23,8 +24,8 @@ fn make_campaign(
 ) -> u32 {
     let id = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
-        title: String::from_str(env, &format!("Test Campaign {index}")),
-        description: String::from_str(env, &format!("Test description for campaign {index}")),
+        title: String::from_str(env, title),
+        description: String::from_str(env, "Test description for campaign"),
         funding_goal: goal,
         duration_days: days,
         category,
@@ -36,9 +37,18 @@ fn make_campaign(
     id
 }
 
-// ── #818 / #823: cancel_campaign must NOT strand escrow — total_raised_global
-//    stays non-zero until refunds are claimed so that accept_token_update
-//    remains blocked while old-token funds are still escrowed (#823). ────────
+fn make_campaign(
+    env: &soroban_sdk::Env,
+    client: &ProofOfHeartClient,
+    creator: &Address,
+    goal: i128,
+    days: u64,
+    category: Category,
+) -> u32 {
+    make_campaign_with_title(env, client, creator, "Test Campaign", goal, days, category)
+}
+
+// ── #818: cancel_campaign decrements total_raised_global upfront ──────────────
 
 #[test]
 fn test_cancel_campaign_decrements_total_raised_global_immediately() {
@@ -229,29 +239,24 @@ fn test_verify_campaigns_all_fail_returns_empty_verified_vec() {
 fn test_verify_campaigns_all_succeed_returns_empty_failed_vec() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    // Create unverified campaigns (bypass make_campaign which auto-verifies).
-    let id1 = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title: String::from_str(&env, "Verify All A"),
-        description: String::from_str(&env, "Verify all desc A"),
-        funding_goal: 100,
-        duration_days: 30,
-        category: Category::Learner,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0i128,
-    });
-    let id2 = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title: String::from_str(&env, "Verify All B"),
-        description: String::from_str(&env, "Verify all desc B"),
-        funding_goal: 200,
-        duration_days: 30,
-        category: Category::Educator,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0i128,
-    });
+    let id1 = make_campaign_with_title(
+        &env,
+        &client,
+        &creator,
+        "Campaign 1",
+        100,
+        30,
+        Category::Learner,
+    );
+    let id2 = make_campaign_with_title(
+        &env,
+        &client,
+        &creator,
+        "Campaign 2",
+        200,
+        30,
+        Category::Educator,
+    );
 
     let (verified, failed) = client.verify_campaigns(&vec![&env, id1, id2]);
 
@@ -304,19 +309,27 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     token_admin.mint(&contributor, &10_000);
     token_admin.mint(&contributor2, &10_000);
 
-    // Create two campaigns with unique titles (title uniqueness per creator #801).
-    let id_a = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title: String::from_str(&env, "Burst A"),
-        description: String::from_str(&env, "Burst campaign A"),
-        funding_goal: 1_000,
-        duration_days: 30,
-        category: Category::Learner,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0i128,
-    });
+    // goal = 1_000; burst_check_threshold = 50% = 500
+    let id_a = make_campaign_with_title(
+        &env,
+        &client,
+        &creator,
+        "Campaign A",
+        1_000,
+        30,
+        Category::Learner,
+    );
+    let id_b = make_campaign_with_title(
+        &env,
+        &client,
+        &creator,
+        "Campaign B",
+        1_000,
+        30,
+        Category::Educator,
+    );
     client.verify_campaign(&id_a);
+    client.verify_campaign(&id_b);
 
     let id_b = client.create_campaign(&CreateCampaignParams {
         creator: creator.clone(),
