@@ -227,6 +227,18 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     Ok(())
 }
 
+/// Cancels a pending campaign ownership transfer.
+///
+/// Only the current creator can cancel a pending transfer. This validates
+/// that the caller is the creator and thus has authorization to act on the
+/// campaign. If the wrong signer attempts to cancel, authorization fails with
+/// a clear indication of which address was required.
+///
+/// # Errors
+/// * `NotAuthorized` — Caller is not the campaign creator (via `require_auth`).
+/// * `CampaignNotFound` — No campaign with the given ID.
+/// * `ContractPaused` — The contract is currently paused.
+/// * `NoTransferPending` — No transfer was initiated.
 pub(crate) fn cancel_campaign_transfer(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
@@ -242,7 +254,7 @@ pub(crate) fn cancel_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
-        ("campaign_transfer_cancelled", campaign_id),
+        ("campaign_transfer_cancelled", campaign_id, campaign.creator.clone()),
         pending_address,
     );
 

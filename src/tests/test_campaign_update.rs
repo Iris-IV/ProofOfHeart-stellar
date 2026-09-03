@@ -539,6 +539,63 @@ fn test_admin_cancel_campaign_transfer_no_pending() {
 }
 
 #[test]
+fn test_cancel_campaign_transfer_emits_creator() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer Event Test"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+    client.cancel_campaign_transfer(&campaign_id);
+
+    // Verify the event includes both creator and pending_address.
+    let events = env.events().all();
+    let cancel_event = events
+        .iter()
+        .find(|(_, topics, _)| {
+            topics
+                .to_vec()
+                .first()
+                .map(|t| {
+                    if let soroban_sdk::Val::String(s) = t {
+                        s.to_string(&env) == "campaign_transfer_cancelled"
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        })
+        .expect("No cancel event found");
+
+    // The event data contains both creator and pending address.
+    // Topics: ("campaign_transfer_cancelled", campaign_id, creator)
+    // Data: pending_address
+    let topics = cancel_event.1.to_vec();
+    assert_eq!(topics.len(), 3);
+    if let soroban_sdk::Val::String(s) = &topics[0] {
+        assert_eq!(s.to_string(&env), "campaign_transfer_cancelled");
+    } else {
+        panic!("Expected first topic to be the event name");
+    }
+
+    // Verify the creator is included in the event topics
+    let creator_in_topics = topics.get(2).cloned();
+    assert!(creator_in_topics.is_some());
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+}
+
+#[test]
 fn test_cancel_campaign_already_cancelled_is_terminal() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
