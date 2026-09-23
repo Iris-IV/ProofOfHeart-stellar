@@ -152,9 +152,17 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     env.events()
         .publish(("payout_marker", campaign_id), payout_marker);
 
+    // #852: the withheld reserve must be attributable from the event stream
+    // alone. Topics carry the campaign id *and* the creator, and the data
+    // payload is the exact amount withheld, so off-chain accounting does not
+    // have to diff token balances to audit a reserve payout. The matching
+    // `reserve_released` event (see `withdraw_reserve`) uses the same
+    // (event name, campaign id, creator) / amount layout.
     if reserve_amount > 0 {
-        env.events()
-            .publish(("reserve_withheld", campaign_id), reserve_amount);
+        env.events().publish(
+            ("reserve_withheld", campaign_id, campaign.creator.clone()),
+            reserve_amount,
+        );
     }
 
     Ok(())
@@ -208,6 +216,11 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
         &reserve.amount,
     );
 
+    // #852: self-describing reserve-payout event. The topics name the event,
+    // the campaign id and the creator, and the data payload is the exact
+    // amount transferred to the creator above — so indexers can audit reserve
+    // payouts without diffing token balances. Mirrors `reserve_withheld`,
+    // emitted by `withdraw_funds` when the reserve was first set aside.
     env.events().publish(
         ("reserve_released", campaign_id, campaign.creator),
         reserve.amount,

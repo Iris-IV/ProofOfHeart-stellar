@@ -18,6 +18,7 @@ mod test_deadline_and_reverification;
 mod test_issue_813_814_816_818;
 mod test_issue_817;
 mod test_issue_819;
+mod test_issue_852;
 mod test_issue_863;
 mod test_lifecycle;
 mod test_lifecycle_events;

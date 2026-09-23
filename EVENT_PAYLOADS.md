@@ -35,14 +35,20 @@ Data	(fee_bps: u32, creator_amount: i128, reserve_amount: i128)
 Source	lib.rs:533 — withdraw_funds()
 reserve_withheld
 Field	Value
-Topics	("reserve_withheld", campaign_id: u32)
+Topics	("reserve_withheld", campaign_id: u32, creator: Address)
 Data	reserve_amount: i128
-Source	lib.rs:540 — withdraw_funds() when reserve_amount > 0
+Source	src/campaigns/withdraw.rs — withdraw_funds() when reserve_amount > 0
 reserve_released
 Field	Value
 Topics	("reserve_released", campaign_id: u32, creator: Address)
 Data	amount: i128
-Source	lib.rs:581 — release_reserve()
+Source	src/campaigns/withdraw.rs — withdraw_reserve()
+The reserve lifecycle is deliberately symmetric (#852): both events name the
+event, the campaign id and the creator in their topics and carry the exact
+reserve amount as data. An indexer can therefore attribute a
+`reserve_withheld` / `reserve_released` pair to a campaign and creator from
+the event stream alone, without diffing token balances to reconstruct reserve
+payouts.
 vesting_params_updated
 Field	Value
 Topics	("vesting_params_updated", admin: Address)
