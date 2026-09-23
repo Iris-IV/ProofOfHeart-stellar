@@ -483,9 +483,8 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
 /// timestamp of the most recent contribution.
 pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
     let contributor_count = get_contributor_count(env, campaign_id);
-    let amount_raised = get_campaign(env, campaign_id)
-        .map(|c| c.amount_raised)
-        .unwrap_or(0);
+    let campaign = get_campaign(env, campaign_id);
+    let amount_raised = campaign.as_ref().map(|c| c.amount_raised).unwrap_or(0);
 
     let avg_contribution = if contributor_count > 0 {
         amount_raised / contributor_count as i128
@@ -493,9 +492,20 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
         0
     };
 
-    let top_contributor = get_top_contributor(env, campaign_id)
-        .map(MaybePendingCreator::from)
-        .unwrap_or(MaybePendingCreator::None);
+    // #863: a cancelled campaign is terminal and every contribution to it is
+    // refundable, so it has no winner. `cancel_campaign` and
+    // `admin_cancel_campaign` clear the marker as part of the cancellation
+    // write; this read-time guard additionally covers campaigns cancelled
+    // *before* that write existed, whose marker is still in ledger storage.
+    // Same write-time-prune / read-time-filter split already used for
+    // bookmarks of cancelled campaigns.
+    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled).unwrap_or(false) {
+        MaybePendingCreator::None
+    } else {
+        get_top_contributor(env, campaign_id)
+            .map(MaybePendingCreator::from)
+            .unwrap_or(MaybePendingCreator::None)
+    };
 
     CampaignStats {
         contributor_count,

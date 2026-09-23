@@ -547,6 +547,18 @@ pub fn set_top_contributor(env: &Env, campaign_id: u32, contributor: &Address) {
         .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
 }
 
+/// Removes the campaign's top-contributor marker (#863).
+///
+/// Cancelling a campaign makes every contribution to it refundable, so no
+/// contributor is a winner any more. The marker is retired together with the
+/// campaign's other side state (`remove_voting_state`,
+/// `prune_bookmarks_for_campaign`) rather than left behind for
+/// `get_campaign_stats` to report as a live winner.
+pub fn remove_top_contributor(env: &Env, campaign_id: u32) {
+    let key = ContributionKey::TopContributor(campaign_id);
+    env.storage().persistent().remove(&key);
+}
+
 pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
     let key = ContributionKey::LastContributionTime(campaign_id);
     env.storage().persistent().get(&key).unwrap_or(0)

@@ -63,9 +63,10 @@ Additional derived conditions used by the contract:
 
 ### 5) Cancelled
 
-- Reached by `cancel_campaign` (creator only):
+- Reached by `cancel_campaign` (creator only) or, for fraud response, by `admin_cancel_campaign`:
   - sets `is_cancelled = true`
   - sets `is_active = false`
+  - removes the campaign's top-contributor marker (`ContributionKey::TopContributor`): a cancelled campaign has no winner, because every contribution to it is refundable (#863). `get_campaign_stats` also ignores that marker for a cancelled campaign, so the marker left on campaigns cancelled by an older version never surfaces either.
 - Contributors can claim refunds via `claim_refund` after cancellation (if they contributed).
 - Successful refunds remove the contributor's stored contribution record instead of leaving a zero-value entry behind.
 - Refunds also reduce the campaign's live contribution denominator used for revenue sharing, ensuring remaining contributors receive the correct pro-rata share of future revenue claims.
