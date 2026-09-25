@@ -55,10 +55,11 @@ We ask reporters to follow **coordinated disclosure**:
 
 Security reports targeting core Soroban contract logic in `src/` are evaluated for rewards and public accreditation:
 
-- **In-Scope Contracts & Entrypoints**:
-  - `contribute()`, `claim_refund()`, `finalize_campaign()` — Campaign escrow & asset accounting
-  - `verify_campaign()`, `cast_vote()` — Governance & voting weight invariants
-  - Admin & storage management entrypoints in `src/storage.rs`
+- **In-Scope Contracts & Entrypoints** (public methods of `ProofOfHeart` in `src/lib.rs`):
+  - `contribute()`, `batch_contribute()`, `claim_refund()`, `withdraw_funds()`, `withdraw_reserve()`, `claim_milestone()` — Campaign escrow & asset accounting
+  - `deposit_revenue()`, `claim_revenue()`, `claim_creator_revenue()` — Revenue-share accounting
+  - `vote_on_campaign()`, `verify_campaign()`, `verify_campaign_with_votes()` — Governance & voting invariants
+  - Admin entrypoints (`pause`, `update_platform_fee`, `propose_token_update` / `accept_token_update`, `initiate_admin_transfer`, `emergency_withdraw`, …) and the storage layer in `src/storage.rs`
 - **Reward Tiers**:
   - **P0 Critical** (Direct fund drain / auth bypass): Eligible for up to $2,500 USDC bounty + release notes credit.
   - **P1 High** (State corruption / fee breakdown): Eligible for up to $1,000 USDC bounty + release notes credit.
@@ -80,17 +81,17 @@ This policy covers the on-chain Soroban smart contract (`src/`) and official too
 
 ## Voting Sybil-Resistance Assumptions
 
-Community verification uses a token-gated voting model:
+Community verification uses a token-gated, **one-address-one-vote** model (`src/voting.rs`, since #469):
 
-- **Eligibility:** an address must hold a positive balance of the configured token at the time of voting.
-- **Quorum:** counts _addresses_ that voted (approve + reject).
-- **Threshold:** uses _token-weighted_ approval vs rejection weight (sum of voter balances at vote time).
+- **Eligibility:** an address must hold at least the configured minimum balance of the platform token (`get_min_voting_balance`) at the time of voting, and may vote once per campaign (`AlreadyVoted`).
+- **Quorum:** counts _addresses_ that voted (approve + reject), compared against `get_min_votes_quorum`.
+- **Threshold:** approval is computed from **vote counts**, not token balances, against `get_approval_threshold_bps` or the per-category override (`get_category_voting_threshold`). Balances are only an eligibility gate, so a flash-loaned balance cannot inflate voting weight.
 
 Security assumptions and limitations:
 
-- This mechanism is **not inherently sybil-resistant**: a single token holder can split tokens across many addresses to inflate the _vote count_ and reach quorum more easily (even though total voting weight stays similar).
-- The model assumes the token's distribution and issuance are outside the contract’s control; if token minting is centralized or cheaply obtainable, governance can be captured.
-- Admin verification (`verify_campaign`) is a privileged path; users should treat the stored admin as a trust assumption for campaign verification.
+- This mechanism is **not sybil-resistant**: anyone holding enough tokens can split them across many addresses that each meet the minimum balance, and every address gets one vote. That lets them inflate both the vote count and the approval ratio. The minimum voting balance is the main economic cost of doing this.
+- The model assumes the token's distribution and issuance are outside the contract's control; if token minting is centralized or cheaply obtainable, governance can be captured.
+- Admin verification (`verify_campaign`, `verify_campaigns`) is a privileged path; users should treat the stored admin as a trust assumption for campaign verification.
 
 ## Disclosure Policy
 
