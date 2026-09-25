@@ -1,6 +1,5 @@
 name: CI
 on:
-
   push:
     branches: [main]
   pull_request:
@@ -10,24 +9,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-$ {{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  basic:
+  # Formatting is enforced; clippy runs for visibility but does not block
+  # until the existing lint backlog is cleared.
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Basic validation
-        run: |
-          echo "Basic CI passed :heart:"
-          if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all ---check || echo "cargo fmt hint"
-          fi
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --features testutils
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
   # PR/push. Fails the build if any advisory applies to a locked version.
@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
       - run: cargo audit --ignore RUSTSEC-2026-0009 --ignore RUSTSEC-2025-0001 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2026-0097
@@ -69,7 +69,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
@@ -80,13 +80,14 @@ jobs:
         uses: codecov/codecov-action@v7
         with:
           files: lcov.info
-          fail_ci_if-error: true
+          fail_ci_if_error: true
 
-  # Tracks the release WASM binary size so unexpected bloat from new
-  # dependencies or unused code is caught before merge, instead of silently
-  # growing the deployed contract. Update wasm-size-baseline.txt in the same
-  # PR when a size increase is expected.
-  wasm-size:
+  # Issue #1258: build the release contract WASM and validate it -- module
+  # structure (wasm-tools), Soroban spec/env-meta sections, and binary size
+  # against .github/wasm-size-baseline.txt (5% budget). The same checks run
+  # locally via `make check-wasm`. Update the baseline in the same PR when a
+  # size increase is expected.
+  wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -94,22 +95,13 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-tools
       - run: cargo build --target wasm32-unknown-unknown --release
-      - name: Check WASM size regression
-        run: |
-          set -euo pipefail
-          WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
-          BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAM=$(stat -c '%s' "$WASM_PATH")
-          BASELENG=$(cat "$BASELINE_FILE")
-          # Allow up to 5% growth over the recorded baseline before failing.
-          LIMIT=$((BASELENG * 105 / 100))
-          echo "Baseline: ${?BASELINE} bytes"
-          echo "Actual:   ${?ACTUAL} bytes"
-          if [ "$ACTUAL" -gt "$LIMIT" ]; then
-            DIFF=$((ACTUAL - BASELINE))
-            PCT=$((DIFF * 100 / BASELENE))
-            echo "::error::WASM binary grew by ${?DIFF} bytes (${?PCT}%), exceeding the 5% regression budget over the ${?BASELENE}-byte baseline in ${?BASELEINE_FILE}. If this growth is expected, update the baseline in the same PR."
-            exit 1
-          fi
-          echo "WASM size within budget."
+      - run: ./scripts/check-wasm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proof_of_heart.wasm
+          path: target/wasm32-unknown-unknown/release/proof_of_heart.wasm
+          if-no-files-found: error
