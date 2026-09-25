@@ -240,7 +240,7 @@ mod bucket_pagination_tests {
 
         // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
         // is collected — the point of the test is termination, not content.
-        assert_eq!(result.len(), 0);
+        assert_eq!(result.0.len(), 0);
         assert!(calls.get() > 0);
     }
 
@@ -264,7 +264,7 @@ mod bucket_pagination_tests {
             soroban_sdk::Vec::new(e)
         });
 
-        assert_eq!(result.len(), 0);
+        assert_eq!(result.0.len(), 0);
         assert!(calls.get() > 0);
     }
 }

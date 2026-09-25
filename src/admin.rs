@@ -17,7 +17,7 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
-use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
+use crate::lifecycle::{ensure_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_max_contribution_per_transaction,
@@ -92,8 +92,7 @@ pub(crate) fn init(
 }
 
 pub(crate) fn pause(env: &Env) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
     env.events().publish(("contract_paused", admin), ());
@@ -101,11 +100,9 @@ pub(crate) fn pause(env: &Env) -> Result<(), Error> {
 }
 
 pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &false);
-    env.storage().instance().set(&AdminKey::AutoPaused, &false);
     env.storage().instance().set(&AdminKey::AutoPaused, &false);
     env.events().publish(("contract_unpaused", admin), ());
     Ok(())
@@ -116,7 +113,7 @@ pub(crate) fn set_emergency_pause_signers(
     admin: Address,
     signers: Vec<Address>,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if signers.is_empty() {
         return Err(Error::ValidationFailed);
     }
@@ -144,8 +141,7 @@ pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
 }
 
 pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     // No require_not_paused: admin must be able to gate campaign creation even during pause (#388).
     bump_instance_ttl(env);
     set_creation_disabled(env, disabled);
@@ -162,8 +158,7 @@ pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), 
 /// Removing a token does not affect campaigns already denominated in it —
 /// their currency is pinned at creation — it only stops new ones.
 pub(crate) fn set_token_allowed_fn(env: &Env, token: Address, allowed: bool) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     crate::storage::set_token_allowed(env, &token, allowed);
     env.events()
@@ -177,7 +172,7 @@ pub(crate) fn set_voting_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: admin must be able to adjust voting parameters during pause (#388).
     bump_instance_ttl(env);
     let old_quorum = get_min_votes_quorum(env, voting::DEFAULT_MIN_VOTES_QUORUM);
@@ -204,7 +199,7 @@ pub(crate) fn set_min_voting_balance_fn(
     admin: Address,
     min_balance: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if min_balance < 0 {
         return Err(Error::ValidationFailed);
     }
@@ -228,8 +223,7 @@ pub(crate) fn set_min_voting_balance_fn(
 }
 
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
     // Two bounds, deliberately, though only the tighter one can currently
     // reject (#793):
@@ -261,7 +255,7 @@ pub(crate) fn set_max_contribution_per_transaction(
     admin: Address,
     amount: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if amount < 0 {
         return Err(Error::ValidationFailed);
     }
@@ -281,7 +275,7 @@ pub(crate) fn set_campaign_fee_override(
     admin: Address,
     fee_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
@@ -308,7 +302,7 @@ pub(crate) fn set_category_duration_cap(
     category: crate::types::Category,
     max_days: u64,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if !(crate::CAMPAIGN_DURATION_MIN_DAYS..=crate::CAMPAIGN_DURATION_MAX_DAYS).contains(&max_days)
     {
         return Err(Error::ValidationFailed);
@@ -325,7 +319,7 @@ pub(crate) fn remove_category_duration_cap(
     admin: Address,
     category: crate::types::Category,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     bump_instance_ttl(env);
     storage::remove_category_duration_cap(env, category);
     env.events()
@@ -339,7 +333,7 @@ pub(crate) fn set_category_voting_threshold(
     category: crate::types::Category,
     threshold_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if !(voting::MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&threshold_bps) {
         return Err(Error::ValidationFailed);
     }
@@ -357,7 +351,7 @@ pub(crate) fn remove_category_voting_threshold(
     admin: Address,
     category: crate::types::Category,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     bump_instance_ttl(env);
     storage::remove_category_voting_threshold_bps(env, category);
     env.events()
@@ -370,7 +364,7 @@ pub(crate) fn set_min_campaign_funding_goal_fn(
     admin: Address,
     min_goal: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: funding goal limits are admin governance (#388).
     if min_goal <= 0 {
         return Err(Error::FundingGoalMustBePositive);
@@ -390,7 +384,7 @@ pub(crate) fn set_max_campaign_funding_goal_fn(
     admin: Address,
     max_goal: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: funding goal limits are admin governance (#388).
     if max_goal <= 0 {
         return Err(Error::FundingGoalMustBePositive);
@@ -409,7 +403,7 @@ pub(crate) fn set_max_campaign_funding_goal_fn(
 }
 
 pub(crate) fn migrate(env: &Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     let current = get_version(env);
     if current != expected_old_version {
         return Err(Error::ValidationFailed);
@@ -427,7 +421,7 @@ pub(crate) fn propose_token_update(
     admin: Address,
     new_token: Address,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
 
     // #884: Reject no-op proposals where the new token is the same as the
     // current one. Accepting such a proposal would start a pointless timelock
@@ -463,7 +457,7 @@ pub(crate) fn propose_token_update(
 /// All existing campaigns must reach a terminal state (withdrawn or cancelled)
 /// before the token address can change, preventing stranded balances.
 pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     let new_token = get_pending_token(env).ok_or(Error::ValidationFailed)?;
     let release_after = get_pending_token_release(env).ok_or(Error::ValidationFailed)?;
     if env.ledger().timestamp() < release_after {
@@ -492,7 +486,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 }
 
 pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if get_pending_token(env).is_none() {
         return Err(Error::ValidationFailed);
     }
@@ -512,7 +506,7 @@ pub(crate) fn set_token_update_delay_secs_fn(
     admin: Address,
     delay_secs: u64,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if delay_secs == 0 || delay_secs > crate::MAX_TOKEN_UPDATE_DELAY_SECS {
         return Err(Error::ValidationFailed);
     }
@@ -529,7 +523,7 @@ pub(crate) fn initiate_admin_transfer(
     admin: Address,
     new_admin: Address,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: admin transfer is the critical recovery path during an emergency (#388).
 
     let current_admin = get_admin(env);
@@ -566,7 +560,7 @@ pub(crate) fn accept_admin_transfer(env: &Env) -> Result<(), Error> {
 }
 
 pub(crate) fn cancel_admin_transfer(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: cancelling an admin transfer must be available during pause (#388).
 
     if get_pending_admin(env).is_none() {
@@ -586,8 +580,7 @@ pub(crate) fn purge_voting_state(
     voters: Vec<Address>,
     finalize_aggregate: bool,
 ) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
     if !campaign.funds_withdrawn && !campaign.is_cancelled {

@@ -288,6 +288,7 @@ mod tests {
             creator: creator.clone(),
             first_creator: creator.clone(),
             pending_creator: crate::types::MaybePendingCreator::None,
+            pending_creator_expiry: 0,
             title: String::from_str(&env, "T"),
             description: String::from_str(&env, "D"),
             funding_goal: 1000,

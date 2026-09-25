@@ -3,6 +3,11 @@ default: build
 .PHONY: build build-docker test wasm check-wasm lint ci fmt clean
 
 all: test
+.PHONY: all build build-docker test clippy fmt fmt-check lint clean
+
+CLIPPY_FLAGS ?= -D warnings
+
+all: lint test
 
 build:
 	stellar contract build
@@ -27,6 +32,15 @@ ci: lint test check-wasm
 
 fmt:
 	cargo fmt --all
+
+fmt-check:
+	cargo fmt --all -- --check
+
+# Zero-warning policy (#1259): any clippy warning fails the build.
+clippy:
+	cargo clippy --all-targets --features testutils -- $(CLIPPY_FLAGS)
+
+lint: fmt-check clippy
 
 clean:
 	cargo clean

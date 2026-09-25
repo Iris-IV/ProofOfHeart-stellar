@@ -91,6 +91,29 @@ pub(crate) fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Authorize the current call as the contract admin, returning early with
+/// `Error::NotAuthorized` from the enclosing function otherwise (#1262).
+///
+/// - `ensure_admin!(env)` requires the *stored* admin's signature and
+///   evaluates to that admin `Address`, for entry points that take no
+///   caller argument.
+/// - `ensure_admin!(env, &caller)` checks that `caller` is the stored admin
+///   and requires `caller`'s signature.
+///
+/// Both forms go through [`assert_admin`], so the check order (identity
+/// before `require_auth`) and error are identical to the hand-written form.
+macro_rules! ensure_admin {
+    ($env:expr) => {{
+        let admin = $crate::storage::get_admin($env);
+        $crate::lifecycle::assert_admin($env, &admin)?;
+        admin
+    }};
+    ($env:expr, $caller:expr) => {
+        $crate::lifecycle::assert_admin($env, $caller)?
+    };
+}
+pub(crate) use ensure_admin;
+
 pub(crate) fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
     if campaign.is_cancelled || !campaign.is_active {
         return Err(Error::CampaignNotActive);

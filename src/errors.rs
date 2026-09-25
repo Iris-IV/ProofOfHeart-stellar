@@ -1,3 +1,174 @@
+//! # Error code taxonomy & revert reason quick reference
+//!
+//! Every fallible contract entry point returns `Result<_, Error>`. When a call
+//! fails, the discriminant below is what clients see on the wire, so this
+//! module is the single source of truth for "what does error `#N` mean?".
+//!
+//! ## How errors surface
+//!
+//! ```text
+//!  entry point (lib.rs)          module (e.g. contributions.rs)
+//!  ───────────────────           ──────────────────────────────
+//!  contribute(..) ─────────────▶ return Err(Error::DeadlinePassed)
+//!        │
+//!        ▼  #[contracterror] encodes the variant as its u32 discriminant
+//!  host error  Error(Contract, #8)
+//!        │
+//!        ├─▶ RPC simulateTransaction / CLI:  "Error(Contract, #8)"
+//!        ├─▶ generated TS/JS bindings:       error code 8
+//!        └─▶ Rust client try_*():           Err(Ok(Error::DeadlinePassed))
+//! ```
+//!
+//! A failed call reverts the whole transaction: no storage writes, token
+//! transfers or events from that invocation persist.
+//!
+//! **Codes are stable.** Discriminants are part of the public ABI (indexers,
+//! frontends and SDK bindings match on the number). They are assigned
+//! explicitly, never resequenced, and a removed variant's number is retired:
+//! **`#35` is retired and must not be reused.** The enum is capped at 50
+//! cases by Soroban's contract-spec XDR (see the note on [`Error`]).
+//!
+//! ## Taxonomy
+//!
+//! "Raised in" lists the `src/` modules that return the error (derived from
+//! the source; `lifecycle` holds the shared guards such as `assert_admin`,
+//! `require_not_paused` and `get_campaign_or_error`).
+//!
+//! ### Authorization & administration
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 1 | `NotAuthorized` | Caller is not the admin / campaign creator / allowed signer | `admin`, `contributions`, `lifecycle` |
+//! | 20 | `AlreadyInitialized` | `init` called twice | `admin` |
+//! | 24 | `ContractPaused` | Contract (or auto-pause) is active | `contributions`, `lifecycle` |
+//! | 31 | `InvalidTokenContract` | `init` token does not answer SEP-41 `decimals()` | `admin` |
+//! | 32 | `CreationDisabled` | Admin disabled campaign creation | `campaigns/create` |
+//! | 39 | `InvalidPlatformFee` | Fee above the allowed basis-point maximum | `admin` |
+//!
+//! ### Ownership & transfers
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 21 | `NotPendingOwner` | Reserved: caller is not the pending creator (not currently returned by any entry point) | — |
+//! | 22 | `NoTransferPending` | Accept/cancel with no transfer in flight | `admin`, `campaigns/transfer` |
+//! | 23 | `InvalidNewOwner` | New owner equals the current one | `admin`, `campaigns/transfer` |
+//! | 40 | `TransferAlreadyPending` | A campaign transfer is already pending | `campaigns/transfer` |
+//!
+//! ### Campaign creation & configuration
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 4 | `FundingGoalMustBePositive` | Goal ≤ 0 | `admin`, `campaigns/create` |
+//! | 5 | `InvalidDuration` | Duration outside 1–365 days | `campaigns/create`, `campaigns/update`, `lifecycle` |
+//! | 6 | `InvalidRevenueShare` | Revenue share % out of range | `campaigns/create` |
+//! | 7 | `RevenueShareOnlyForStartup` | Revenue share on a non-`EducationalStartup` campaign | `campaigns/create` |
+//! | 33 | `FundingGoalTooLow` | Goal below the configured minimum | `campaigns/create` |
+//! | 38 | `FundingGoalTooHigh` | Goal above the anti-spam maximum | `campaigns/create` |
+//! | 36 | `DeadlineAlreadyExtended` | Deadline may be extended only once | `campaigns/update` |
+//! | 37 | `ExtensionTooLong` | Extension exceeds the allowed maximum | `campaigns/update` |
+//!
+//! ### Campaign lifecycle
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 2 | `CampaignNotFound` | No campaign with that id | `lifecycle`, `storage` |
+//! | 3 | `CampaignNotActive` | Campaign cancelled or closed | `campaigns/*`, `lifecycle`, `milestones`, `revenue`, `voting` |
+//! | 29 | `CancellationNotAllowed` | Cancel after funds were withdrawn | `campaigns/cancel` |
+//! | 42 | `GoalMetCancellationNotAllowed` | Cancel after the goal was met but before withdrawal | `campaigns/cancel` |
+//! | 43 | `InvalidStateTransition` | Lifecycle transition not allowed from the current state | `lifecycle` |
+//!
+//! ### Contributions & caps
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 8 | `DeadlinePassed` | Action after the campaign deadline | `campaigns/update`, `contributions`, `voting` |
+//! | 9 | `ContributionMustBePositive` | Amount ≤ 0 | `contributions` |
+//! | 25 | `ContributionCapExceeded` | Would exceed the contributor's cap | `contributions` |
+//! | 46 | `PersonalCapNotFound` | Removing a personal cap that was never set | `contributions` |
+//!
+//! ### Withdrawals, refunds & revenue
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 10 | `DeadlineNotPassed` | Withdrawal before the deadline | `campaigns/withdraw` |
+//! | 11 | `FundsAlreadyWithdrawn` | Funds were already withdrawn | `campaigns/emergency`, `campaigns/withdraw`, `milestones` |
+//! | 12 | `FundingGoalNotReached` | Goal not met | `campaigns/emergency`, `campaigns/withdraw`, `milestones` |
+//! | 13 | `NoFundsToWithdraw` | Nothing to withdraw, refund or claim | `campaigns/*`, `contributions`, `milestones`, `revenue` |
+//! | 26 | `CampaignNotVerified` | Action requires a verified campaign | `campaigns/withdraw`, `contributions`, `milestones` |
+//! | 27 | `AmountRaisedIsZero` | Revenue claim on a campaign that raised nothing | `revenue` |
+//! | 28 | `RevenueSharingNotEnabled` | Revenue deposit without revenue sharing | `revenue` |
+//! | 41 | `InvalidVestingDelay` | Vesting delay must be > 0 days | `campaigns/withdraw` |
+//!
+//! ### Voting & verification
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 14 | `CampaignAlreadyVerified` | Campaign is already verified | `lifecycle` |
+//! | 16 | `AlreadyVoted` | Caller already voted | `voting` |
+//! | 17 | `NotTokenHolder` | Voter holds no tokens | `voting` |
+//! | 18 | `VotingQuorumNotMet` | Too few votes to finalise | `voting` |
+//! | 19 | `VotingThresholdNotMet` | Approval share below threshold | `voting` |
+//! | 34 | `VerificationConflict` | Admin and community verification collided | `voting` |
+//!
+//! ### Milestones
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 48 | `MilestoneNotFound` | No such milestone | `milestones` |
+//! | 49 | `MilestoneNotVerified` | Milestone not verified yet | `milestones` |
+//! | 50 | `MilestoneAlreadyClaimed` | Milestone already claimed | `milestones` |
+//!
+//! ### Bookmarks
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 44 | `CampaignAlreadyBookmarked` | Already in the wallet's saved list | `bookmarks` |
+//! | 45 | `CampaignNotBookmarked` | Not in the wallet's saved list | `bookmarks` |
+//! | 47 | `BookmarkLimitReached` | Saved-list size limit reached | `bookmarks` |
+//!
+//! ### General validation & safety
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 15 | `ValidationFailed` | Catch-all input/constraint violation | most modules |
+//! | 30 | `Overflow` | Checked arithmetic overflowed | most state-changing modules |
+//! | 51 | `InvariantBroken` | Internal invariant violated (state corruption or bug) — report it | `storage` |
+//!
+//! ## Handling errors
+//!
+//! **Soroban CLI** — a simulated call that fails prints the contract error
+//! code; look it up in the tables above:
+//!
+//! ```sh
+//! stellar contract invoke --id "$CONTRACT_ID" --network testnet --source alice -- \
+//!   contribute --campaign_id 1 --contributor "$ALICE" --amount 0
+//! # => HostError: Error(Contract, #9)   (ContributionMustBePositive)
+//! ```
+//!
+//! **Rust (tests or a calling contract)** — the generated client's `try_*`
+//! methods return the typed variant:
+//!
+//! ```rust,ignore
+//! let result = client.try_contribute(&campaign_id, &contributor, &0);
+//! assert_eq!(result, Err(Ok(Error::ContributionMustBePositive)));
+//!
+//! // For logs and event payloads, Error implements Display via name():
+//! assert_eq!(Error::ContributionMustBePositive.to_string(), "ContributionMustBePositive");
+//! ```
+//!
+//! **Frontends / SDKs** — map the numeric code, never the message text. The
+//! stable name for any code is available from [`Error::name`].
+//!
+//! ## Adding a new error
+//!
+//! 1. Append a variant with the next unused discriminant (never reuse `#35`
+//!    or renumber existing variants), and a `///` doc comment.
+//! 2. Add it to the `error_names!` list in [`Error::name`] (the compiler
+//!    enforces exhaustiveness).
+//! 3. Add a row to the matching taxonomy table above.
+//! 4. Mind the 50-case XDR cap: if full, generalise an existing variant
+//!    rather than adding one.
+
 use soroban_sdk::contracterror;
 
 /// Represents a distinct error type that can occur within the contract.
@@ -53,6 +224,10 @@ pub enum Error {
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
     /// The caller is not the pending creator.
+    ///
+    /// Reserved: no entry point currently returns this code (pending-transfer
+    /// checks report `NotAuthorized` / `NoTransferPending`). Kept so `#21`
+    /// stays allocated and is never reused for a different meaning.
     NotPendingOwner = 21,
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
