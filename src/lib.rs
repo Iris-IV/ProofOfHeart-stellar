@@ -76,12 +76,25 @@ pub struct ProofOfHeart;
 impl ProofOfHeart {
     // ── Initialisation ────────────────────────────────────────────────────────
 
+    /// Initializes the contract with its `admin`, the platform `token` and the
+    /// `platform_fee` (basis points). Callable exactly once; requires `admin`'s
+    /// authorization.
+    ///
+    /// # Errors
+    /// * `AlreadyInitialized` — `init` has already been called.
+    /// * `InvalidPlatformFee` — `platform_fee` exceeds the allowed maximum.
     pub fn init(env: Env, admin: Address, token: Address, platform_fee: u32) -> Result<(), Error> {
         admin::init(&env, admin, token, platform_fee)
     }
 
     // ── Campaign creation ─────────────────────────────────────────────────────
 
+    /// Creates a campaign denominated in the platform token and returns its new
+    /// id. The campaign creator in `params` must authorize the call.
+    ///
+    /// Reverts if the contract is paused, campaign creation is disabled, or any
+    /// field in `params` fails validation (title/description length, funding-goal
+    /// bounds, duration and category caps).
     #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(env: Env, params: CreateCampaignParams) -> Result<u32, Error> {
         let id = campaigns::create::create_campaign(&env, params)?;
@@ -128,6 +141,11 @@ impl ProofOfHeart {
 
     // ── Contributions ─────────────────────────────────────────────────────────
 
+    /// Contributes `amount` of the campaign's currency from `contributor` to
+    /// `campaign_id`. Requires `contributor`'s authorization.
+    ///
+    /// Reverts if the contract is paused, the campaign is not active or past its
+    /// deadline, or `amount` breaks a global, campaign or personal cap.
     pub fn contribute(
         env: Env,
         campaign_id: u32,
@@ -137,6 +155,9 @@ impl ProofOfHeart {
         contributions::contribute(&env, campaign_id, contributor, amount)
     }
 
+    /// Refunds `contributor`'s full contribution to `campaign_id` when the
+    /// campaign is cancelled or ended without meeting its goal. Requires
+    /// `contributor`'s authorization.
     pub fn claim_refund(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         contributions::claim_refund(&env, campaign_id, contributor)
     }
@@ -155,14 +176,24 @@ impl ProofOfHeart {
 
     // ── Withdrawals ───────────────────────────────────────────────────────────
 
+    /// Pays out a verified campaign that met its goal to its creator, net of
+    /// the platform fee (and of any vesting reserve). Creator only; reverts if the
+    /// contract is paused, the campaign is unverified or funds were already
+    /// withdrawn.
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::withdraw::withdraw_funds(&env, campaign_id)
     }
 
+    /// Releases a campaign's held-back vesting reserve (see
+    /// `set_vesting_params`) once its vesting delay has elapsed. Reverts if the
+    /// contract is paused or the reserve was already released.
     pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::withdraw::withdraw_reserve(&env, campaign_id)
     }
 
+    /// Admin: sets the vesting policy applied at withdrawal — `reserve_bps` of
+    /// the payout is held back and becomes withdrawable via `withdraw_reserve`
+    /// after `delay_days`.
     pub fn set_vesting_params(
         env: Env,
         admin: Address,
@@ -220,6 +251,9 @@ impl ProofOfHeart {
 
     // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
 
+    /// Creator: defines the milestone schedule for `campaign_id`, splitting its
+    /// payout into separately verified tranches (#783). Reverts if the contract
+    /// is paused, the campaign is inactive, or the milestones fail validation.
     pub fn set_milestones(
         env: Env,
         campaign_id: u32,
@@ -228,6 +262,8 @@ impl ProofOfHeart {
         milestones::set_milestones(&env, campaign_id, milestones)
     }
 
+    /// Admin: marks milestone `milestone_id` of `campaign_id` as verified,
+    /// making it claimable by the creator via `claim_milestone`.
     pub fn verify_milestone(
         env: Env,
         admin: Address,
@@ -237,20 +273,30 @@ impl ProofOfHeart {
         milestones::verify_milestone(&env, admin, campaign_id, milestone_id)
     }
 
+    /// Creator: withdraws the tranche for a verified milestone. Reverts if the
+    /// contract is paused, the campaign is inactive or unverified, or the
+    /// milestone was already claimed.
     pub fn claim_milestone(env: Env, campaign_id: u32, milestone_id: u32) -> Result<(), Error> {
         milestones::claim_milestone(&env, campaign_id, milestone_id)
     }
 
+    /// Returns the milestone schedule configured for `campaign_id` (empty if
+    /// none).
     pub fn get_milestones(env: Env, campaign_id: u32) -> soroban_sdk::Vec<Milestone> {
         storage::get_campaign_milestones(&env, campaign_id)
     }
 
+    /// Whether milestone `milestone_id` of `campaign_id` has already been
+    /// paid out.
     pub fn is_milestone_claimed(env: Env, campaign_id: u32, milestone_id: u32) -> bool {
         storage::is_milestone_claimed(&env, campaign_id, milestone_id)
     }
 
     // ── Campaign lifecycle ────────────────────────────────────────────────────
 
+    /// Creator: cancels an active campaign so contributors can claim refunds.
+    /// Reverts once the campaign has met its goal (anti-rug-pull guard) — use
+    /// `admin_cancel_campaign` for fraud response instead.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::cancel::cancel_campaign(&env, campaign_id)
     }
@@ -268,6 +314,9 @@ impl ProofOfHeart {
         campaigns::cancel::admin_cancel_campaign(&env, admin, campaign_id, reason)
     }
 
+    /// Creator: replaces the title and description of a campaign that has not
+    /// been verified yet. Reverts if paused, already verified, or the new text
+    /// fails length validation.
     pub fn update_campaign(
         env: Env,
         campaign_id: u32,
@@ -277,6 +326,8 @@ impl ProofOfHeart {
         campaigns::update::update_campaign(&env, campaign_id, title, description)
     }
 
+    /// Creator: replaces only the description of a campaign. Reverts if paused
+    /// or the description fails length validation.
     pub fn update_campaign_description(
         env: Env,
         campaign_id: u32,
@@ -285,6 +336,13 @@ impl ProofOfHeart {
         campaigns::update::update_campaign_description(&env, campaign_id, description)
     }
 
+    /// Creator: pushes an active campaign's deadline out by `additional_days`.
+    /// A campaign may be extended at most once and only before its deadline
+    /// passes.
+    ///
+    /// # Errors
+    /// * `DeadlineAlreadyExtended` — The deadline was already extended.
+    /// * `DeadlinePassed` — The current deadline is already in the past.
     pub fn extend_campaign_deadline(
         env: Env,
         campaign_id: u32,
@@ -295,6 +353,13 @@ impl ProofOfHeart {
 
     // ── Campaign ownership transfer ───────────────────────────────────────────
 
+    /// Starts a two-step ownership transfer of `campaign_id` to `new_creator`.
+    /// Both the current creator and `new_creator` must authorize. The nomination
+    /// expires after `TRANSFER_EXPIRY_SECS`.
+    ///
+    /// # Errors
+    /// * `InvalidNewOwner` — `new_creator` is already the creator.
+    /// * `TransferAlreadyPending` — An unexpired nomination already exists.
     pub fn initiate_campaign_transfer(
         env: Env,
         campaign_id: u32,
@@ -303,10 +368,19 @@ impl ProofOfHeart {
         campaigns::transfer::initiate_campaign_transfer(&env, campaign_id, new_creator)
     }
 
+    /// Completes a pending campaign transfer. The nominated creator must
+    /// authorize; ownership and the creator index move to them.
+    ///
+    /// # Errors
+    /// * `NoTransferPending` — Nothing is pending, or the nomination expired.
     pub fn accept_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::transfer::accept_campaign_transfer(&env, campaign_id)
     }
 
+    /// Creator: withdraws a pending ownership nomination.
+    ///
+    /// # Errors
+    /// * `NoTransferPending` — No transfer is pending.
     pub fn cancel_campaign_transfer(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::transfer::cancel_campaign_transfer(&env, campaign_id)
     }
@@ -324,20 +398,30 @@ impl ProofOfHeart {
 
     // ── Revenue sharing ───────────────────────────────────────────────────────
 
+    /// Creator: deposits `amount` of post-campaign revenue into the campaign's
+    /// revenue pool for pro-rata distribution to contributors. Requires revenue
+    /// sharing to be enabled on the campaign.
     pub fn deposit_revenue(env: Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
         revenue::deposit_revenue(&env, campaign_id, amount)
     }
 
+    /// Claims `contributor`'s pro-rata share of the campaign's revenue pool.
+    /// Requires `contributor`'s authorization.
     pub fn claim_revenue(env: Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
         revenue::claim_revenue(&env, campaign_id, contributor)
     }
 
+    /// Creator: claims the creator's retained share of the campaign's revenue
+    /// pool. Requires revenue sharing to be enabled.
     pub fn claim_creator_revenue(env: Env, campaign_id: u32) -> Result<(), Error> {
         revenue::claim_creator_revenue(&env, campaign_id)
     }
 
     // ── Voting & verification ─────────────────────────────────────────────────
 
+    /// Casts `voter`'s approve/reject vote on an unverified campaign. Requires
+    /// `voter`'s authorization and the minimum voting balance; each address may
+    /// vote once. Reverts if the contract is paused.
     pub fn vote_on_campaign(
         env: Env,
         campaign_id: u32,
@@ -349,6 +433,8 @@ impl ProofOfHeart {
         voting::cast_vote(&env, campaign_id, voter, approve)
     }
 
+    /// Admin: verifies `campaign_id` directly, bypassing community voting.
+    /// Reverts if the contract is paused.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
@@ -405,16 +491,28 @@ impl ProofOfHeart {
         Ok((verified_ids, failed_ids))
     }
 
+    /// Verifies `campaign_id` once its community vote meets quorum and the
+    /// applicable approval threshold. Callable by anyone; reverts if paused,
+    /// the campaign is inactive or past its deadline, or the vote has not
+    /// passed.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
         lifecycle::require_not_paused(&env)?;
         bump_instance_ttl(&env);
         voting::verify_with_votes(&env, campaign_id)
     }
 
+    /// Clears an automatic (anomaly-triggered) pause for `campaign_id`. `caller`
+    /// must authorize and be either the campaign creator or the admin.
+    ///
+    /// # Errors
+    /// * `ValidationFailed` — The contract is not auto-paused.
+    /// * `NotAuthorized` — `caller` is neither the creator nor the admin.
     pub fn resume_campaign(env: Env, campaign_id: u32, caller: Address) -> Result<(), Error> {
         admin::resume_campaign(&env, campaign_id, caller)
     }
 
+    /// Admin: deletes per-voter records for `voters` on `campaign_id` to reclaim
+    /// storage; `finalize_aggregate` also clears the campaign's vote tallies.
     pub fn purge_voting_state(
         env: Env,
         campaign_id: u32,
@@ -426,18 +524,26 @@ impl ProofOfHeart {
 
     // ── Admin: pause / creation gate ─────────────────────────────────────────
 
+    /// Admin: pauses all state-changing user operations.
     pub fn pause(env: Env) -> Result<(), Error> {
         admin::pause(&env)
     }
 
+    /// Admin: lifts a manual or automatic pause.
     pub fn unpause(env: Env) -> Result<(), Error> {
         admin::unpause(&env)
     }
 
+    /// Pauses the contract from a registered emergency signer, so an incident
+    /// can be contained without the admin key. `caller` must authorize.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — `caller` is not a registered emergency signer.
     pub fn emergency_pause(env: Env, caller: Address) -> Result<(), Error> {
         admin::emergency_pause(&env, caller)
     }
 
+    /// Admin: replaces the set of addresses allowed to call `emergency_pause`.
     pub fn set_emergency_pause_signers(
         env: Env,
         admin: Address,
@@ -446,10 +552,13 @@ impl ProofOfHeart {
         admin::set_emergency_pause_signers(&env, admin, signers)
     }
 
+    /// Returns the addresses allowed to call `emergency_pause`.
     pub fn get_emergency_pause_signers(env: Env) -> soroban_sdk::Vec<Address> {
         storage::get_emergency_pause_signers(&env)
     }
 
+    /// Whether the contract is paused, either manually (`pause` /
+    /// `emergency_pause`) or automatically by anomaly detection.
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
@@ -462,16 +571,23 @@ impl ProofOfHeart {
                 .unwrap_or(false)
     }
 
+    /// Admin: turns new campaign creation off (`true`) or back on. Works while
+    /// paused.
     pub fn set_creation_disabled(env: Env, disabled: bool) -> Result<(), Error> {
         admin::set_creation_disabled_fn(&env, disabled)
     }
 
+    /// Whether new campaign creation is currently disabled.
     pub fn is_creation_disabled(env: Env) -> bool {
         get_creation_disabled(&env)
     }
 
     // ── Admin: fees & config ──────────────────────────────────────────────────
 
+    /// Admin: sets the platform fee in basis points. Works while paused.
+    ///
+    /// # Errors
+    /// * `InvalidPlatformFee` — `new_fee` exceeds `PLATFORM_FEE_MAX_BPS`.
     pub fn update_platform_fee(env: Env, new_fee: u32) -> Result<(), Error> {
         admin::update_platform_fee(&env, new_fee)
     }
@@ -485,6 +601,8 @@ impl ProofOfHeart {
         admin::set_max_contribution_per_transaction(&env, admin, amount)
     }
 
+    /// Admin: sets a campaign-specific platform fee (`fee_bps`) that replaces
+    /// the global fee for `campaign_id`.
     pub fn set_campaign_fee_override(
         env: Env,
         campaign_id: u32,
@@ -494,6 +612,7 @@ impl ProofOfHeart {
         admin::set_campaign_fee_override(&env, campaign_id, admin, fee_bps)
     }
 
+    /// Admin: caps the duration (in days) of new campaigns in `category`.
     pub fn set_category_duration_cap(
         env: Env,
         admin: Address,
@@ -503,6 +622,8 @@ impl ProofOfHeart {
         admin::set_category_duration_cap(&env, admin, category, max_days)
     }
 
+    /// Admin: removes the duration cap for `category`, restoring the global
+    /// maximum.
     pub fn remove_category_duration_cap(
         env: Env,
         admin: Address,
@@ -511,6 +632,7 @@ impl ProofOfHeart {
         admin::remove_category_duration_cap(&env, admin, category)
     }
 
+    /// Admin: sets the minimum funding goal a new campaign may request.
     pub fn set_min_campaign_funding_goal(
         env: Env,
         admin: Address,
@@ -519,6 +641,7 @@ impl ProofOfHeart {
         admin::set_min_campaign_funding_goal_fn(&env, admin, min_goal)
     }
 
+    /// Admin: sets the maximum funding goal a new campaign may request.
     pub fn set_max_campaign_funding_goal(
         env: Env,
         admin: Address,
@@ -529,6 +652,8 @@ impl ProofOfHeart {
 
     // ── Admin: voting params ──────────────────────────────────────────────────
 
+    /// Admin: sets the global voting quorum (`min_votes_quorum`) and approval
+    /// threshold (`approval_threshold_bps`) used by `verify_campaign_with_votes`.
     pub fn set_voting_params(
         env: Env,
         admin: Address,
@@ -538,6 +663,7 @@ impl ProofOfHeart {
         admin::set_voting_params(&env, admin, min_votes_quorum, approval_threshold_bps)
     }
 
+    /// Admin: sets the minimum token balance an address needs to vote.
     pub fn set_min_voting_balance(
         env: Env,
         admin: Address,
@@ -546,6 +672,8 @@ impl ProofOfHeart {
         admin::set_min_voting_balance_fn(&env, admin, min_balance)
     }
 
+    /// Admin: overrides the approval threshold (basis points) for `category`
+    /// (#536).
     pub fn set_category_voting_threshold(
         env: Env,
         admin: Address,
@@ -555,6 +683,8 @@ impl ProofOfHeart {
         admin::set_category_voting_threshold(&env, admin, category, threshold_bps)
     }
 
+    /// Admin: removes `category`'s approval-threshold override, falling back to
+    /// the global default.
     pub fn remove_category_voting_threshold(
         env: Env,
         admin: Address,
@@ -572,14 +702,22 @@ impl ProofOfHeart {
 
     // ── Admin: token migration ────────────────────────────────────────────────
 
+    /// Admin: proposes replacing the platform token with `new_token`. Takes
+    /// effect only via `accept_token_update` after the timelock (see
+    /// `get_token_update_delay_secs`).
     pub fn propose_token_update(env: Env, admin: Address, new_token: Address) -> Result<(), Error> {
         admin::propose_token_update(&env, admin, new_token)
     }
 
+    /// Admin: applies a proposed token update once its timelock has elapsed.
+    ///
+    /// # Errors
+    /// * `ValidationFailed` — Nothing is pending or the timelock has not elapsed.
     pub fn accept_token_update(env: Env, admin: Address) -> Result<(), Error> {
         admin::accept_token_update(&env, admin)
     }
 
+    /// Admin: discards a pending token update proposal.
     pub fn cancel_token_update(env: Env, admin: Address) -> Result<(), Error> {
         admin::cancel_token_update(&env, admin)
     }
@@ -598,6 +736,11 @@ impl ProofOfHeart {
 
     // ── Admin: admin transfer ─────────────────────────────────────────────────
 
+    /// Admin: nominates `new_admin` as the next admin (two-step transfer).
+    /// Works while paused.
+    ///
+    /// # Errors
+    /// * `InvalidNewOwner` — `new_admin` is already the admin.
     pub fn initiate_admin_transfer(
         env: Env,
         admin: Address,
@@ -606,14 +749,22 @@ impl ProofOfHeart {
         admin::initiate_admin_transfer(&env, admin, new_admin)
     }
 
+    /// Completes a pending admin transfer. The nominated admin must authorize.
+    /// Works while paused.
+    ///
+    /// # Errors
+    /// * `NoTransferPending` — No admin transfer is pending.
     pub fn accept_admin_transfer(env: Env) -> Result<(), Error> {
         admin::accept_admin_transfer(&env)
     }
 
+    /// Admin: withdraws a pending admin nomination.
     pub fn cancel_admin_transfer(env: Env, admin: Address) -> Result<(), Error> {
         admin::cancel_admin_transfer(&env, admin)
     }
 
+    /// Legacy alias for `initiate_admin_transfer` using the stored admin. Starts
+    /// a two-step transfer; `new_admin` must still call `accept_admin_transfer`.
     pub fn update_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         let admin = get_admin(&env);
         admin::initiate_admin_transfer(&env, admin, new_admin)
@@ -621,12 +772,17 @@ impl ProofOfHeart {
 
     // ── Admin: migrate ────────────────────────────────────────────────────────
 
+    /// Admin: runs storage migrations after an upgrade. `expected_old_version`
+    /// must match the stored version, guarding against running a migration twice
+    /// or on the wrong build.
     pub fn migrate(env: Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
         admin::migrate(&env, admin, expected_old_version)
     }
 
     // ── Contributor cap ───────────────────────────────────────────────────────
 
+    /// Sets a self-imposed cap on how much `contributor` may contribute to
+    /// `campaign_id` in total (#503). Requires `contributor`'s authorization.
     pub fn set_personal_cap(
         env: Env,
         campaign_id: u32,
