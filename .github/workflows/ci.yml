@@ -28,6 +28,9 @@ jobs:
           if command -v cargo >/dev/null 2>&1; then
             cargo fmt --all ---check || echo "cargo fmt hint"
           fi
+      # Issue #1259: zero-warning clippy policy, same command as `make clippy`.
+      - name: Clippy (deny warnings)
+        run: make clippy
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
   # PR/push. Fails the build if any advisory applies to a locked version.
