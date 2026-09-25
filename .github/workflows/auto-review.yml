@@ -1,32 +1,87 @@
 name: Auto Review
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: write
   pull-requests: write
 
 # Philosophy (warm reviewer):
 #   Default is APPROVE. We help contributors get merged.
-#   Uses upstream repo secrets (DEEPSEEK_API_KEY, OWNER_PAT) even for fork PRs
-#   because pull_request_target runs in base repo context. Never executes fork code.
+#   Uses pull_request (not pull_request_target) so fork PRs run in fork context
+#   and never receive write access to the base repository.
 #   Only:
 #     1. Approve + squash-merge when linked issue exists and diff shows effort
 #     2. Leave a single warm, constructive comment otherwise.
 #   Uses DeepSeek to check if diff addresses the linked issue.
 #   Uses GitHub GraphQL closingIssuesReferences for accurate linking.
+#   Waits for CI (basic, audit, test) to pass before attempting merge.
 
 jobs:
+  # Wait for the three mandatory CI gates before this workflow may merge.
+  wait-for-ci:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.state == 'open' && github.event.pull_request.draft == false
+    steps:
+      - name: Wait for required CI checks (basic, audit, test)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          REQUIRED_CHECKS="basic audit test"
+          MAX_WAIT=1200  # 20 minutes
+          POLL_INTERVAL=30
+          ELAPSED=0
+
+          echo "Waiting for CI checks to complete on $HEAD_SHA …"
+
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            ALL_DONE=true
+            ALL_PASS=true
+            for CHECK in $REQUIRED_CHECKS; do
+              STATUS=$(gh api \
+                "/repos/$REPO/commits/$HEAD_SHA/check-runs" \
+                --jq "[.check_runs[] | select(.name == \"$CHECK\")] | sort_by(.started_at) | last | {status: .status, conclusion: .conclusion}" \
+                2>/dev/null || echo '{}')
+              RUN_STATUS=$(echo "$STATUS" | jq -r '.status // "pending"')
+              RUN_CONCL=$(echo "$STATUS" | jq -r '.conclusion // "none"')
+              echo "  $CHECK: status=$RUN_STATUS conclusion=$RUN_CONCL"
+              if [ "$RUN_STATUS" != "completed" ]; then
+                ALL_DONE=false
+              elif [ "$RUN_CONCL" != "success" ]; then
+                ALL_PASS=false
+              fi
+            done
+
+            if [ "$ALL_DONE" = "true" ]; then
+              if [ "$ALL_PASS" = "true" ]; then
+                echo "All required CI checks passed."
+                exit 0
+              else
+                echo "One or more required CI checks failed. Skipping auto-merge."
+                exit 1
+              fi
+            fi
+
+            echo "Checks still running. Waiting ${POLL_INTERVAL}s … (${ELAPSED}s elapsed)"
+            sleep "$POLL_INTERVAL"
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          echo "Timed out waiting for CI checks after ${MAX_WAIT}s."
+          exit 1
+
   review:
+    needs: wait-for-ci
     if: github.event.pull_request.state == 'open' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
-          # pull_request_target runs on base; checkout base securely, not fork code.
-          # We fetch diff via gh API, never execute fork files.
           ref: ${{ github.event.pull_request.base.sha }}
 
       - name: Gather PR context + linked issues (GraphQL primary)
@@ -185,7 +240,7 @@ jobs:
           PR_DELS: ${{ steps.ctx.outputs.dels }}
         run: |
           if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-            echo "Missing DEEPSEEK_API_KEY secret in upstream repo. Add it at Settings > Secrets and variables > Actions."
+            echo "Missing DEEPSEEK_API_KEY secret. Add it at Settings > Secrets and variables > Actions."
             echo "decision=COMMENT" >> $GITHUB_OUTPUT
             echo "confidence=0" >> $GITHUB_OUTPUT
             echo "body=Thanks for the PR! A maintainer will take a look shortly. :sparkles:" >> $GITHUB_OUTPUT
@@ -194,12 +249,12 @@ jobs:
           API_URL="https://api.deepseek.com/chat/completions"
           MODEL="deepseek-chat"
           API_KEY="$DEEPSEEK_API_KEY"
-          echo "Using DeepSeek model $MODEL (upstream secret, works for fork PRs via pull_request_target)"
+          echo "Using DeepSeek model $MODEL"
 
           SYSTEM_PROMPT=$(cat <<'SYSTEM_EOF'
-          You are a warm, encouraging code reviewer for an open-source hackathon project.
+          You are a warm, encouraging code reviewer for an open-source project called ProofOfHeart — a decentralized fundraising launchpad built on the Stellar blockchain.
           Your job is to help contributors get their work merged, not to gatekeep.
-          The community is nice and wants contributors to feel welcome. We will fix issues later — what matters is effort and trying to contribute toward the linked issue.
+          The community is welcoming and wants contributors to feel valued. We can improve things iteratively — what matters is effort and genuine progress toward the linked issue.
 
           ## Default: APPROVE
           Approve almost everything that contains real code changes plausibly related to the PR title or linked issue. When in doubt, APPROVE.
@@ -334,11 +389,11 @@ jobs:
               --jq '[.commits[].messageBody] | join("\n")' \
               | grep -viE 'co-authored-by:.*(claude|qwen|copilot|github-actions|bot|\[bot\]|gpt|openai|anthropic)' \
               || true)
-            MERGE_BODY=$(printf '%s\n\nCo-authored-by: Dopey <hello@sshdopey.com>' "$COMMIT_BODY" \
-              | sed '/^$/N;/^\n$/d')
+            MERGE_BODY=$(printf '%s' "$COMMIT_BODY" | sed '/^$/N;/^\n$/d')
 
-            gh pr merge "$PR_NUM" --squash --admin --subject "$PR_TITLE" --body "$MERGE_BODY" \
-              || gh pr comment "$PR_NUM" --body "Approved! :tada: I couldn't auto-merge this just yet (it may need a rebase or have a check still running). A maintainer can merge it whenever it's ready." || true
+            # No --admin: respects branch protection rules and required status checks.
+            gh pr merge "$PR_NUM" --squash --subject "$PR_TITLE" --body "$MERGE_BODY" \
+              || gh pr comment "$PR_NUM" --body "Approved! :tada: I couldn't auto-merge this just yet (it may need a rebase, have a check still running, or require a maintainer merge). A maintainer can merge it whenever it's ready." || true
           else
             gh pr comment "$PR_NUM" --body "$BODY" || true
           fi
