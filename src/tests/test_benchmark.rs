@@ -7,6 +7,7 @@ const CONTRIBUTE_CPU_LIMIT: u64 = 5_000_000;
 const WITHDRAW_CPU_LIMIT: u64 = 5_000_000;
 const CLAIM_REVENUE_CPU_LIMIT: u64 = 5_000_000;
 const GET_CAMPAIGNS_BY_CATEGORY_CPU_LIMIT: u64 = 10_000_000;
+const UNPAUSE_CPU_LIMIT: u64 = 1_000_000;
 
 fn make_revenue_campaign(
     env: &soroban_sdk::Env,
@@ -137,4 +138,30 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
     assert_eq!(campaigns.len(), 10);
     assert_eq!(campaigns.get(0).unwrap().id, 16);
     assert_eq!(campaigns.get(9).unwrap().id, 25);
+}
+
+// #1251: `unpause()` used to write `AdminKey::AutoPaused` to instance storage
+// twice in a row (a copy-paste duplicate, same key and same value both
+// times), burning an extra storage write's worth of CPU instructions on
+// every call for no behavioral difference. This pins the fixed cost so a
+// future regression (the duplicate write coming back, or a new one being
+// added) shows up as a budget assertion failure rather than silently
+// shipping.
+#[test]
+fn test_unpause_instruction_budget() {
+    let (env, _admin, _creator, _contributor1, _, _token, _token_admin, client) = setup_env();
+
+    client.pause();
+
+    env.budget().reset_default();
+    client.unpause();
+
+    let cpu = env.budget().cpu_instruction_cost();
+    assert!(
+        cpu < UNPAUSE_CPU_LIMIT,
+        "unpause() used {} CPU instructions, limit is {}",
+        cpu,
+        UNPAUSE_CPU_LIMIT
+    );
+    assert!(!client.is_paused());
 }
