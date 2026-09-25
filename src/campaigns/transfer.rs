@@ -165,9 +165,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
         get_creator_campaign_position_or_legacy_scan(env, &old_creator, campaign_id, old_count)
             .ok_or(Error::ValidationFailed)?;
     let mut old_bucket = get_creator_campaign_bucket(env, &old_creator, old_bucket_idx);
-    if old_bucket.is_empty() {
-        return Err(Error::ValidationFailed);
-    }
+    // `get` returns `None` for an empty bucket, so this also covers that case.
     if old_bucket.get(old_slot_idx) != Some(campaign_id) {
         return Err(Error::ValidationFailed);
     }
