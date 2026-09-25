@@ -120,6 +120,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - Contribution cap semantics: `docs/CONTRIBUTION_CAP_POLICY.md`
 - Storage TTL behavior: `docs/STORAGE_TTL_POLICY.md`
 - Threat model and security considerations: `docs/THREAT_MODEL.md`
+- Dependency audit & maintenance (`cargo audit`, ignored advisories, the vendored `ethnum` patch): `docs/DEPENDENCY_AUDIT.md`
 
 ## Getting Started
 
