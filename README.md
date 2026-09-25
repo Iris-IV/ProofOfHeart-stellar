@@ -117,6 +117,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 - Authorization requirements for every public method: `docs/AUTHORIZATION.md`
 - Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
+- Donor badge & NFT metadata guidelines (soulbound badges derived from contributions): `docs/badges.md`
 - Contribution cap semantics: `docs/CONTRIBUTION_CAP_POLICY.md`
 - Storage TTL behavior: `docs/STORAGE_TTL_POLICY.md`
 - Threat model and security considerations: `docs/THREAT_MODEL.md`
