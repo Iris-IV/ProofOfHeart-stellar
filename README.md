@@ -121,6 +121,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - Storage TTL behavior: `docs/STORAGE_TTL_POLICY.md`
 - Threat model and security considerations: `docs/THREAT_MODEL.md`
 - Dependency audit & maintenance (`cargo audit`, ignored advisories, the vendored `ethnum` patch): `docs/DEPENDENCY_AUDIT.md`
+- Community governance & voting (weight formula, quorum/threshold math, admin params): `docs/governance.md`
 
 ## Getting Started
 
