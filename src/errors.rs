@@ -224,6 +224,10 @@ pub enum Error {
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
     /// The caller is not the pending creator.
+    ///
+    /// Reserved: no entry point currently returns this code (pending-transfer
+    /// checks report `NotAuthorized` / `NoTransferPending`). Kept so `#21`
+    /// stays allocated and is never reused for a different meaning.
     NotPendingOwner = 21,
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
