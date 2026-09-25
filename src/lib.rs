@@ -805,42 +805,58 @@ impl ProofOfHeart {
 
     // ── Read-only queries ─────────────────────────────────────────────────────
 
+    /// Returns campaign `campaign_id`.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` — No campaign with that id.
     pub fn get_campaign(env: Env, campaign_id: u32) -> Result<Campaign, Error> {
         get_campaign_or_error(&env, campaign_id)
     }
 
+    /// Returns campaign `campaign_id`, or `None` if it does not exist.
     pub fn get_campaign_optional(env: Env, campaign_id: u32) -> Option<Campaign> {
         get_campaign(&env, campaign_id)
     }
 
+    /// Returns the total number of campaigns ever created.
     pub fn get_campaign_count(env: Env) -> u32 {
         get_campaign_count(&env)
     }
 
+    /// Returns the total amount raised across all campaigns.
     pub fn get_total_raised_global(env: Env) -> i128 {
         get_total_raised_global(&env)
     }
 
+    /// Returns the number of distinct contributors to `campaign_id`.
     pub fn get_total_contributors_count(env: Env, campaign_id: u32) -> u32 {
         get_contributor_count(&env, campaign_id)
     }
 
+    /// Returns `contributor`'s current (unrefunded) contribution to
+    /// `campaign_id`.
     pub fn get_contribution(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_contribution(&env, campaign_id, &contributor)
     }
 
+    /// Returns everything `contributor` has ever contributed to `campaign_id`,
+    /// including amounts later refunded.
     pub fn get_lifetime_contribution(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_lifetime_contribution(&env, campaign_id, &contributor)
     }
 
+    /// Returns the revenue deposited into `campaign_id`'s pool.
     pub fn get_revenue_pool(env: Env, campaign_id: u32) -> i128 {
         get_revenue_pool(&env, campaign_id)
     }
 
+    /// Returns how much revenue `contributor` has already claimed from
+    /// `campaign_id`.
     pub fn get_revenue_claimed(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_revenue_claimed(&env, campaign_id, &contributor)
     }
 
+    /// Returns the contract version recorded in storage (updated by `migrate`).
     pub fn get_version(env: Env) -> u32 {
         get_version(&env)
     }
@@ -853,18 +869,22 @@ impl ProofOfHeart {
         CONTRACT_VERSION
     }
 
+    /// Returns the current admin address.
     pub fn get_admin(env: Env) -> Address {
         get_admin(&env)
     }
 
+    /// Returns the nominated admin of a pending transfer, if any.
     pub fn get_pending_admin(env: Env) -> Option<Address> {
         get_pending_admin(&env)
     }
 
+    /// Returns the platform token address.
     pub fn get_token(env: Env) -> Address {
         get_token(&env)
     }
 
+    /// Returns the global platform fee in basis points.
     pub fn get_platform_fee(env: Env) -> u32 {
         get_platform_fee(&env)
     }
@@ -889,50 +909,68 @@ impl ProofOfHeart {
         get_token_update_delay_secs(&env, TOKEN_UPDATE_DELAY_SECS)
     }
 
+    /// Returns the minimum funding goal for new campaigns (admin override or
+    /// `CAMPAIGN_FUNDING_GOAL_MIN`).
     pub fn get_min_campaign_funding_goal(env: Env) -> i128 {
         get_min_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MIN)
     }
 
+    /// Returns the maximum funding goal for new campaigns (admin override or
+    /// `CAMPAIGN_FUNDING_GOAL_MAX`).
     pub fn get_max_campaign_funding_goal(env: Env) -> i128 {
         get_max_campaign_funding_goal(&env, CAMPAIGN_FUNDING_GOAL_MAX)
     }
 
+    /// Returns the minimum token balance required to vote.
     pub fn get_min_voting_balance(env: Env) -> i128 {
         get_min_voting_balance(&env)
     }
 
+    /// Returns the number of approve votes on `campaign_id`.
     pub fn get_approve_votes(env: Env, campaign_id: u32) -> u32 {
         get_approve_votes(&env, campaign_id)
     }
 
+    /// Returns the number of reject votes on `campaign_id`.
     pub fn get_reject_votes(env: Env, campaign_id: u32) -> u32 {
         get_reject_votes(&env, campaign_id)
     }
 
+    /// Whether `voter` has already voted on `campaign_id`.
     pub fn has_voted(env: Env, campaign_id: u32, voter: Address) -> bool {
         get_has_voted(&env, campaign_id, &voter)
     }
 
+    /// Returns the global voting quorum (admin override or the default).
     pub fn get_min_votes_quorum(env: Env) -> u32 {
         get_min_votes_quorum(&env, voting::DEFAULT_MIN_VOTES_QUORUM)
     }
 
+    /// Returns the global approval threshold in basis points (admin override
+    /// or the default).
     pub fn get_approval_threshold_bps(env: Env) -> u32 {
         get_approval_threshold_bps(&env, voting::DEFAULT_APPROVAL_THRESHOLD_BPS)
     }
 
+    /// Returns `contributor`'s personal cap for `campaign_id`; `0` means no
+    /// personal cap is set.
     pub fn get_personal_cap(env: Env, campaign_id: u32, contributor: Address) -> i128 {
         get_personal_cap(&env, campaign_id, &contributor).unwrap_or(0)
     }
 
+    /// Returns the vesting reserve held back for `campaign_id`, if any.
     pub fn get_campaign_reserve(env: Env, campaign_id: u32) -> Option<CampaignReserve> {
         storage::get_campaign_reserve(&env, campaign_id)
     }
 
+    /// Returns the payout marker stored for `campaign_id`, or `None` if none
+    /// has been recorded.
     pub fn get_campaign_payout_marker(env: Env, campaign_id: u32) -> Option<u32> {
         storage::get_campaign_payout_marker(&env, campaign_id)
     }
 
+    /// Whether `campaign_id` has a pending ownership nomination. Returns
+    /// `false` for unknown campaigns.
     pub fn has_pending_campaign_transfer(env: Env, campaign_id: u32) -> bool {
         get_campaign(&env, campaign_id).is_some_and(|c| c.pending_creator.is_some())
     }
@@ -945,10 +983,14 @@ impl ProofOfHeart {
 
     // ── Listing & pagination ──────────────────────────────────────────────────
 
+    /// Returns up to `limit` campaigns (capped at `LIST_MAX_LIMIT`) with ids
+    /// after the exclusive cursor `start`.
     pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
         queries::list_campaigns(&env, start, limit)
     }
 
+    /// Returns up to `limit` active campaigns with ids after `start`, plus the
+    /// next cursor to pass as `start`; `0` means there are no more pages.
     pub fn list_active_campaigns(
         env: Env,
         start: u32,
@@ -985,22 +1027,30 @@ impl ProofOfHeart {
         queries::get_creator_campaigns(&env, creator, start, limit)
     }
 
+    /// Returns platform-wide aggregate statistics.
     pub fn get_platform_stats(env: Env) -> PlatformStats {
         queries::get_platform_stats(&env)
     }
 
+    /// Returns the platform report (aggregate figures for dashboards).
     pub fn get_platform_report(env: Env) -> PlatformReport {
         queries::get_platform_report(&env)
     }
 
+    /// Returns aggregate statistics for campaigns owned by `creator`.
     pub fn get_creator_stats(env: Env, creator: Address) -> CreatorStats {
         queries::get_creator_stats(&env, creator)
     }
 
+    /// Returns aggregate statistics for `campaign_id`.
     pub fn get_campaign_stats(env: Env, campaign_id: u32) -> CampaignStats {
         queries::get_campaign_stats(&env, campaign_id)
     }
 
+    /// Returns a page of `contributor`'s positions as
+    /// `(campaign_id, amount, status, refundable)` tuples, where `status` is one
+    /// of `active`, `verified`, `inactive`, `withdrawn` or `cancelled`. The
+    /// returned `u32` is the next cursor to pass as `start`; `0` means done.
     pub fn get_contributor_portfolio(
         env: Env,
         contributor: Address,
