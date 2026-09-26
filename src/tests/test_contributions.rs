@@ -7,6 +7,7 @@ use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
     Address, IntoVal, String, Symbol,
 };
+use proptest::prelude::*;
 
 // ── contribute & basic failure states ───────────────────────────────────────────
 
@@ -1383,4 +1384,209 @@ fn test_batch_contribute_rejects_duplicate_campaign_ids() {
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
+
+// ── Property-based tests for contribution accumulation & refund invariants ────
+
+proptest! {
+    #[test]
+    fn prop_contributions_accumulate_correctly(
+        contributions in prop::collection::vec(1i128..10_000i128, 1..10)
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) = setup_env();
+
+        // Mint enough tokens for all contributions
+        let total_contributions: i128 = contributions.iter().sum();
+        token_admin.mint(&contributor1, &total_contributions);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Property Test Campaign"),
+            String::from_str(&env, "Testing contribution accumulation"),
+            total_contributions,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        // Make all contributions
+        for contribution in &contributions {
+            client.contribute(&campaign_id, &contributor1, contribution);
+        }
+
+        // Verify total accumulated matches sum of individual contributions
+        let total_recorded = client.get_contribution(&campaign_id, &contributor1);
+        prop_assert_eq!(total_recorded, total_contributions,
+            "Accumulated contribution should equal sum of all contributions");
+
+        // Verify campaign amount_raised matches total
+        let campaign = client.get_campaign(&campaign_id);
+        prop_assert_eq!(campaign.amount_raised, total_contributions,
+            "Campaign amount_raised should match total contributions");
+    }
+
+    #[test]
+    fn prop_refund_total_equals_contribution_total_on_cancel(
+        contributions in prop::collection::vec(100i128..5_000i128, 2..5)
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, token, token_admin, client) = setup_env();
+
+        // Mint enough for all contributions
+        let total_contributions: i128 = contributions.iter().sum();
+        token_admin.mint(&contributor1, &(total_contributions * 2));
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Refund Invariant Campaign"),
+            String::from_str(&env, "Testing refund equals contributions"),
+            total_contributions,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        // Make all contributions
+        for contribution in &contributions {
+            client.contribute(&campaign_id, &contributor1, contribution);
+        }
+
+        let balance_before = token.balance(&contributor1);
+
+        // Cancel campaign and claim refund
+        client.cancel_campaign(&campaign_id);
+        client.claim_refund(&campaign_id, &contributor1);
+
+        let balance_after = token.balance(&contributor1);
+        let refund_received = balance_after - balance_before;
+
+        // Verify refund equals original contribution
+        prop_assert_eq!(refund_received, total_contributions,
+            "Refund received should equal total contributions");
+
+        // Verify contribution is cleared
+        let remaining = client.get_contribution(&campaign_id, &contributor1);
+        prop_assert_eq!(remaining, 0,
+            "Contribution should be zero after refund");
+    }
+
+    #[test]
+    fn prop_multi_contributor_total_invariant(
+        contrib1 in 100i128..2_000i128,
+        contrib2 in 100i128..2_000i128,
+        contrib3 in 100i128..2_000i128,
+    ) {
+        let (env, _admin, creator, c1, c2, token, token_admin, client) = setup_env();
+        let c3 = Address::generate(&env);
+
+        let total = contrib1 + contrib2 + contrib3;
+        token_admin.mint(&c1, &contrib1);
+        token_admin.mint(&c2, &contrib2);
+        token_admin.mint(&c3, &contrib3);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Multi-Contributor Campaign"),
+            String::from_str(&env, "Testing multi-contributor invariant"),
+            total,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        client.contribute(&campaign_id, &c1, &contrib1);
+        client.contribute(&campaign_id, &c2, &contrib2);
+        client.contribute(&campaign_id, &c3, &contrib3);
+
+        // Verify total on campaign matches sum of individual contributions
+        let campaign = client.get_campaign(&campaign_id);
+        prop_assert_eq!(campaign.amount_raised, total,
+            "Campaign total should equal sum of all contributors");
+
+        // Cancel and verify all refunds
+        client.cancel_campaign(&campaign_id);
+
+        let balance_c1_before = token.balance(&c1);
+        let balance_c2_before = token.balance(&c2);
+        let balance_c3_before = token.balance(&c3);
+
+        client.claim_refund(&campaign_id, &c1);
+        client.claim_refund(&campaign_id, &c2);
+        client.claim_refund(&campaign_id, &c3);
+
+        let balance_c1_after = token.balance(&c1);
+        let balance_c2_after = token.balance(&c2);
+        let balance_c3_after = token.balance(&c3);
+
+        let refund1 = balance_c1_after - balance_c1_before;
+        let refund2 = balance_c2_after - balance_c2_before;
+        let refund3 = balance_c3_after - balance_c3_before;
+
+        // Verify each contributor's refund matches their contribution
+        prop_assert_eq!(refund1, contrib1, "c1 refund should equal c1 contribution");
+        prop_assert_eq!(refund2, contrib2, "c2 refund should equal c2 contribution");
+        prop_assert_eq!(refund3, contrib3, "c3 refund should equal c3 contribution");
+
+        // Verify total refunds equal total contributions
+        let total_refunded = refund1 + refund2 + refund3;
+        prop_assert_eq!(total_refunded, total,
+            "Total refunded should equal total contributions");
+    }
+
+    #[test]
+    fn prop_lifetime_contribution_cap_enforced(
+        first_contrib in 100i128..1_000i128,
+        second_contrib in 100i128..1_000i128,
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) = setup_env();
+
+        let cap = (first_contrib + second_contrib).min(2_000i128);
+        let total_mint = (first_contrib + second_contrib) * 2;
+
+        token_admin.mint(&contributor1, &total_mint);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Cap Test Campaign"),
+            String::from_str(&env, "Testing lifetime cap"),
+            10_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            cap,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        client.contribute(&campaign_id, &contributor1, &first_contrib);
+
+        // Try second contribution that might exceed cap
+        let attempted_total = first_contrib + second_contrib;
+        let should_succeed = attempted_total <= cap;
+
+        match client.try_contribute(&campaign_id, &contributor1, &second_contrib) {
+            Ok(_) => {
+                prop_assert!(should_succeed,
+                    "Contribution should succeed only if within cap: {} <= {}",
+                    attempted_total, cap);
+                let recorded = client.get_contribution(&campaign_id, &contributor1);
+                prop_assert_eq!(recorded, attempted_total,
+                    "Recorded contribution should be sum of both");
+            }
+            Err(Some(Error::ContributionCapExceeded)) => {
+                prop_assert!(!should_succeed,
+                    "Contribution should fail only if exceeds cap: {} > {}",
+                    attempted_total, cap);
+            }
+            Err(e) => prop_assert!(false, "Unexpected error: {:?}", e),
+        }
+    }
 }
