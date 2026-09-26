@@ -1,3 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI workflow & automated test suite
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Triggers
+#   * push to `main` and every pull request targeting `main`.
+#   * A newer run on the same ref cancels the older one (`concurrency`), and the
+#     token is read-only (`permissions: contents: read`).
+#
+# Jobs (they run in parallel; all of them gate a PR unless noted)
+#
+#   lint      Formatting and static analysis.
+#               cargo fmt --all -- --check
+#               cargo clippy --all-targets --features testutils
+#               make clippy   -> the same clippy run with warnings denied
+#                                (zero-warning policy, #1259)
+#             Compiling under clippy also type-checks the crate, so there is no
+#             separate `cargo check` step. Local: `make lint`.
+#
+#   audit     `cargo audit` over Cargo.lock for known advisories. Each ignored
+#             RUSTSEC id is justified in the comment above the job and in
+#             CONTRIBUTING.md; add a justification there when adding one.
+#
+#   test      The Rust test suite (unit and contract tests run against the
+#             Soroban test environment) and the rustdoc examples.
+#               cargo test --features testutils
+#               cargo test --doc --features testutils
+#             `--features testutils` enables the soroban-sdk test utilities the
+#             tests rely on. Local: `make test`.
+#
+#   coverage  cargo-llvm-cov over the same tests, single-threaded, failing the
+#             job below 80% line coverage (`--fail-under-lines 80`), then
+#             uploaded to Codecov (an upload failure also fails the job).
+#
+#   wasm      Release build for `wasm32-unknown-unknown`, then
+#             scripts/check-wasm.sh: WASM structure (wasm-tools), Soroban spec
+#             and env-meta sections, and size within 5% of
+#             .github/wasm-size-baseline.txt (#1258). The .wasm is attached to
+#             the run as the `proof_of_heart.wasm` artifact.
+#             Local: `make check-wasm`. Update the baseline in the same PR when
+#             a size increase is intended.
+#
+# Running everything locally: `make ci` (lint + test + check-wasm). Coverage and
+# audit need `cargo-llvm-cov` / `cargo-audit` installed and are not part of it.
+#
+# Caching: every Rust job uses `Swatinem/rust-cache`, so a cold run is slower
+# than a warm one; a failure that only appears in CI is often a stale-cache or
+# toolchain difference (`rust-toolchain.toml` pins the `stable` channel).
+# ─────────────────────────────────────────────────────────────────────────────
 name: CI
 on:
   push:
