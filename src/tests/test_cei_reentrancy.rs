@@ -130,7 +130,7 @@ fn campaign_with_revenue_pool_and_recording_token<'a>(
     // still holds escrowed funds (#407). That guard narrows the window for a
     // hostile token but does not close it — the token passed to `init` was
     // never vetted in the first place.
-    let recorder_id = env.register_contract(None, RecordingToken);
+    let recorder_id = env.register(RecordingToken, ());
     env.as_contract(&client.address, || {
         storage::set_token(env, &recorder_id);
     });
@@ -200,7 +200,7 @@ fn test_cancel_campaign_without_pool_never_calls_token() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
 
-    let recorder_id = env.register_contract(None, RecordingToken);
+    let recorder_id = env.register(RecordingToken, ());
     env.as_contract(&client.address, || {
         storage::set_token(&env, &recorder_id);
     });
@@ -287,4 +287,395 @@ fn test_cancel_campaign_source_orders_effects_before_interaction() {
         persist < transfer,
         "CEI (#795): the cancelled campaign must be persisted before the token transfer"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Re-entrancy attack simulation harness (#1131)
+//
+// The tests above pin *ordering*. This section actually attacks: a malicious
+// token whose `transfer` calls back into the campaign contract, trying to
+// withdraw, claim or cancel a second time while the first call is still on the
+// stack. Each scenario asserts the two things a real drain would have to break:
+//
+// 1. the re-entrant call never succeeds, and
+// 2. no more value than the campaign holds ever leaves the contract.
+//
+// Whether the host surfaces the refused re-entry to the token as a catchable
+// error or aborts the outer invocation is host behaviour, not contract
+// behaviour, so the scenarios assert the outcomes that matter under either
+// (no successful re-entry, no double payout, consistent post-state) instead of
+// a specific error shape.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Namespaced because `#[contractimpl]` emits module-level symbols named after
+/// each function, and `RecordingToken` above already owns `transfer`.
+mod attacker {
+    use super::*;
+
+    /// The entrypoint the malicious token tries to re-enter from inside `transfer`.
+    #[contracttype]
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    pub enum Attack {
+        WithdrawFunds,
+        ClaimRefund,
+        CancelCampaign,
+        ClaimMilestone,
+    }
+
+    #[contracttype]
+    enum AttackKey {
+        Target,
+        CampaignId,
+        Victim,
+        MilestoneId,
+        Action,
+        /// Times `transfer` was entered.
+        Transfers,
+        /// Sum of all amounts passed to `transfer`.
+        Moved,
+        /// Re-entry attempts that came back `Ok` — a successful attack.
+        ReentrySucceeded,
+    }
+
+    fn get_u32(env: &Env, key: &AttackKey) -> u32 {
+        env.storage().instance().get(key).unwrap_or(0)
+    }
+
+    /// A token that fights back: every `transfer` it receives from the campaign
+    /// contract triggers a re-entry attempt against the same contract.
+    ///
+    /// It also keeps honest books (`transfers`, `moved`) so tests can prove how
+    /// much value actually left the contract.
+    #[contract]
+    pub struct ReentrantToken;
+
+    #[contractimpl]
+    impl ReentrantToken {
+        /// Point the token at the contract and the entrypoint to attack.
+        pub fn arm(
+            env: Env,
+            target: Address,
+            campaign_id: u32,
+            victim: Address,
+            milestone_id: u32,
+            action: Attack,
+        ) {
+            let s = env.storage().instance();
+            s.set(&AttackKey::Target, &target);
+            s.set(&AttackKey::CampaignId, &campaign_id);
+            s.set(&AttackKey::Victim, &victim);
+            s.set(&AttackKey::MilestoneId, &milestone_id);
+            s.set(&AttackKey::Action, &action);
+        }
+
+        pub fn transfer(env: Env, _from: Address, _to: Address, amount: i128) {
+            let s = env.storage().instance();
+            s.set(
+                &AttackKey::Transfers,
+                &(get_u32(&env, &AttackKey::Transfers) + 1),
+            );
+            let moved: i128 = s.get(&AttackKey::Moved).unwrap_or(0);
+            s.set(&AttackKey::Moved, &(moved + amount));
+
+            let Some(target) = s.get::<_, Address>(&AttackKey::Target) else {
+                return;
+            };
+            let campaign_id = get_u32(&env, &AttackKey::CampaignId);
+            let milestone_id = get_u32(&env, &AttackKey::MilestoneId);
+            let victim: Address = s.get(&AttackKey::Victim).unwrap();
+            let action: Attack = s.get(&AttackKey::Action).unwrap();
+
+            let contract = ProofOfHeartClient::new(&env, &target);
+            let succeeded = match action {
+                Attack::WithdrawFunds => {
+                    matches!(contract.try_withdraw_funds(&campaign_id), Ok(Ok(_)))
+                }
+                Attack::ClaimRefund => {
+                    matches!(contract.try_claim_refund(&campaign_id, &victim), Ok(Ok(_)))
+                }
+                Attack::CancelCampaign => {
+                    matches!(contract.try_cancel_campaign(&campaign_id), Ok(Ok(_)))
+                }
+                Attack::ClaimMilestone => {
+                    matches!(
+                        contract.try_claim_milestone(&campaign_id, &milestone_id),
+                        Ok(Ok(_))
+                    )
+                }
+            };
+            if succeeded {
+                s.set(
+                    &AttackKey::ReentrySucceeded,
+                    &(get_u32(&env, &AttackKey::ReentrySucceeded) + 1),
+                );
+            }
+        }
+
+        pub fn transfers(env: Env) -> u32 {
+            get_u32(&env, &AttackKey::Transfers)
+        }
+
+        pub fn moved(env: Env) -> i128 {
+            env.storage().instance().get(&AttackKey::Moved).unwrap_or(0)
+        }
+
+        pub fn reentry_succeeded(env: Env) -> u32 {
+            get_u32(&env, &AttackKey::ReentrySucceeded)
+        }
+    }
+}
+
+use attacker::{Attack, ReentrantToken, ReentrantTokenClient};
+
+const GOAL: i128 = 1000;
+
+/// A verified campaign that has met its goal, with `GOAL` escrowed in the real
+/// token, whose currency is then swapped for a [`ReentrantToken`].
+///
+/// Funding happens with the real token first so `contribute` behaves normally;
+/// only the payout path talks to the hostile token. Pass `None` for a control
+/// run: the token is swapped in but never fights back, which proves the
+/// scenario's preconditions are met and any failure in an armed run is down to
+/// the attack, not to the setup.
+fn hostile_campaign<'a>(
+    env: &Env,
+    creator: &Address,
+    contributor: &Address,
+    token_admin: &TokenAdminClient<'a>,
+    client: &ProofOfHeartClient<'a>,
+    action: Option<Attack>,
+) -> (u32, ReentrantTokenClient<'a>) {
+    token_admin.mint(contributor, &(GOAL * 2));
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(env, "Attacked Campaign"),
+        description: String::from_str(env, "Paid out through a hostile token"),
+        funding_goal: GOAL,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, contributor, &GOAL);
+
+    let attacker_id = env.register(ReentrantToken, ());
+    env.as_contract(&client.address, || {
+        storage::set_campaign_token(env, campaign_id, &attacker_id);
+    });
+    let attacker = ReentrantTokenClient::new(env, &attacker_id);
+    if let Some(action) = action {
+        attacker.arm(&client.address, &campaign_id, contributor, &1, &action);
+    }
+
+    (campaign_id, attacker)
+}
+
+/// `withdraw_funds` is only allowed once the funding window has closed.
+fn pass_deadline(env: &Env, client: &ProofOfHeartClient, campaign_id: u32) {
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+}
+
+/// The invariant every armed run must satisfy, whichever way the host handles
+/// the refused re-entry:
+///
+/// * it never succeeded, and
+/// * if the outer call failed, nothing was left half-applied — the whole
+///   invocation rolled back, so no value moved and `committed` state is intact;
+/// * if the outer call succeeded, the token really was entered (the attack ran)
+///   and the total that moved stays within `max_moved`.
+fn assert_reentry_refused<T, E>(
+    outcome: &Result<T, E>,
+    attacker: &ReentrantTokenClient,
+    max_moved: i128,
+) {
+    assert_eq!(
+        attacker.reentry_succeeded(),
+        0,
+        "a re-entrant call succeeded"
+    );
+    assert!(
+        attacker.moved() <= max_moved,
+        "{} left the contract, more than the {} it may release",
+        attacker.moved(),
+        max_moved
+    );
+    match outcome {
+        Ok(_) => assert!(
+            attacker.transfers() >= 1,
+            "the payout never reached the hostile token, so nothing was attacked"
+        ),
+        Err(_) => assert_eq!(attacker.moved(), 0, "failed call still moved funds"),
+    }
+}
+
+/// Control: with the token swapped but not armed, the payout succeeds and
+/// releases the full escrow. Every armed test below is measured against this.
+#[test]
+fn test_control_unarmed_withdraw_pays_out_once() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, token) =
+        hostile_campaign(&env, &creator, &contributor, &token_admin, &client, None);
+    pass_deadline(&env, &client, campaign_id);
+
+    client.withdraw_funds(&campaign_id);
+
+    assert!(client.get_campaign(&campaign_id).funds_withdrawn);
+    assert!(token.transfers() >= 1);
+    assert!(token.moved() > 0 && token.moved() <= GOAL);
+    assert_eq!(
+        client.try_withdraw_funds(&campaign_id),
+        Err(Ok(crate::Error::FundsAlreadyWithdrawn)),
+        "a completed withdrawal must not be repeatable"
+    );
+}
+
+/// Re-entering `withdraw_funds` from inside its own payout must not pay twice.
+#[test]
+fn test_withdraw_funds_reentry_cannot_double_withdraw() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::WithdrawFunds),
+    );
+    pass_deadline(&env, &client, campaign_id);
+
+    let outcome = client.try_withdraw_funds(&campaign_id);
+
+    assert_reentry_refused(&outcome, &attacker, GOAL);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.funds_withdrawn,
+        outcome.is_ok(),
+        "withdrawal state disagrees with the call outcome"
+    );
+}
+
+/// Trying to cancel a campaign mid-payout (to open refunds to contributors
+/// while the creator is being paid) must not succeed.
+#[test]
+fn test_withdraw_funds_reentry_cannot_cancel_mid_payout() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::CancelCampaign),
+    );
+    pass_deadline(&env, &client, campaign_id);
+
+    let outcome = client.try_withdraw_funds(&campaign_id);
+
+    assert_reentry_refused(&outcome, &attacker, GOAL);
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(
+        !(campaign.is_cancelled && campaign.funds_withdrawn),
+        "campaign is both cancelled (refundable) and withdrawn (paid out)"
+    );
+}
+
+/// Claiming a refund from inside the creator's payout would pay one pot of
+/// money to both sides.
+#[test]
+fn test_withdraw_funds_reentry_cannot_claim_refund_mid_payout() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::ClaimRefund),
+    );
+    pass_deadline(&env, &client, campaign_id);
+
+    let outcome = client.try_withdraw_funds(&campaign_id);
+
+    assert_reentry_refused(&outcome, &attacker, GOAL);
+}
+
+/// Sets up two 50% milestones, both verified, on an already-funded campaign.
+fn verified_milestones(env: &Env, admin: &Address, client: &ProofOfHeartClient, campaign_id: u32) {
+    let mut milestones = soroban_sdk::Vec::new(env);
+    for id in 1..=2u32 {
+        milestones.push_back(crate::Milestone {
+            id,
+            description: String::from_str(env, "half"),
+            payout_bps: 5000,
+            verified: false,
+        });
+    }
+    client.set_milestones(&campaign_id, &milestones);
+    client.verify_milestone(admin, &campaign_id, &1);
+    client.verify_milestone(admin, &campaign_id, &2);
+}
+
+/// Control for the milestone flow: milestone 1 pays out, and only its share.
+#[test]
+fn test_control_unarmed_milestone_claim_pays_its_share() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, token) =
+        hostile_campaign(&env, &creator, &contributor, &token_admin, &client, None);
+    verified_milestones(&env, &admin, &client, campaign_id);
+
+    client.claim_milestone(&campaign_id, &1);
+
+    assert!(token.transfers() >= 1);
+    assert!(token.moved() > 0 && token.moved() <= GOAL / 2);
+    assert_eq!(
+        client.try_claim_milestone(&campaign_id, &1),
+        Err(Ok(crate::Error::MilestoneAlreadyClaimed))
+    );
+}
+
+/// Milestone payouts: re-entering `claim_milestone` for the same milestone
+/// must not release its share twice.
+#[test]
+fn test_claim_milestone_reentry_cannot_double_claim() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::ClaimMilestone),
+    );
+    verified_milestones(&env, &admin, &client, campaign_id);
+
+    let outcome = client.try_claim_milestone(&campaign_id, &1);
+
+    // Milestone 1 is worth half the escrow; a double claim would move more.
+    assert_reentry_refused(&outcome, &attacker, GOAL / 2);
+}
+
+/// Re-entering `withdraw_funds` from a milestone payout would bypass the
+/// proportional release entirely (and is refused for milestone campaigns
+/// anyway).
+#[test]
+fn test_claim_milestone_reentry_cannot_withdraw_everything() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::WithdrawFunds),
+    );
+    verified_milestones(&env, &admin, &client, campaign_id);
+    pass_deadline(&env, &client, campaign_id);
+
+    let outcome = client.try_claim_milestone(&campaign_id, &1);
+
+    assert_reentry_refused(&outcome, &attacker, GOAL / 2);
 }
