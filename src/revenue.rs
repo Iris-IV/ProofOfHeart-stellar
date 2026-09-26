@@ -1,3 +1,85 @@
+//! # Revenue Sharing Engine
+//!
+//! This module implements the revenue sharing mechanism for ProofOfHeart campaigns.
+//! It provides functionality for depositing revenue, claiming contributor shares, and creator payouts.
+//!
+//! ## Overview
+//!
+//! The revenue sharing system allows creators to share a percentage of post-campaign revenue
+//! with contributors. Once a campaign's funding goal is met and funds are withdrawn, creators
+//! can deposit revenue, which is then split between contributors (based on their contribution
+//! amount) and the creator themselves (based on the revenue share percentage).
+//!
+//! ## Revenue Allocation Mathematics
+//!
+//! ### Total Pool Distribution
+//!
+//! When revenue is deposited into a campaign with revenue sharing enabled:
+//!
+//! ```text
+//! Total Revenue Pool = deposit_amount
+//!
+//! Contributor Share (BPS) = revenue_share_percentage
+//! Creator Share (BPS) = 10_000 - revenue_share_percentage
+//!
+//! Contributor Pool = Total Pool * Contributor Share / 10_000
+//! Creator Pool = Total Pool * Creator Share / 10_000
+//! ```
+//!
+//! ### Per-Contributor Allocation
+//!
+//! Each contributor's claimable amount from the contributor pool is calculated as:
+//!
+//! ```text
+//! Contributor's Claimable = (contribution_amount / effective_amount_raised) * Contributor Pool
+//!
+//! Where:
+//! - contribution_amount = the contributor's individual contribution to the campaign
+//! - effective_amount_raised = total raised minus any refunds claimed (prevents race conditions)
+//! - Contributor Pool = total revenue pool * revenue_share_percentage / 10_000 (basis points)
+//! ```
+//!
+//! ### Creator Allocation
+//!
+//! The creator receives their share directly computed from the total pool:
+//!
+//! ```text
+//! Creator's Claimable = Total Pool * Creator Share / 10_000
+//!
+//! Where Creator Share = 10_000 - revenue_share_percentage
+//! ```
+//!
+//! ## Critical Invariants
+//!
+//! 1. **No Claims Before Withdrawal**: Contributors cannot claim until `funds_withdrawn` is true.
+//!    This prevents race conditions where `amount_raised` could grow while claims are being
+//!    calculated against a moving denominator.
+//!
+//! 2. **Dust Handling**: Integer division truncates each contributor's share. The final claimant
+//!    receives the full remaining pool balance to ensure complete distribution (#526).
+//!
+//! 3. **CEI Pattern**: State updates happen before token transfers to prevent re-entrancy attacks
+//!    from malicious token contracts (#557).
+//!
+//! 4. **Precise Division Order**: Multiplication happens before division to avoid intermediate
+//!    truncation to zero when the pool is small relative to basis points (#375).
+//!
+//! ## Example Scenario
+//!
+//! Given:
+//! - Campaign funding goal: 1000 USDC
+//! - Revenue share percentage: 2000 BPS (20% to contributors, 80% to creator)
+//! - Contributor A contributed: 300 USDC
+//! - Contributor B contributed: 700 USDC
+//! - Revenue deposited: 5000 USDC
+//!
+//! Results:
+//! - Contributor Pool: 5000 * 2000 / 10_000 = 1000 USDC
+//! - Creator Pool: 5000 * 8000 / 10_000 = 4000 USDC
+//! - Contributor A's share: (300 / 1000) * 1000 = 300 USDC
+//! - Contributor B's share: (700 / 1000) * 1000 = 700 USDC
+//! - Creator's share: 4000 USDC
+
 use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
