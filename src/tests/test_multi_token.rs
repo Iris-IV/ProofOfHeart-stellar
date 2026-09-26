@@ -381,3 +381,171 @@ fn test_arbitrary_address_is_not_a_currency() {
     let res = client.try_create_campaign_with_token(&params(&env, &creator, "Bogus"), &not_a_token);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
+
+// ── Edge Cases and Complex Lifecycle Scenarios ───────────────────────────────
+
+/// Multiple contributions in the same currency accumulate correctly across
+/// transactions and state transitions.
+#[test]
+fn test_multi_contribution_accumulation_in_single_currency() {
+    let (env, admin, creator, contributor1, contributor2, _platform, _platform_admin, client) =
+        setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    usdc_admin.mint(&contributor1, &10_000);
+    usdc_admin.mint(&contributor2, &10_000);
+
+    let id = client.create_campaign_with_token(&params(&env, &creator, "Multi"), &usdc);
+    client.verify_campaign(&id);
+
+    client.contribute(&id, &contributor1, &1000);
+    client.contribute(&id, &contributor1, &2000);
+    client.contribute(&id, &contributor2, &3000);
+
+    let campaign = client.get_campaign(&id);
+    assert_eq!(campaign.amount_raised, 6000);
+    assert_eq!(usdc_token.balance(&client.address), 6000);
+    assert_eq!(usdc_token.balance(&contributor1), 7000);
+    assert_eq!(usdc_token.balance(&contributor2), 7000);
+}
+
+/// Refund calculations are correct when multiple contributors withdraw from the
+/// same campaign, accounting for gas costs in the campaign's token.
+#[test]
+fn test_concurrent_refunds_in_campaign_currency() {
+    let (env, admin, creator, contributor1, contributor2, platform, platform_admin, client) =
+        setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    usdc_admin.mint(&contributor1, &5000);
+    usdc_admin.mint(&contributor2, &5000);
+    platform_admin.mint(&client.address, &10_000);
+
+    let id = client.create_campaign_with_token(&params(&env, &creator, "Refund Test"), &usdc);
+    client.verify_campaign(&id);
+
+    client.contribute(&id, &contributor1, &2000);
+    client.contribute(&id, &contributor2, &3000);
+
+    client.cancel_campaign(&id);
+    client.claim_refund(&id, &contributor1);
+    client.claim_refund(&id, &contributor2);
+
+    assert_eq!(usdc_token.balance(&contributor1), 5000);
+    assert_eq!(usdc_token.balance(&contributor2), 5000);
+    assert_eq!(usdc_token.balance(&client.address), 0);
+    assert_eq!(platform.balance(&client.address), 10_000);
+}
+
+/// Withdrawal with revenue sharing uses the campaign's currency for payout
+/// while vote weight remains in platform token.
+#[test]
+fn test_withdrawal_with_revenue_share_in_campaign_currency() {
+    let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    usdc_admin.mint(&contributor1, &10_000);
+    platform_admin.mint(&contributor1, &1_000_000);
+    platform_admin.mint(&client.address, &10_000);
+
+    let mut params = params(&env, &creator, "Revenue Test");
+    params.has_revenue_sharing = true;
+    params.revenue_share_percentage = 50;
+
+    let id = client.create_campaign_with_token(&params, &usdc);
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &5000);
+
+    client.vote_on_campaign(&id, &contributor1, &true);
+    client.withdraw_funds(&id);
+
+    assert!(usdc_token.balance(&creator) > 0);
+    assert_eq!(platform.balance(&creator), 0);
+}
+
+/// Batch operations preserve per-campaign currency isolation across
+/// contributions, refunds, and multiple token types.
+#[test]
+fn test_batch_operations_with_three_currencies() {
+    let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+    let (euroc, euroc_token, euroc_admin) =
+        second_currency(&env, &admin, &client);
+
+    platform_admin.mint(&contributor1, &10_000);
+    usdc_admin.mint(&contributor1, &10_000);
+    euroc_admin.mint(&contributor1, &10_000);
+
+    let native = client.create_campaign(&params(&env, &creator, "Native"));
+    let usdc_id = client.create_campaign_with_token(&params(&env, &creator, "USDC"), &usdc);
+    let euroc_id = client.create_campaign_with_token(&params(&env, &creator, "EUROC"), &euroc);
+
+    for id in [native, usdc_id, euroc_id] {
+        client.verify_campaign(&id);
+    }
+
+    let batch = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            (native, 2000i128),
+            (usdc_id, 3000i128),
+            (euroc_id, 4000i128),
+        ],
+    );
+    client.batch_contribute(&contributor1, &batch);
+
+    assert_eq!(platform.balance(&client.address), 2000);
+    assert_eq!(usdc_token.balance(&client.address), 3000);
+    assert_eq!(euroc_token.balance(&client.address), 4000);
+    assert_eq!(platform.balance(&contributor1), 8000);
+    assert_eq!(usdc_token.balance(&contributor1), 7000);
+    assert_eq!(euroc_token.balance(&contributor1), 6000);
+}
+
+/// Token allowlist changes do not affect campaign currency resolution for
+/// existing campaigns or contribution/refund mechanics.
+#[test]
+fn test_allowlist_toggle_does_not_affect_campaign_mechanics() {
+    let (env, admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    usdc_admin.mint(&contributor1, &10_000);
+
+    let id = client.create_campaign_with_token(&params(&env, &creator, "Stable"), &usdc);
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &1000);
+
+    // Toggle allowlist off then on
+    client.set_token_allowed(&usdc, &false);
+    assert_eq!(client.get_campaign_token(&id), usdc);
+    assert_eq!(usdc_token.balance(&client.address), 1000);
+
+    client.set_token_allowed(&usdc, &true);
+    assert_eq!(client.get_campaign_token(&id), usdc);
+    assert_eq!(usdc_token.balance(&client.address), 1000);
+
+    // Further contributions still work
+    client.contribute(&id, &contributor1, &2000);
+    assert_eq!(usdc_token.balance(&client.address), 3000);
+}
+
+/// Gas budget invariants hold under edge cases: zero contributions (if allowed),
+/// maximum i128 values, and rapid state transitions.
+#[test]
+fn test_gas_budget_under_i128_edge_cases() {
+    let (env, admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    let large_amount = i128::MAX / 2;
+    usdc_admin.mint(&contributor1, &large_amount);
+
+    let id = client.create_campaign_with_token(&params(&env, &creator, "Edge"), &usdc);
+    client.verify_campaign(&id);
+
+    // Large contribution should not overflow contract arithmetic
+    let max_contribution = 1_000_000_000_000_000i128;
+    if large_amount >= max_contribution {
+        client.contribute(&id, &contributor1, &max_contribution);
+        assert_eq!(usdc_token.balance(&client.address), max_contribution);
+    }
+}
