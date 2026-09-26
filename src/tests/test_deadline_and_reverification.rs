@@ -259,3 +259,98 @@ fn test_update_campaign_still_rejects_edits_after_verification() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
     assert!(client.get_campaign(&id).is_verified);
 }
+
+// ── Edge case tests for contributions at deadline boundaries ────────────────
+
+/// A contribution is accepted when submitted at exactly the deadline block.
+/// This tests the boundary condition where contribution timestamp equals deadline.
+#[test]
+fn test_contribution_at_exact_deadline_is_accepted() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let id = campaign(&env, &creator, &client, 30);
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_before = client.get_campaign(&id);
+    let deadline = campaign_before.deadline;
+
+    // Move time to exactly the deadline
+    env.ledger().with_mut(|l| l.timestamp = deadline);
+
+    // Contribution should succeed (deadline is inclusive for contributions)
+    client.contribute(&id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&id, &contributor1), 500);
+}
+
+/// A contribution is rejected after the deadline has passed.
+/// This verifies the boundary is enforced strictly once deadline is exceeded.
+#[test]
+fn test_contribution_after_deadline_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let id = campaign(&env, &creator, &client, 30);
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_before = client.get_campaign(&id);
+    let deadline = campaign_before.deadline;
+
+    // Move time just past the deadline
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
+    // Contribution should fail
+    let res = client.try_contribute(&id, &contributor1, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
+    assert_eq!(client.get_contribution(&id, &contributor1), 0);
+}
+
+/// Multiple contributions are accepted up to and including the deadline.
+/// This tests sequential contributions as the deadline approaches.
+#[test]
+fn test_multiple_contributions_before_deadline_all_accepted() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    let id = campaign(&env, &creator, &client, 30);
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&contributor2, &2000);
+
+    let campaign_before = client.get_campaign(&id);
+    let deadline = campaign_before.deadline;
+
+    // First contribution well before deadline
+    env.ledger().with_mut(|l| l.timestamp = deadline - 1000);
+    client.contribute(&id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&id, &contributor1), 500);
+
+    // Second contribution at the deadline boundary
+    env.ledger().with_mut(|l| l.timestamp = deadline);
+    client.contribute(&id, &contributor2, &700);
+    assert_eq!(client.get_contribution(&id, &contributor2), 700);
+
+    // Both contributions should be registered
+    assert_eq!(client.get_contribution(&id, &contributor1), 500);
+    assert_eq!(client.get_contribution(&id, &contributor2), 700);
+}
+
+/// Verification freeze persists across deadline extensions.
+/// A verified campaign remains frozen even after deadline is extended.
+#[test]
+fn test_verified_campaign_remains_frozen_after_deadline_extension() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let id = campaign(&env, &creator, &client, 30);
+
+    client.verify_campaign(&id);
+    assert!(client.get_campaign(&id).is_verified);
+
+    // Extend deadline
+    client.extend_campaign_deadline(&id, &5);
+
+    // Campaign should still be verified and frozen
+    let updated = client.get_campaign(&id);
+    assert!(updated.is_verified);
+    assert!(updated.deadline_extended);
+
+    // Description edit should still be rejected
+    let res = client.try_update_campaign_description(
+        &id,
+        &String::from_str(&env, "Attempted edit after extension"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
