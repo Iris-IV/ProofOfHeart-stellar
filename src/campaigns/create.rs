@@ -220,19 +220,24 @@ fn create_campaign_inner(
     set_campaign_count(env, count);
     set_revenue_pool(env, count, 0);
     let category_count = get_category_campaign_count(env, category);
+    // A wrapped counter would corrupt category pagination (#837), so fail
+    // instead. The whole invocation reverts, leaving no partial campaign.
+    let next_category_count = category_count.checked_add(1).ok_or(Error::Overflow)?;
     let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_category_campaign_bucket(env, category, bucket_idx);
     bucket.push_back(count);
     set_category_campaign_bucket(env, category, bucket_idx, &bucket);
-    set_category_campaign_count(env, category, category_count + 1);
+    set_category_campaign_count(env, category, next_category_count);
 
     let creator_count = get_creator_campaign_count(env, &creator);
+    // Same guard for the per-creator index (#838).
+    let next_creator_count = creator_count.checked_add(1).ok_or(Error::Overflow)?;
     let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
     bucket.push_back(count);
     set_creator_campaign_bucket(env, &creator, bucket_idx, &bucket);
     set_creator_campaign_position(env, &creator, count, bucket_idx, bucket.len() - 1);
-    set_creator_campaign_count(env, &creator, creator_count + 1);
+    set_creator_campaign_count(env, &creator, next_creator_count);
     set_campaign_creator_index(env, count, &creator);
     set_creator_title_index(env, &creator, &title_hash, count);
 
