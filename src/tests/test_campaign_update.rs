@@ -1,39 +1,52 @@
 use super::helpers::*;
-use crate::{Category, Error, MaybePendingCreator};
+use crate::{AdminKey, Category, CreateCampaignParams, Error, MaybePendingCreator};
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
     Address, IntoVal, String, Symbol,
 };
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_before_contributions() {
+fn test_update_campaign_blocks_after_admin_verification() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        orig_title.clone(),
+        orig_desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
 
-    let new_title = String::from_str(&env, "New Title");
-    let new_desc = String::from_str(&env, "New Description");
-    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
-    assert!(res.is_ok());
+    // Fix #416: update_campaign must be blocked after admin verification.
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "New Title"),
+        &String::from_str(&env, "New Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated = client.get_campaign(&campaign_id);
-    assert_eq!(updated.title, new_title);
-    assert_eq!(updated.description, new_desc);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, orig_title);
+    assert_eq!(campaign.description, orig_desc);
 }
 
 #[test]
 fn test_update_campaign_emits_title_and_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Educator,
@@ -46,22 +59,29 @@ fn test_update_campaign_emits_title_and_description() {
     let new_desc = String::from_str(&env, "Updated Description");
     client.update_campaign(&campaign_id, &new_title, &new_desc);
 
+    // #349: campaign_metadata_updated emits (old_title, old_desc, new_title, new_desc).
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    // Event payload: (old_title, old_description, title, event_description)
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
 
-    assert_eq!(payload.0, new_title);
-    assert_eq!(payload.1, new_desc);
+    assert_eq!(payload.0, String::from_str(&env, "Original Title"));
+    assert_eq!(payload.1, String::from_str(&env, "Original Description"));
+    assert_eq!(payload.2, new_title);
+    assert_eq!(payload.3, new_desc);
 }
 
 #[test]
 fn test_update_campaign_event_tracks_latest_description() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"),
+        orig_title.clone(),
+        orig_desc.clone(),
         1000,
         30,
         Category::Learner,
@@ -70,26 +90,27 @@ fn test_update_campaign_event_tracks_latest_description() {
         0i128,
     ));
 
-    client.update_campaign(
-        &campaign_id,
-        &String::from_str(&env, "Title V2"),
-        &String::from_str(&env, "Description V2"),
-    );
-    client.update_campaign(
-        &campaign_id,
-        &String::from_str(&env, "Title V3"),
-        &String::from_str(&env, "Description V3"),
-    );
+    let title_v2 = String::from_str(&env, "Title V2");
+    let desc_v2 = String::from_str(&env, "Description V2");
+    let title_v3 = String::from_str(&env, "Title V3");
+    let desc_v3 = String::from_str(&env, "Description V3");
 
+    client.update_campaign(&campaign_id, &title_v2, &desc_v2);
+    client.update_campaign(&campaign_id, &title_v3, &desc_v3);
+
+    // #349: last event payload is (old_title, old_desc, new_title, new_desc).
+    // The second call's "old" is V2, "new" is V3.
     let events = env.events().all();
     let last_event = events.last().unwrap();
-    let payload: (String, String) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
-    assert_eq!(payload.0, String::from_str(&env, "Title V3"));
-    assert_eq!(payload.1, String::from_str(&env, "Description V3"));
+    // Event payload: (old_title, old_description, title, event_description)
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload.2, String::from_str(&env, "Title V3"));
+    assert_eq!(payload.3, String::from_str(&env, "Description V3"));
 }
 
 #[test]
-fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions() {
+fn test_update_campaign_blocks_after_community_verification() {
     let (env, _admin, creator, contributor1, contributor2, _, token_admin, client) = setup_env();
     let voter3 = Address::generate(&env);
 
@@ -97,10 +118,18 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     token_admin.mint(&contributor2, &100);
     token_admin.mint(&voter3, &100);
 
+    let orig_title = String::from_str(&env, "Original Title");
+    let orig_desc = String::from_str(&env, "Original Description");
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original Description"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        orig_title.clone(),
+        orig_desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
 
     client.vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -109,13 +138,17 @@ fn test_update_campaign_allows_verified_campaign_with_votes_before_contributions
     client.verify_campaign_with_votes(&campaign_id);
     assert!(client.get_campaign(&campaign_id).is_verified);
 
-    let new_title = String::from_str(&env, "New Title");
-    let new_desc = String::from_str(&env, "New Description");
-    assert!(client.try_update_campaign(&campaign_id, &new_title, &new_desc).is_ok());
+    // Fix #416: update_campaign must be blocked after community verification.
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "New Title"),
+        &String::from_str(&env, "New Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
-    let updated = client.get_campaign(&campaign_id);
-    assert_eq!(updated.title, new_title);
-    assert_eq!(updated.description, new_desc);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, orig_title);
+    assert_eq!(campaign.description, orig_desc);
 }
 
 #[test]
@@ -123,14 +156,22 @@ fn test_update_campaign_description_success() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Original Title"),
-        String::from_str(&env, "Original description"), 1_000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Original Title"),
+        String::from_str(&env, "Original description"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     let new_desc = String::from_str(&env, "Updated description with more detail");
-    assert!(client.try_update_campaign_description(&campaign_id, &new_desc).is_ok());
+    assert!(client
+        .try_update_campaign_description(&campaign_id, &new_desc)
+        .is_ok());
 
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.description, new_desc);
@@ -142,14 +183,21 @@ fn test_update_campaign_description_rejects_cancelled() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Title"),
-        String::from_str(&env, "Desc"), 1_000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
     client.cancel_campaign(&campaign_id);
 
-    let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, "New desc"));
+    let res =
+        client.try_update_campaign_description(&campaign_id, &String::from_str(&env, "New desc"));
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
@@ -158,11 +206,16 @@ fn test_update_campaign_description_rejects_empty() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Title"),
-        String::from_str(&env, "Desc"), 1_000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
-    let _ = client.try_verify_campaign(&campaign_id);
 
     let res = client.try_update_campaign_description(&campaign_id, &String::from_str(&env, ""));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -181,15 +234,24 @@ fn test_campaign_ownership_transfer_flow() {
     let new_creator = contributor1;
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Transfer Test"),
-        String::from_str(&env, "Desc"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Transfer Test"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.initiate_campaign_transfer(&campaign_id, &new_creator);
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.pending_creator, MaybePendingCreator::Some(new_creator.clone()));
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(new_creator.clone())
+    );
     assert_eq!(campaign.creator, creator);
 
     client.accept_campaign_transfer(&campaign_id);
@@ -216,9 +278,15 @@ fn test_campaign_ownership_transfer_flow() {
     );
 
     let campaign_id_2 = client.create_campaign(&make_params(
-        new_creator.clone(), String::from_str(&env, "Cancel Test"),
-        String::from_str(&env, "Desc"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        new_creator.clone(),
+        String::from_str(&env, "Cancel Test"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id_2);
     client.initiate_campaign_transfer(&campaign_id_2, &contributor2);
@@ -232,9 +300,15 @@ fn test_campaign_transfer_validations() {
     let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Transfer Guardrails"),
-        String::from_str(&env, "Desc"), 1000, 30,
-        Category::Publisher, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Transfer Guardrails"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Publisher,
+        false,
+        0,
+        0i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -263,9 +337,15 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
 
     let cancelled_campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cancelled Transfer"),
-        String::from_str(&env, "Paused forever"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Cancelled Transfer"),
+        String::from_str(&env, "Paused forever"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.cancel_campaign(&cancelled_campaign_id);
 
@@ -275,9 +355,15 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     token_admin.mint(&contributor1, &2000);
 
     let withdrawn_campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Withdrawn Transfer"),
-        String::from_str(&env, "Already settled"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Withdrawn Transfer"),
+        String::from_str(&env, "Already settled"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&withdrawn_campaign_id);
     client.contribute(&withdrawn_campaign_id, &contributor1, &1000);
@@ -287,14 +373,242 @@ fn test_campaign_transfer_rejected_for_terminal_campaigns() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
 
+// ── #869: pending transfer expiry ─────────────────────────────────────────
+
+#[test]
+fn test_initiate_campaign_transfer_emits_expiry() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expiry Event"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let before = env.ledger().timestamp();
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator_expiry,
+        before + crate::TRANSFER_EXPIRY_SECS
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    // Event payload: (new_creator, expiry)
+    let payload: (Address, u64) = soroban_sdk::FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload.0, contributor1);
+    assert_eq!(payload.1, campaign.pending_creator_expiry);
+}
+
+#[test]
+fn test_expired_transfer_cannot_be_accepted() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expired Accept"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += crate::TRANSFER_EXPIRY_SECS + 1;
+    });
+
+    let res = client.try_accept_campaign_transfer(&campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+
+    // The stale nomination never took effect.
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, creator);
+}
+
+#[test]
+fn test_expired_transfer_can_be_replaced_without_explicit_cancel() {
+    let (env, _admin, creator, contributor1, contributor2, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Expiry Replace"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    // While still pending (not yet expired), a second nomination is rejected.
+    let res = client.try_initiate_campaign_transfer(&campaign_id, &contributor2);
+    assert_eq!(res.unwrap_err().unwrap(), Error::TransferAlreadyPending);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += crate::TRANSFER_EXPIRY_SECS + 1;
+    });
+
+    // Past expiry, initiating again overwrites the stale nomination without
+    // needing an explicit cancel_campaign_transfer first (#869) — a lost or
+    // unresponsive nominee can no longer block the creator forever.
+    client.initiate_campaign_transfer(&campaign_id, &contributor2);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(contributor2.clone())
+    );
+
+    client.accept_campaign_transfer(&campaign_id);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, contributor2);
+}
+
+#[test]
+fn test_admin_cancel_campaign_transfer_recovers_stuck_pending() {
+    let (env, admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Admin Recovery"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+
+    // Only the admin can force-clear a still-live pending transfer this way.
+    let impostor = Address::generate(&env);
+    let res = client.try_admin_cancel_campaign_transfer(&impostor, &campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+
+    // The admin can clear it immediately, without waiting for the expiry window.
+    client.admin_cancel_campaign_transfer(&admin, &campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+
+    // The creator can now nominate someone else right away.
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(contributor1)
+    );
+}
+
+#[test]
+fn test_admin_cancel_campaign_transfer_no_pending() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "No Pending"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let res = client.try_admin_cancel_campaign_transfer(&admin, &campaign_id);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoTransferPending);
+}
+
+#[test]
+fn test_cancel_campaign_transfer_emits_creator() {
+    let (env, _admin, creator, contributor1, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer Event Test"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &contributor1);
+    client.cancel_campaign_transfer(&campaign_id);
+
+    // Verify the event includes both creator and pending_address.
+    let events = env.events().all();
+    let cancel_event = events
+        .iter()
+        .find(|(_, topics, _)| {
+            topics
+                .to_vec()
+                .first()
+                .map(|t| {
+                    if let soroban_sdk::Val::String(s) = t {
+                        s.to_string(&env) == "campaign_transfer_cancelled"
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false)
+        })
+        .expect("No cancel event found");
+
+    // The event data contains both creator and pending address.
+    // Topics: ("campaign_transfer_cancelled", campaign_id, creator)
+    // Data: pending_address
+    let topics = cancel_event.1.to_vec();
+    assert_eq!(topics.len(), 3);
+    if let soroban_sdk::Val::String(s) = &topics[0] {
+        assert_eq!(s.to_string(&env), "campaign_transfer_cancelled");
+    } else {
+        panic!("Expected first topic to be the event name");
+    }
+
+    // Verify the creator is included in the event topics
+    let creator_in_topics = topics.get(2).cloned();
+    assert!(creator_in_topics.is_some());
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+}
+
 #[test]
 fn test_cancel_campaign_already_cancelled_is_terminal() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Terminal Test"),
-        String::from_str(&env, "Already cancelled"), 1000, 30,
-        Category::Learner, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Terminal Test"),
+        String::from_str(&env, "Already cancelled"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
     ));
 
     client.cancel_campaign(&campaign_id);
@@ -313,9 +627,15 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
     token_admin.mint(&contributor1, &2000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Withdrawal Terminal"),
-        String::from_str(&env, "Funds already out"), 1000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Withdrawal Terminal"),
+        String::from_str(&env, "Funds already out"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -327,4 +647,226 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
 
     let res = client.try_cancel_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+#[test]
+fn test_update_description_after_contribution() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Old Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let new_desc = String::from_str(&env, "New Description After Contribution");
+    client.update_campaign_description(&campaign_id, &new_desc);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.description, new_desc);
+}
+
+#[test]
+fn test_update_campaign_with_contributions_fails() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Old Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    let new_title = String::from_str(&env, "New Title");
+    let new_desc = String::from_str(&env, "New Description");
+    let res = client.try_update_campaign(&campaign_id, &new_title, &new_desc);
+
+    // update_campaign is blocked after verification (CampaignAlreadyVerified takes
+    // precedence over the amount_raised > 0 check since it's checked first).
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
+}
+
+#[test]
+fn test_unpause_clears_auto_pause_when_resume_campaign_blocked() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Unpause Recovery Test"),
+        description: String::from_str(&env, "Testing unpause when resume_campaign is blocked"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Set AutoPaused directly (Soroban rolls back writes on Err, so we can't
+    // rely on the anomaly trigger in contribute() to persist the flag).
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&AdminKey::AutoPaused, &true);
+    });
+
+    // Operations are blocked while AutoPaused is set
+    let res = client.try_create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Should Fail"),
+        description: String::from_str(&env, "Desc"),
+        funding_goal: 500,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
+
+    // unpause() clears both Paused and AutoPaused
+    client.unpause();
+
+    // Now operations work again
+    client.contribute(&campaign_id, &contributor1, &500i128);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+
+    // Cancel the campaign (was blocked while auto-paused)
+    client.cancel_campaign(&campaign_id);
+
+    // resume_campaign returns ValidationFailed because unpause already
+    // cleared AutoPaused, and the new early check (fix #436) catches it
+    // before the campaign-state check.
+    let res2 = client.try_resume_campaign(&campaign_id, &creator);
+    assert_eq!(res2.unwrap_err().unwrap(), Error::ValidationFailed);
+
+    // But operations still work because unpause already cleared AutoPaused
+    let new_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Recovered"),
+        description: String::from_str(&env, "Should work now"),
+        funding_goal: 500,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    assert!(new_id > 1);
+}
+
+#[test]
+fn campaign_transfer_reinitiate_rejects_silent_overwrite() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let pending_one = Address::generate(&env);
+    let pending_two = Address::generate(&env);
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Re-initiate transfer"),
+        String::from_str(&env, "Campaign transfer test"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &pending_one);
+    assert_eq!(
+        client.get_campaign(&campaign_id).pending_creator,
+        MaybePendingCreator::Some(pending_one.clone())
+    );
+
+    let res = client.try_initiate_campaign_transfer(&campaign_id, &pending_two);
+    assert_eq!(res.unwrap_err().unwrap(), Error::TransferAlreadyPending);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, creator);
+    assert_eq!(
+        campaign.pending_creator,
+        MaybePendingCreator::Some(pending_one.clone())
+    );
+
+    client.accept_campaign_transfer(&campaign_id);
+
+    let transferred = client.get_campaign(&campaign_id);
+    assert_eq!(transferred.creator, pending_one);
+    assert_eq!(transferred.pending_creator, MaybePendingCreator::None);
+}
+
+#[test]
+fn campaign_transfer_cancel_then_reinitiate_succeeds() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let pending_one = Address::generate(&env);
+    let pending_two = Address::generate(&env);
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Cancel and retry"),
+        String::from_str(&env, "Campaign transfer test"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.initiate_campaign_transfer(&campaign_id, &pending_one);
+    client.cancel_campaign_transfer(&campaign_id);
+    assert_eq!(
+        client.get_campaign(&campaign_id).pending_creator,
+        MaybePendingCreator::None
+    );
+
+    client.initiate_campaign_transfer(&campaign_id, &pending_two.clone());
+    client.accept_campaign_transfer(&campaign_id);
+
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.creator, pending_two);
+    assert_eq!(campaign.pending_creator, MaybePendingCreator::None);
+}
+
+#[test]
+fn original_creator_can_contribute_after_campaign_transfer() {
+    let (env, _admin, creator, _, _, _, token_admin, client) = setup_env();
+    let new_creator = Address::generate(&env);
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Transfer contribution guard"),
+        String::from_str(&env, "Campaign transfer test"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    token_admin.mint(&creator, &100);
+
+    client.verify_campaign(&campaign_id);
+    client.initiate_campaign_transfer(&campaign_id, &new_creator);
+    client.accept_campaign_transfer(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &creator, &100);
+    assert!(res.is_ok());
 }

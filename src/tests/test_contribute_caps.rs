@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, Error};
+use crate::{Category, CreateCampaignParams, Error};
 use soroban_sdk::String;
 
 #[test]
@@ -8,9 +8,15 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cap persistence"),
-        String::from_str(&env, "lifetime cap test"), 2_000, 1,
-        Category::Learner, false, 0, 1_000i128,
+        creator.clone(),
+        String::from_str(&env, "Cap persistence"),
+        String::from_str(&env, "lifetime cap test"),
+        2_000,
+        1,
+        Category::Learner,
+        false,
+        0,
+        1_000i128,
     ));
     let _ = client.try_verify_campaign(&campaign_id);
 
@@ -18,7 +24,38 @@ fn test_contribution_cap_persists_across_refund_recontribution_cycles() {
     client.cancel_campaign(&campaign_id);
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
-    assert_eq!(client.get_lifetime_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor1),
+        900
+    );
+}
+
+#[test]
+fn test_max_contribution_per_user_enforced_across_multiple_transactions() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Multi tx cap"),
+        String::from_str(&env, "lifetime cap across txs"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        1_000i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &600);
+    let res = client.try_contribute(&campaign_id, &contributor1, &600);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 600);
+    assert_eq!(
+        client.get_lifetime_contribution(&campaign_id, &contributor1),
+        600
+    );
 }
 
 #[test]
@@ -27,9 +64,15 @@ fn test_personal_cap_enforcement() {
     token_admin.mint(&contributor1, &5000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Cap Test"),
-        String::from_str(&env, "Testing caps"), 5000, 30,
-        Category::Educator, false, 0, 1000i128,
+        creator.clone(),
+        String::from_str(&env, "Cap Test"),
+        String::from_str(&env, "Testing caps"),
+        5000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1000i128,
     ));
     client.verify_campaign(&campaign_id);
 
@@ -50,20 +93,26 @@ fn test_personal_cap_enforcement() {
 }
 
 #[test]
-fn test_anomaly_auto_pause_huge_contribution() {
+fn test_anomaly_rejects_huge_contribution() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Science Book"),
-        String::from_str(&env, "Teaching science to kids"), 2000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Science Book"),
+        String::from_str(&env, "Teaching science to kids"),
+        2000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
 
     let res = client.try_contribute(&campaign_id, &contributor1, &4001);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rejected, not paused: no code path sets AutoPaused.
     assert!(!client.is_paused());
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
 
@@ -75,27 +124,38 @@ fn test_anomaly_auto_pause_huge_contribution() {
 }
 
 #[test]
-fn test_anomaly_auto_pause_burst() {
+fn test_anomaly_rejects_burst() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &10000);
 
     let campaign_id = client.create_campaign(&make_params(
-        creator.clone(), String::from_str(&env, "Burst Test"),
-        String::from_str(&env, "Testing burst"), 2000, 30,
-        Category::Educator, false, 0, 0i128,
+        creator.clone(),
+        String::from_str(&env, "Burst Test"),
+        String::from_str(&env, "Testing burst"),
+        20, // Goal low enough that contributions exceed 50% quickly
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
     ));
     client.verify_campaign(&campaign_id);
 
-    for _ in 0..10 {
-        client.contribute(&campaign_id, &contributor1, &10);
-    }
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+    // #535: burst detection only engages once amount_raised crosses 50% of
+    // the funding goal, so push the campaign over that line first.
+    client.contribute(&campaign_id, &contributor1, &1_100);
 
+    for _ in 0..10 {
+        client.contribute(&campaign_id, &contributor1, &100);
+    }
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
+
+    // The 11th contribution should push block_count to 11 > AUTO_PAUSE_BURST_THRESHOLD (10).
     let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
-    // Rollback ensures it's NOT paused.
+    // Rejected, not paused: no code path sets AutoPaused.
     assert!(!client.is_paused());
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 100);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
     client.unpause();
 
@@ -111,5 +171,30 @@ fn test_anomaly_auto_pause_burst() {
     });
 
     client.contribute(&campaign_id, &contributor1, &10);
-    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 110);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_210);
+}
+
+#[test]
+fn test_huge_contribution_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Huge Contribution Test"),
+        description: String::from_str(&env, "Testing auto-pause via huge contribution"),
+        funding_goal: 1000,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0,
+    });
+    client.verify_campaign(&campaign_id);
+
+    // Anomaly detection fires and rejects the transaction. It does not pause
+    // the contract: a rejected Soroban invocation rolls back its own writes.
+    let res = client.try_contribute(&campaign_id, &contributor1, &2001i128);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 }

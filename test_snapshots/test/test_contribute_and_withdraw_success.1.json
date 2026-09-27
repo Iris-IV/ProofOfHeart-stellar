@@ -628,6 +628,17 @@
                     },
                     {
                       "key": {
+                        "symbol": "effective_amount_raised"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 1000
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "fee_override"
                       },
                       "val": "void"
@@ -1171,6 +1182,18 @@
                       "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     },
                     "storage": [
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ActiveCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
                       {
                         "key": {
                           "vec": [
@@ -2962,10 +2985,26 @@
               }
             ],
             "data": {
-              "i128": {
-                "hi": 0,
-                "lo": 970
-              }
+              "vec": [
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 30
+                  }
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 970
+                  }
+                },
+                {
+                  "i128": {
+                    "hi": 0,
+                    "lo": 0
+                  }
+                }
+              ]
             }
           }
         }
@@ -3189,6 +3228,17 @@
                   },
                   "val": {
                     "string": "Learn Rust"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "effective_amount_raised"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1000
+                    }
                   }
                 },
                 {

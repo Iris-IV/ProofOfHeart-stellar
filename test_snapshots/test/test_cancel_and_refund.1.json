@@ -879,6 +879,17 @@
                     },
                     {
                       "key": {
+                        "symbol": "effective_amount_raised"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "fee_override"
                       },
                       "val": "void"
@@ -1314,6 +1325,18 @@
                       "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     },
                     "storage": [
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ActiveCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
                       {
                         "key": {
                           "vec": [
@@ -3090,6 +3113,17 @@
                   },
                   "val": {
                     "string": "Desc"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "effective_amount_raised"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1500
+                    }
                   }
                 },
                 {

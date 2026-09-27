@@ -22,3 +22,8 @@ mod test_voting_verify;
 mod test_withdraw;
 mod test_storage_ttl;
 mod test_multi_step;
+mod test_benchmark;
+mod test_counter_overflow_and_batch;
+mod test_cei_reentrancy;
+mod test_regressions;
+mod test_snapshots;

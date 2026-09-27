@@ -1,5 +1,5 @@
 use super::helpers::*;
-use crate::{Category, CreateCampaignParams, storage};
+use crate::{storage, Category, CreateCampaignParams};
 use soroban_sdk::String;
 
 /// Test that reproduces the orphaned revenue pool bug:
@@ -63,7 +63,7 @@ fn test_cancel_campaign_refunds_revenue_pool() {
     // Contract should still have the contribution (1000) but not the revenue
     // Contributions are only refunded when contributors claim their refunds
     assert_eq!(token.balance(&client.address), 1000);
-    
+
     // Contributor can claim their contribution back via refund
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 2000); // 1000 (original) + 1000 (refunded)
@@ -169,7 +169,10 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
 
     // Revenue pool should be refunded to creator
     assert_eq!(client.get_revenue_pool(&campaign_id), 0);
-    assert_eq!(token.balance(&creator), creator_balance_before_cancel + revenue_deposited);
+    assert_eq!(
+        token.balance(&creator),
+        creator_balance_before_cancel + revenue_deposited
+    );
 
     // Contract should only have the contributions now (revenue removed)
     assert_eq!(
