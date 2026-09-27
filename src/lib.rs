@@ -583,6 +583,7 @@ impl ProofOfHeart {
             return Err(Error::ValidationFailed);
         }
 
+        bump_instance_ttl(&env);
         set_withdraw_release_delay_days(&env, delay_days);
         set_withdraw_reserve_percentage(&env, reserve_bps);
 
@@ -2178,3 +2179,5 @@ mod vesting_test;
 mod voting_proptest;
 #[cfg(test)]
 mod issues_test;
+#[cfg(test)]
+mod milestones;
