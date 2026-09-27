@@ -1,9 +1,6 @@
 default: build
 
-.PHONY: build build-docker test wasm check-wasm lint ci fmt clean
-
-all: test
-.PHONY: all build build-docker test clippy fmt fmt-check lint clean
+.PHONY: all build build-docker test wasm check-wasm clippy fmt fmt-check lint ci clean
 
 CLIPPY_FLAGS ?= -D warnings
 
@@ -24,12 +21,6 @@ wasm:
 check-wasm: wasm
 	./scripts/check-wasm.sh
 
-lint:
-	cargo fmt --all -- --check
-	cargo clippy --all-targets --features testutils
-
-ci: lint test check-wasm
-
 fmt:
 	cargo fmt --all
 
@@ -41,6 +32,8 @@ clippy:
 	cargo clippy --all-targets --features testutils -- $(CLIPPY_FLAGS)
 
 lint: fmt-check clippy
+
+ci: lint test check-wasm
 
 clean:
 	cargo clean
