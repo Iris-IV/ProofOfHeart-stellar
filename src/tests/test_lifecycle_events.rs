@@ -1,6 +1,4 @@
 use super::helpers::*;
-use crate::test::setup_env;
-use soroban_sdk::testutils::Events;
 use soroban_sdk::{Address, FromVal, String, TryFromVal};
 
 fn has_event(env: &soroban_sdk::Env, topic: &str) -> bool {
