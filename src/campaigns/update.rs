@@ -38,18 +38,19 @@ pub(crate) fn update_campaign(
         return Err(Error::ValidationFailed);
     }
 
+    if campaign.title == title && campaign.description == description {
+        return Ok(());
+    }
+
     bump_instance_ttl(env);
-    let old_title = campaign.title.clone();
-    let old_description = campaign.description.clone();
-    let event_description = description.clone();
-    campaign.title = title.clone();
-    campaign.description = description;
+    let old_title = core::mem::replace(&mut campaign.title, title.clone());
+    let old_description = core::mem::replace(&mut campaign.description, description.clone());
 
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
         ("campaign_metadata_updated", campaign_id),
-        (old_title, old_description, title, event_description),
+        (old_title, old_description, title, description),
     );
 
     Ok(())
@@ -82,9 +83,7 @@ pub(crate) fn update_campaign_description(
     }
 
     bump_instance_ttl(env);
-    let old_description = campaign.description.clone();
-    let event_desc = description.clone();
-    campaign.description = description;
+    let old_description = core::mem::replace(&mut campaign.description, description.clone());
 
     set_campaign(env, campaign_id, &campaign);
 
@@ -97,7 +96,7 @@ pub(crate) fn update_campaign_description(
             campaign.title.clone(),
             old_description,
             campaign.title.clone(),
-            event_desc,
+            description,
         ),
     );
 
@@ -164,7 +163,7 @@ pub(crate) fn extend_campaign_deadline(
         ("campaign_deadline_extended", campaign_id),
         (
             old_deadline,
-            campaign.deadline,
+            new_deadline,
             additional_days,
             total_duration_seconds,
         ),
