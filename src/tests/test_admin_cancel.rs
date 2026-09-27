@@ -218,3 +218,135 @@ fn test_admin_cancel_campaign_emits_event_with_reason() {
     // No revenue was deposited, so pool should be zero.
     assert_eq!(payload.3, 0);
 }
+
+// ── Edge cases for pre/post goal-completion cancellation ─────────────────
+
+/// Admin can cancel at any time before goal is met, regardless of funding level.
+#[test]
+fn test_admin_cancel_campaign_succeeds_pre_goal_with_partial_funding() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let goal = 1000i128;
+    token_admin.mint(&contributor1, &500);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal, 0);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &500);
+
+    // Goal not met (500 < 1000), but admin can still cancel
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(!campaign.is_goal_met);
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+}
+
+/// Admin can override creator's self-cancel protection after goal is met.
+/// This is the core admin override scenario (#508, #858).
+#[test]
+fn test_admin_can_cancel_when_creator_cannot_post_goal() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let goal = 1000i128;
+    token_admin.mint(&contributor1, &goal);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal, 0);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &goal);
+
+    // Goal met; creator cannot self-cancel
+    assert!(client.get_campaign(&campaign_id).is_goal_met);
+    let creator_cancel = client.try_cancel_campaign(&campaign_id);
+    assert_eq!(creator_cancel, Err(Ok(Error::GoalMetCancellationNotAllowed)));
+
+    // Admin can still cancel despite creator being blocked
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+}
+
+/// Admin cancellation succeeds with exact goal met (boundary condition).
+#[test]
+fn test_admin_cancel_succeeds_with_exact_goal_met() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let goal = 1000i128;
+    token_admin.mint(&contributor1, &goal);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal, 0);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &goal);
+
+    // Exactly at goal
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal);
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+}
+
+/// Admin cancellation fails after funds have been withdrawn and claimed.
+/// Once withdrawal occurs, campaign is no longer active and cannot be cancelled.
+#[test]
+fn test_admin_cancel_fails_when_campaign_already_inactive() {
+    let (env, admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    let goal = 500i128;
+    token_admin.mint(&contributor1, &goal);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal, 0);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &goal);
+
+    // Withdrawal deactivates the campaign
+    client.withdraw_funds(&campaign_id);
+    assert!(!client.get_campaign(&campaign_id).is_active);
+
+    // Admin cannot cancel inactive campaign
+    let res =
+        client.try_admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "too late"));
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+/// Multiple admin cancellations are rejected (idempotency check).
+#[test]
+fn test_admin_cancel_campaign_cannot_be_cancelled_twice() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = make_campaign(&env, &client, &creator, 1000, 0);
+    client.verify_campaign(&campaign_id);
+
+    // First admin cancel succeeds
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+
+    // Second admin cancel fails (campaign already cancelled)
+    let res =
+        client.try_admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+}
+
+/// Admin cancellation with refunds tracked correctly across multiple contributors.
+#[test]
+fn test_admin_cancel_with_multiple_contributors_all_refund() {
+    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+    let goal = 1000i128;
+    token_admin.mint(&contributor1, &600);
+    token_admin.mint(&contributor2, &400);
+
+    let campaign_id = make_campaign(&env, &client, &creator, goal, 0);
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &600);
+    client.contribute(&campaign_id, &contributor2, &400);
+
+    // Both contributors funded the campaign (to goal)
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 600);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 400);
+
+    // Admin cancels
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
+
+    // Both can refund
+    client.claim_refund(&campaign_id, &contributor1);
+    client.claim_refund(&campaign_id, &contributor2);
+
+    assert_eq!(token.balance(&contributor1), 600);
+    assert_eq!(token.balance(&contributor2), 400);
+}
