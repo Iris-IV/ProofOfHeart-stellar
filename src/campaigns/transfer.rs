@@ -55,6 +55,7 @@ fn get_creator_campaign_position_or_legacy_scan(
 ///
 /// # Errors
 /// * `CampaignNotActive` — Campaign is cancelled or funds withdrawn.
+/// * `ContractPaused` — The contract is currently paused.
 /// * `InvalidNewOwner` — Nominee is the current creator.
 /// * `TransferAlreadyPending` — Another transfer is already pending.
 pub(crate) fn initiate_campaign_transfer(
@@ -62,13 +63,18 @@ pub(crate) fn initiate_campaign_transfer(
     campaign_id: u32,
     new_creator: Address,
 ) -> Result<(), Error> {
-    // Require the nominee's auth first — this validates the address is a
-    // usable account or contract (#840) and that the nominee consents to
-    // the transfer before any state is written.
+    // Check the pause flag before asking the nominee to authorize: the call is
+    // rejected while paused regardless, so requiring a signature first would
+    // only waste it. This mirrors the ordering guarantee in
+    // `accept_campaign_transfer` (#832).
+    require_not_paused(env)?;
+
+    // Require the nominee's auth — this validates the address is a usable
+    // account or contract (#840) and that the nominee consents to the
+    // transfer before any state is written.
     new_creator.require_auth();
 
     let mut campaign = get_creator_campaign(env, campaign_id)?;
-    require_not_paused(env)?;
     require_active_campaign(&campaign)?;
 
     if campaign.funds_withdrawn {
