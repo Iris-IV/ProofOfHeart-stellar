@@ -63,10 +63,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
 
 jobs:
-  # Formatting is enforced; clippy runs for visibility but does not block
-  # until the existing lint backlog is cleared.
+  # Formatting is enforced; clippy runs with zero warnings denied (#1259).
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -75,14 +75,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --features testutils
-      - name: Basic validation
-        run: |
-          echo "Basic CI passed :heart:"
-          if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all ---check || echo "cargo fmt hint"
-          fi
       # Issue #1259: zero-warning clippy policy, same command as `make clippy`.
       - name: Clippy (deny warnings)
         run: make clippy
@@ -104,6 +99,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
@@ -116,6 +113,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - run: cargo test --features testutils
       - run: cargo test --doc --features testutils
 
@@ -127,6 +126,8 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
@@ -153,6 +154,8 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-tools
