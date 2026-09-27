@@ -842,6 +842,142 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
     assert_eq!(creator_after - creator_before, 5_000);
 }
 
+// ── #834 creator-claim precision loss ─────────────────────────────────────────
+// Issue #834 — the pre-#386 residual math (`creator = total - contributor_pool`)
+// floored the contributor pool by up to 9 999 stroops and silently paid the
+// remainder to the creator. #386 fixed the source by computing the creator
+// share directly; these tests pin the corrected distribution for the exact
+// example in #834 (total_pool = 10_001 at 50%) plus repeated deposits.
+
+/// Issue #834 — the 1-stroop rounding remainder must reach the contributors,
+/// not the creator, and creator + contributors must sum to the pool exactly.
+#[test]
+fn test_834_rounding_remainder_reaches_contributors() {
+    let (_env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &20_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Rounding remainder regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+
+    // The sole contributor claims first and, as last claimant, absorbs the
+    // contributor-side remainder: exact half is 5 000.5, so they get 5 001.
+    let contributor_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let contributor_claimed = token.balance(&contributor1) - contributor_before;
+    assert_eq!(contributor_claimed, 5_001);
+
+    // The creator gets exactly floor(10_001 * 5000 / 10_000) = 5 000 — never
+    // the 5 001 the old residual math paid.
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let creator_claimed = token.balance(&creator) - creator_before;
+    assert_eq!(creator_claimed, 5_000);
+
+    // Full distribution: nothing stuck, nothing created.
+    assert_eq!(contributor_claimed + creator_claimed, 10_001);
+}
+
+/// Issue #834 — over many deposits and interleaved claims the creator must
+/// never accumulate more than floor(exact share), so no systematic bias builds.
+#[test]
+fn test_834_repeated_deposits_do_not_bias_creator() {
+    let (_env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &30_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Repeated deposit bias regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let first_claim = token.balance(&creator) - creator_before;
+    assert_eq!(first_claim, 5_000);
+
+    // Second deposit doubles the pool to 20_002 (exact creator half: 10_001).
+    client.deposit_revenue(&campaign_id, &10_001);
+    let mid = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let second_claim = token.balance(&creator) - mid;
+    assert_eq!(second_claim, 5_001);
+
+    // Creator total is exactly floor(20_002 * 5000 / 10_000) = 10_001.
+    assert_eq!(first_claim + second_claim, 10_001);
+
+    // The contributor then receives the full residual: 20_002 - 10_001.
+    let contributor_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let contributor_claimed = token.balance(&contributor1) - contributor_before;
+    assert_eq!(contributor_claimed, 10_001);
+    assert_eq!(first_claim + second_claim + contributor_claimed, 20_002);
+}
+
+/// Issue #834 — over-claiming is rejected with explicit errors, not silent
+/// truncation: a second creator claim and a non-contributor claim both fail.
+#[test]
+fn test_834_over_claims_rejected() {
+    let (_env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &20_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Over-claim rejection regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+    client.claim_creator_revenue(&campaign_id);
+
+    // Nothing left for the creator: second claim fails explicitly.
+    let again = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(again.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+
+    // An address that never contributed has no share to claim.
+    let stranger = client.try_claim_revenue(&campaign_id, &contributor2);
+    assert_eq!(stranger.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
 // ── #526 last-claimant revenue dust ────────────────────────────────────────────
 
 /// Issue #526 — per-contributor integer division truncates each individual
