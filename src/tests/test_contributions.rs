@@ -1590,3 +1590,125 @@ proptest! {
         }
     }
 }
+
+// ── edge-case: zero-amount and max i128 contribution inputs (#1211) ──────────
+
+#[test]
+fn test_contribute_zero_amount_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Zero Amount"),
+        String::from_str(&env, "Testing zero contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 0);
+}
+
+#[test]
+fn test_contribute_negative_amount_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Negative Amount"),
+        String::from_str(&env, "Testing negative contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &-1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+}
+
+#[test]
+fn test_contribute_max_i128_returns_overflow_not_panic() {
+    let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1_000_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Max i128"),
+        String::from_str(&env, "Testing max i128 edge case"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &i128::MAX);
+    assert!(res.is_err());
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 0);
+}
+
+#[test]
+fn test_contribute_one_is_valid_minimum() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Min Amount"),
+        String::from_str(&env, "Testing minimum contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 1);
+}
+
+#[test]
+fn test_batch_contribute_with_zero_amount_item_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Batch Zero"),
+        String::from_str(&env, "Testing batch with zero"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 0i128)],
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
