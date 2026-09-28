@@ -210,7 +210,9 @@ impl ProofOfHeart {
         set_withdraw_reserve_percentage(&env, reserve_bps);
 
         env.events()
-            .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
+            .publish(("vesting_params_updated", &admin), (delay_days, reserve_bps));
+
+        campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps);
 
         Ok(())
     }
@@ -495,9 +497,10 @@ impl ProofOfHeart {
             }
         }
 
-        env.events().publish(
+        lifecycle::emit_event!(
+            env,
             ("campaigns_bulk_verified",),
-            (verified_ids.len(), failed_ids.clone()),
+            (verified_ids.len(), failed_ids.clone())
         );
 
         Ok((verified_ids, failed_ids))
@@ -1169,3 +1172,6 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod milestones;

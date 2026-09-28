@@ -32,6 +32,20 @@ pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types
         .unwrap_or_else(|| get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS))
 }
 
+/// Calculates the approval percentage in basis points from vote counts.
+///
+/// Returns `0` when there are no total votes to divide by.
+pub fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
+    if total_votes > 0 {
+        ((approve_votes as u64)
+            .checked_mul(crate::BPS_DENOMINATOR as u64)
+            .and_then(|n| n.checked_div(total_votes as u64))
+            .unwrap_or(0)) as u32
+    } else {
+        0
+    }
+}
+
 /// Updates the community voting parameters.
 ///
 /// # Errors
@@ -205,15 +219,10 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     // 1-address-1-vote (#469): threshold is computed from vote counts, not
     // token balances, so flash-loaned tokens cannot inflate the approval
-    // percentage. The unwrap_or(0) below guards the division even if
-    // total_votes were 0; with a non-zero quorum (the default, and the only
-    // value set_params allows) the quorum check above already guarantees
-    // total_votes > 0.
+    // percentage. calculate_approval_bps returns 0 when total_votes is 0;
+    // with a non-zero quorum the check above already guarantees total_votes > 0.
     let threshold = effective_approval_threshold_bps(env, campaign.category);
-    let approval_bps = ((approve_votes as u64)
-        .checked_mul(crate::BPS_DENOMINATOR as u64)
-        .and_then(|n| n.checked_div(total_votes as u64))
-        .unwrap_or(0)) as u32;
+    let approval_bps = calculate_approval_bps(approve_votes, total_votes);
     if approval_bps < threshold {
         return Err(Error::VotingThresholdNotMet);
     }

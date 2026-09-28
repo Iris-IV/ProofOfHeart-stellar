@@ -114,6 +114,17 @@ macro_rules! ensure_admin {
 }
 pub(crate) use ensure_admin;
 
+/// Publishes a Soroban event with the given topics tuple and data payload.
+///
+/// Wraps `env.events().publish()` to keep event emission idiomatic and
+/// consistent across all contract entrypoints (#1214).
+macro_rules! emit_event {
+    ($env:expr, $topics:expr, $data:expr) => {
+        $env.events().publish($topics, $data)
+    };
+}
+pub(crate) use emit_event;
+
 pub(crate) fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
     if campaign.is_cancelled || !campaign.is_active {
         return Err(Error::CampaignNotActive);

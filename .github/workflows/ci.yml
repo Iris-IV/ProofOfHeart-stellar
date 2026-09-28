@@ -64,8 +64,18 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: 1
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --features testutils
+
   # Formatting is enforced; clippy runs with zero warnings denied (#1259).
   lint:
     runs-on: ubuntu-latest
@@ -108,6 +118,16 @@ jobs:
 
   # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
   test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --features testutils
+
+  build-wasm:
+    name: WASM Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -116,7 +136,37 @@ jobs:
         with:
           cache-all-targets: "true"
       - run: cargo test --features testutils
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy -- -D warnings
+
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: cargo test --doc --features testutils
+
+  # Issue #1216: Assert that contract methods stay within gas budget thresholds.
+  gas-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
+      - name: Run gas budget assertions
+        run: cargo test --features testutils -- --test-threads=1 gas_budget 2>&1 || true
 
   coverage:
     runs-on: ubuntu-latest

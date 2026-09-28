@@ -221,6 +221,14 @@ pub enum Error {
     VotingQuorumNotMet = 18,
     /// The approval vote share did not meet the required threshold.
     VotingThresholdNotMet = 19,
+
+    // ── Validation / arithmetic ─────────────────────────────────────────────
+    /// A general input validation constraint was violated.
+    ValidationFailed = 15,
+    /// An arithmetic operation overflowed.
+    Overflow = 30,
+
+    // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
     /// The caller is not the pending creator.
@@ -233,6 +241,8 @@ pub enum Error {
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
     InvalidNewOwner = 23,
+
+    // ── Pause / token ───────────────────────────────────────────────────────
     /// The contract is currently paused.
     ContractPaused = 24,
     /// The contribution would exceed the per-user cap set by the campaign creator.
@@ -253,18 +263,18 @@ pub enum Error {
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
+
+    // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
-    /// The funding goal exceeds the configured maximum (anti-spam cap).
-    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 39,
-    /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 40,
+    InvalidPlatformFee = 52,
+    /// Admin or community verification was attempted on an already verified campaign.
+    VerificationConflict = 53,
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
