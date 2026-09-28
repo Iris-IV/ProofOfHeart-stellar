@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Tracks soroban-sdk (and other Cargo dependencies) so upgrades from the
+  # pinned 20.1.0 to current 22.x land as reviewable PRs instead of silently
+  # going stale (#499).
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # Keeps CI actions (actions/checkout, dtolnay/rust-toolchain, etc.) current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

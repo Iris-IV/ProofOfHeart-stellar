@@ -1,265 +1,545 @@
-# Proof of Heart Event Payloads
+# Proof of Heart — Event Payloads
 
-This document describes the events emitted by the Proof of Heart contract and their payloads for client-side indexing and integration.
+Every `publish(...)` call in the contract, with its topics, data shape, and the code that emits it.
 
-## Event Format
+**Keep in sync:** When adding or modifying any `env.events().publish(...)` call, update this file's topics, data shape, and source location to match.
 
-All events follow the Soroban event format with `topics` and a `data` field. Topics are indexed and searchable; the data field contains additional details.
+---
 
-## Contract Events
+### `initialized`
 
-### Initialization Events
+| Field  | Value |
+|--------|-------|
+| Topics | `("initialized", admin: Address)` |
+| Data   | `(token: Address, fee_bps: u32, min_quorum: u32, threshold_bps: u32, version: u32)` |
+| Source | `src/admin.rs` — `init()` |
 
-#### `initialized`
-Emitted when the contract is initialized.
+---
 
-- **Topics**: `["initialized", admin_address]`
-- **Data**: `[token_address, platform_fee_bps, min_quorum, approval_threshold_bps, version]`
-- **Emitted By**: `init()`
-- **Example Usage**: Track contract setup and initial admin/token configuration.
+### `campaign_created`
 
-### Campaign Events
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_created", id: u32, creator: Address)` |
+| Data   | `(title: String, category: u32)` |
+| Source | `src/campaigns/create.rs` — `create_campaign()` |
 
-#### `campaign_created`
-Emitted when a new campaign is created.
+---
 
-- **Topics**: `["campaign_created", campaign_id, creator_address]`
-- **Data**: `(campaign_title, category_u32)`
-- **Emitted By**: `create_campaign()`
-- **Indexing Tip**: Track all campaigns by creator or scan campaign IDs chronologically.
-- **Breaking Change Note**: Consumers expecting a plain title payload must decode `(String, u32)` instead.
+### `auto_paused (huge contribution)`
 
-#### `campaign_updated`
-Emitted when campaign title and description are updated (before any contributions).
+| Field  | Value |
+|--------|-------|
+| Topics | `("auto_paused",)` |
+| Data   | `("huge_contribution", amount: i128)` |
+| Source | `src/contributions.rs` — `contribute()` when contribution > 200% of goal |
 
-- **Topics**: `["campaign_updated", campaign_id]`
-- **Data**: `(new_title, new_description)`
-- **Emitted By**: `update_campaign()`
+---
 
-#### `campaign_description_updated`
-Emitted when only the campaign description is updated (after contributions allowed).
+### `auto_paused (burst)`
 
-- **Topics**: `["campaign_description_updated", campaign_id]`
-- **Data**: `()`
-- **Emitted By**: `update_campaign_description()`
+| Field  | Value |
+|--------|-------|
+| Topics | `("auto_paused",)` |
+| Data   | `("burst", count: u32)` |
+| Source | `src/contributions.rs` — `contribute()` when >10 tx/block for a campaign |
 
-#### `campaign_cancelled`
-Emitted when a campaign is cancelled by its creator.
+---
 
-- **Topics**: `["campaign_cancelled", campaign_id]`
-- **Data**: `()`
-- **Emitted By**: `cancel_campaign()`
+### `contribution_made`
 
-#### `campaign_transfer_initiated`
-Emitted when ownership transfer begins.
+| Field  | Value |
+|--------|-------|
+| Topics | `("contribution_made", campaign_id: u32, contributor: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/contributions.rs` — `contribute()` |
 
-- **Topics**: `["campaign_transfer_initiated", campaign_id, current_creator_address]`
-- **Data**: `new_creator_address`
-- **Emitted By**: `initiate_campaign_transfer()`
+---
 
-#### `campaign_transfer_completed`
-Emitted when ownership transfer is finalized.
+### `withdrawal`
 
-- **Topics**: `["campaign_transfer_completed", campaign_id]`
-- **Data**: `(old_creator_address, new_creator_address)`
-- **Emitted By**: `accept_campaign_transfer()`
+| Field  | Value |
+|--------|-------|
+| Topics | `("withdrawal", campaign_id: u32, creator: Address)` |
+| Data   | `(fee_bps: u32, creator_amount: i128, reserve_amount: i128)` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |
 
-#### `campaign_transfer_cancelled`
-Emitted when a pending ownership transfer is cancelled.
+---
 
-- **Topics**: `["campaign_transfer_cancelled", campaign_id]`
-- **Data**: `()`
-- **Emitted By**: `cancel_campaign_transfer()`
+### `reserve_withheld`
 
-### Contribution Events
+| Field  | Value |
+|--------|-------|
+| Topics | `("reserve_withheld", campaign_id: u32, creator: Address)` |
+| Data   | `reserve_amount: i128` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` when `reserve_amount > 0` |
 
-#### `contribution_made`
-Emitted when a contributor funds a campaign.
+---
 
-- **Topics**: `["contribution_made", campaign_id, contributor_address]`
-- **Data**: `amount_tokens`
-- **Emitted By**: `contribute()`
-- **Indexing Tip**: Track all contributions per campaign or per contributor for dashboards.
+### `reserve_released`
 
-#### `personal_cap_set`
-Emitted when a contributor sets or updates their personal contribution cap for a campaign.
+| Field  | Value |
+|--------|-------|
+| Topics | `("reserve_released", campaign_id: u32, creator: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_reserve()` |
 
-- **Topics**: `["personal_cap_set", campaign_id, contributor_address]`
-- **Data**: `amount_tokens`
-- **Emitted By**: `set_personal_cap()`
+> The reserve lifecycle is deliberately symmetric (#852): both events name the event, the campaign id and the creator in their topics and carry the exact reserve amount as data. An indexer can therefore attribute a `reserve_withheld` / `reserve_released` pair to a campaign and creator from the event stream alone, without diffing token balances to reconstruct reserve payouts.
 
-#### `refund_claimed`
-Emitted when a contributor claims a refund (campaign cancelled or funding goal not reached).
+---
 
-- **Topics**: `["refund_claimed", campaign_id, contributor_address]`
-- **Data**: `refund_amount_tokens`
-- **Emitted By**: `claim_refund()`
+### `vesting_params_updated`
 
-#### `withdrawal`
-Emitted when a campaign creator withdraws funds after reaching the funding goal.
+| Field  | Value |
+|--------|-------|
+| Topics | `("vesting_params_updated", admin: Address)` |
+| Data   | `(delay_days: u64, reserve_bps: u32)` |
+| Source | `src/campaigns/withdraw.rs` — `set_vesting_params()` |
 
-- **Topics**: `["withdrawal", campaign_id, creator_address]`
-- **Data**: `creator_amount_after_fee`
-- **Emitted By**: `withdraw_funds()`
-- **Note**: Platform fee is deducted before creator receives this amount.
+---
 
-### Revenue Sharing Events
+### `vesting_disabled`
 
-#### `revenue_deposited`
-Emitted when a creator deposits revenue into a campaign's revenue pool.
+| Field  | Value |
+|--------|-------|
+| Topics | `("vesting_disabled", admin: Address)` |
+| Data   | `()` |
+| Source | `src/campaigns/withdraw.rs` — `set_vesting_params()` |
 
-- **Topics**: `["revenue_deposited", campaign_id]`
-- **Data**: `deposited_amount_tokens`
-- **Emitted By**: `deposit_revenue()`
-- **Precondition**: Campaign must have `has_revenue_sharing == true`.
+---
 
-#### `revenue_claimed`
-Emitted when a contributor claims their share of the revenue pool.
+### `revenue_pool_refunded`
 
-- **Topics**: `["revenue_claimed", campaign_id, contributor_address]`
-- **Data**: `claimable_amount_tokens`
-- **Emitted By**: `claim_revenue()`
-- **Calculation**: Share is proportional to the contributor's initial contribution relative to total raised.
+| Field  | Value |
+|--------|-------|
+| Topics | `("revenue_pool_refunded", campaign_id: u32)` |
+| Data   | `pool_amount: i128` |
+| Source | `src/campaigns/cancel.rs` — `cancel_campaign()` when revenue_pool > 0 |
 
-#### `creator_revenue_claimed`
-Emitted when a creator claims their retained share of the revenue pool.
+---
 
-- **Topics**: `["creator_revenue_claimed", campaign_id, creator_address]`
-- **Data**: `claimable_amount_tokens`
-- **Emitted By**: `claim_creator_revenue()`
-- **Calculation**: Creator share = total pool - (pool * revenue_share_percentage / 10000).
+### `campaign_bookmarked`
 
-### Voting & Verification Events
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_bookmarked", user: Address)` |
+| Data   | `campaign_id: u32` |
+| Source | `src/bookmarks.rs` — `save_campaign()` |
 
-#### `campaign_vote_cast`
-Emitted when a token-holding voter casts an approve or reject vote on a campaign.
+---
 
-- **Topics**: `["campaign_vote_cast", campaign_id, voter_address]`
-- **Data**: `approve` (bool — `true` = approve, `false` = reject)
-- **Emitted By**: `vote_on_campaign()`
-- **Indexing Tip**: Filter by `campaign_id` to tally live vote counts, or by `voter_address` to audit a voter's history.
+### `campaign_cancelled`
 
-**Sample payload**:
-```json
-{
-  "type": "contract",
-  "topics": ["campaign_vote_cast", 42, "GVOTER...ADDRESS"],
-  "data": true
-}
-```
-
-#### `campaign_verified` (admin)
-Emitted when the stored admin directly verifies a campaign.
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_cancelled", campaign_id: u32, creator: Address)` |
+| Data   | `amount_raised: i128` |
+| Source | `src/campaigns/cancel.rs` — `cancel_campaign()` |
 
-- **Topics**: `["campaign_verified", campaign_id]`
-- **Data**: `()`
-- **Emitted By**: `verify_campaign()` via the admin verification path
-- **Note**: This variant has an empty payload because no vote totals are involved.
-
-#### `campaign_verified` (community)
-Emitted when a campaign passes quorum and approval threshold checks.
+---
 
-- **Topics**: `["campaign_verified", campaign_id]`
-- **Data**: `approve_votes`
-- **Emitted By**: `verify_campaign_with_votes()` via the community verification path
-- **Note**: Indexers should use the call path or payload shape to distinguish this from admin verification.
-
-#### `voting_params_updated`
-Emitted when voting parameters are updated by the admin.
-
-- **Topics**: `["voting_params_updated"]`
-- **Data**: `(old_min_votes_quorum, new_min_votes_quorum, old_approval_threshold_bps, new_approval_threshold_bps)`
-- **Emitted By**: `set_voting_params()`
-
-### Platform Management Events
-
-#### `contract_paused`
-Emitted when the contract is paused by the admin.
-
-- **Topics**: `["contract_paused", admin_address]`
-- **Data**: `()`
-- **Emitted By**: `pause()`
-
-#### `contract_unpaused`
-Emitted when the contract is unpaused by the admin.
-
-- **Topics**: `["contract_unpaused", admin_address]`
-- **Data**: `()`
-- **Emitted By**: `unpause()`
-
-#### `campaign_resumed`
-Emitted when an authorized caller resumes an actively paused campaign context.
-
-- **Topics**: `["campaign_resumed", campaign_id, caller_address]`
-- **Data**: `()`
-- **Emitted By**: `resume_campaign()`
-- **Behavior**: Not emitted when the contract is already unpaused; that call now returns `ValidationFailed`.
-
-#### `fee_updated`
-Emitted when the platform fee is updated.
-
-- **Topics**: `["fee_updated"]`
-- **Data**: `(old_fee_bps, new_fee_bps)`
-- **Emitted By**: `update_platform_fee()`
-
-#### `min_campaign_funding_goal_updated`
-Emitted when the admin updates the minimum funding goal for new campaigns.
-
-- **Topics**: `["min_campaign_funding_goal_updated"]`
-- **Data**: `(old_min_goal, new_min_goal)`
-- **Emitted By**: `set_min_campaign_funding_goal()`
-
-#### `admin_updated`
-Emitted when admin privileges are transferred.
-
-- **Topics**: `["admin_updated", current_admin_address]`
-- **Data**: `new_admin_address`
-- **Emitted By**: `update_admin()`
-
-## Client-Side Indexing Patterns
-
-### Pattern 1: Track All Campaigns
-```
-Listen for: "campaign_created" events
-Index: Map campaign_id -> (creator, title, category_u32, timestamp)
-```
-
-### Pattern 2: Track Campaign Contributions
-```
-Listen for: "contribution_made" events
-Index: Map (campaign_id, contributor) -> [amounts]
-```
-
-### Pattern 3: Track Revenue Pool Activity
-```
-Listen for: "revenue_deposited", "revenue_claimed", "creator_revenue_claimed" events
-Index: Map campaign_id -> [deposits, claims]
-```
-
-### Pattern 4: Monitor Campaign State Transitions
-```
-Listen for: "campaign_updated", "campaign_cancelled", "campaign_transfer_*" events
-Use to trigger cache invalidation and UI refreshes
-```
-
-### Pattern 5: Platform Metrics
-```
-Listen for: "fee_updated", "contract_paused", "admin_updated" events
-Use to track platform governance and operational changes
-```
-
-## Soroban Event Query Tips
-
-When querying events from a Soroban node:
-- Events are indexed by `(contract_id, topic)`
-- Filter by the first topic to isolate event types
-- Use contributor or creator addresses in topics for user-specific filtering
-- Timestamp and ledger info are provided by the node's event API
-
-## Type Information
-
-- `Address`: Soroban contract address (33 bytes)
-- `u32`: Unsigned 32-bit integer (campaign IDs, votes, fees in basis points)
-- `i128`: Signed 128-bit integer (token amounts)
-- `String`: UTF-8 string (titles, descriptions)
-- `()`: Empty tuple (no additional data)
+### `campaign_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_updated", campaign_id: u32)` |
+| Data   | `(title: String, description: String)` |
+| Source | `src/campaigns/update.rs` — `update_campaign()` |
+
+---
+
+### `campaign_description_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_description_updated", campaign_id: u32)` |
+| Data   | `new_desc: String` |
+| Source | `src/campaigns/update.rs` — `update_campaign_description()` |
+
+---
+
+### `campaign_unbookmarked`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_unbookmarked", user: Address)` |
+| Data   | `campaign_id: u32` |
+| Source | `src/bookmarks.rs` — `remove_saved_campaign()` |
+
+---
+
+### `campaign_bookmarks_cleared`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_bookmarks_cleared", user: Address)` |
+| Data   | `cleared: u32` |
+| Source | `src/bookmarks.rs` — `clear_saved_campaigns()` |
+
+---
+
+### `refund_claimed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("refund_claimed", campaign_id: u32, contributor: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/contributions.rs` — `claim_refund()` |
+
+---
+
+### `revenue_deposited`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("revenue_deposited", campaign_id: u32, creator: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/revenue.rs` — `deposit_revenue()` |
+
+---
+
+### `revenue_claimed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("revenue_claimed", campaign_id: u32, contributor: Address)` |
+| Data   | `claimable: i128` |
+| Source | `src/revenue.rs` — `claim_revenue()` |
+
+---
+
+### `creator_revenue_claimed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("creator_revenue_claimed", campaign_id: u32, creator: Address)` |
+| Data   | `claimable: i128` |
+| Source | `src/revenue.rs` — `claim_creator_revenue()` |
+
+---
+
+### `voting_params_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("voting_params_updated",)` |
+| Data   | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
+| Source | `src/admin.rs` — `set_voting_params()` |
+
+---
+
+### `warning_high_voting_balance`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("warning_high_voting_balance",)` |
+| Data   | `min_balance: i128` |
+| Source | `src/admin.rs` — `set_min_voting_balance()` when `min_balance > 10^15` |
+
+---
+
+### `min_voting_balance_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("min_voting_balance_updated",)` |
+| Data   | `(old_balance: i128, new_balance: i128)` |
+| Source | `src/admin.rs` — `set_min_voting_balance()` |
+
+---
+
+### `contract_paused`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("contract_paused", admin: Address)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `pause()` |
+
+---
+
+### `contract_unpaused`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("contract_unpaused", admin: Address)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `unpause()` |
+
+---
+
+### `creation_disabled_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("creation_disabled_updated", admin: Address)` |
+| Data   | `disabled: bool` |
+| Source | `src/admin.rs` — `set_creation_disabled()` |
+
+---
+
+### `campaigns_bulk_verified`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaigns_bulk_verified",)` |
+| Data   | `(verified_count: u32, failed_ids: Vec<u32>)` |
+| Source | `src/lib.rs` — `verify_campaigns()` |
+
+> #442: the payload used to be (verified_count, total); it now carries the per-id outcome. `failed_ids` lists every campaign id in the processed batch (up to 50) that could not be verified, so indexers can distinguish partial success from total failure without re-querying the contract.
+
+---
+
+### `migrated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("migrated",)` |
+| Data   | `(expected_old_version: u32, new_version: u32)` |
+| Source | `src/admin.rs` — `migrate()` |
+
+---
+
+### `token_update_proposed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("token_update_proposed",)` |
+| Data   | `(new_token: Address, release_after: u64)` |
+| Source | `src/admin.rs` — `propose_token_update()` |
+
+---
+
+### `token_update_accepted`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("token_update_accepted",)` |
+| Data   | `(old_token: Address, new_token: Address)` |
+| Source | `src/admin.rs` — `accept_token_update()` |
+
+---
+
+### `token_update_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("token_update_cancelled",)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `cancel_token_update()` |
+
+---
+
+### `fee_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("fee_updated",)` |
+| Data   | `(old_fee: u32, new_fee: u32)` |
+| Source | `src/admin.rs` — `update_platform_fee()` |
+
+---
+
+### `campaign_fee_override_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_fee_override_set", campaign_id: u32)` |
+| Data   | `fee_bps: u32` |
+| Source | `src/admin.rs` — `set_campaign_fee_override()` |
+
+---
+
+### `category_duration_cap_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_duration_cap_set", category: u32)` |
+| Data   | `max_days: u64` |
+| Source | `src/admin.rs` — `set_category_duration_cap()` |
+
+---
+
+### `category_duration_cap_removed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_duration_cap_removed", category: u32)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `remove_category_duration_cap()` |
+
+---
+
+### `campaign_deadline_extended`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_deadline_extended", campaign_id: u32)` |
+| Data   | `(old_deadline: u64, new_deadline: u64)` |
+| Source | `src/campaigns/update.rs` — `extend_campaign_deadline()` |
+
+---
+
+### `personal_cap_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("personal_cap_set", campaign_id: u32, contributor: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/contributions.rs` — `set_personal_cap()` |
+
+---
+
+### `personal_cap_removed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("personal_cap_removed", campaign_id: u32, contributor: Address)` |
+| Data   | `()` |
+| Source | `src/contributions.rs` — `remove_personal_cap()` |
+
+---
+
+### `admin_transfer_initiated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("admin_transfer_initiated",)` |
+| Data   | `(current_admin: Address, new_admin: Address)` |
+| Source | `src/admin.rs` — `initiate_admin_transfer()` |
+
+---
+
+### `admin_transfer_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("admin_transfer_cancelled",)` |
+| Data   | `admin: Address` |
+| Source | `src/admin.rs` — `cancel_admin_transfer()` |
+
+---
+
+### `admin_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("admin_updated", old_admin: Address)` |
+| Data   | `new_admin: Address` |
+| Source | `src/admin.rs` — `update_admin()` |
+
+---
+
+### `min_campaign_funding_goal_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("min_campaign_funding_goal_updated",)` |
+| Data   | `(old_min: i128, new_min: i128)` |
+| Source | `src/admin.rs` — `set_min_campaign_funding_goal()` |
+
+---
+
+### `max_campaign_funding_goal_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("max_campaign_funding_goal_updated",)` |
+| Data   | `(old_max: i128, new_max: i128)` |
+| Source | `src/admin.rs` — `set_max_campaign_funding_goal()` |
+
+---
+
+### `campaign_transfer_initiated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_transfer_initiated", campaign_id: u32, current_creator: Address)` |
+| Data   | `new_creator: Address` |
+| Source | `src/campaigns/transfer.rs` — `initiate_campaign_transfer()` |
+
+---
+
+### `campaign_transfer_completed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_transfer_completed", campaign_id: u32)` |
+| Data   | `(old_creator: Address, new_creator: Address)` |
+| Source | `src/campaigns/transfer.rs` — `accept_campaign_transfer()` |
+
+---
+
+### `voting_state_purged`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("voting_state_purged", campaign_id: u32)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `purge_voting_state()` |
+
+---
+
+### `campaign_transfer_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_transfer_cancelled", campaign_id: u32)` |
+| Data   | `pending_creator: Address` |
+| Source | `src/campaigns/transfer.rs` — `cancel_campaign_transfer()` |
+
+---
+
+### `campaign_resumed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_resumed", campaign_id: u32, caller: Address)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `resume_campaign()` |
+
+---
+
+### `campaign_vote_cast`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
+| Data   | `(approve: bool, balance: i128, weight: i128)` |
+| Source | `src/voting.rs` — `cast_vote()` |
+
+---
+
+### `campaign_verified (admin)`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_verified", campaign_id: u32)` |
+| Data   | `()` |
+| Source | `src/voting.rs` — `admin_verify()` |
+
+---
+
+### `campaign_verified (community)`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_verified", campaign_id: u32)` |
+| Data   | `approve_votes: u32` |
+| Source | `src/voting.rs` — `verify_with_votes()` |
+
+---
+
+### `platform_stats_inconsistent`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("platform_stats_inconsistent",)` |
+| Data   | `(total_campaigns: u32, active_campaigns: u32, verified_campaigns: u32, cancelled_campaigns: u32)` |
+| Source | `src/queries.rs` — `get_platform_stats()` |
+
+> Published only when the stored platform counters violate the consistency invariants checked by `queries::counters_are_consistent` (e.g. a partial migration or failed legacy write leaves `active_campaigns > total_campaigns`). The raw stored values are reported in the event data so the corruption is auditable; the same query returns `stats_are_partial = true`.
+
+---
+
+Total: 52 documented publish() call sites

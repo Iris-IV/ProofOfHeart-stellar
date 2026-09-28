@@ -796,52 +796,6 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "BlockContributionCount"
-                }
-              ]
-            },
-            "durability": "temporary"
-          }
-        },
-        [
-          {
-            "last_modified_ledger_seq": 0,
-            "data": {
-              "contract_data": {
-                "ext": "v0",
-                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-                "key": {
-                  "vec": [
-                    {
-                      "symbol": "BlockContributionCount"
-                    }
-                  ]
-                },
-                "durability": "temporary",
-                "val": {
-                  "vec": [
-                    {
-                      "u32": 0
-                    },
-                    {
-                      "u32": 2
-                    }
-                  ]
-                }
-              }
-            },
-            "ext": "v0"
-          },
-          15
-        ]
-      ],
-      [
-        {
-          "contract_data": {
-            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4",
-            "key": {
-              "vec": [
-                {
                   "symbol": "Campaign"
                 },
                 {
@@ -925,9 +879,28 @@
                     },
                     {
                       "key": {
+                        "symbol": "effective_amount_raised"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "fee_override"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "first_creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
                     },
                     {
                       "key": {
@@ -997,14 +970,6 @@
                           "hi": 0,
                           "lo": 0
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "original_creator"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     },
                     {
@@ -1364,6 +1329,18 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "ActiveCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 0
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Admin"
                             }
                           ]
@@ -1388,7 +1365,41 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "BlockCampaignContributionCount"
+                            },
+                            {
+                              "u32": 1
+                            }
+                          ]
+                        },
+                        "val": {
+                          "vec": [
+                            {
+                              "u32": 0
+                            },
+                            {
+                              "u32": 2
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "CampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "CancelledCampaignCount"
                             }
                           ]
                         },
@@ -1487,6 +1498,18 @@
                             "hi": 0,
                             "lo": 0
                           }
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "VerifiedCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
                         }
                       },
                       {
@@ -2455,7 +2478,14 @@
               }
             ],
             "data": {
-              "string": "Failed Idea"
+              "vec": [
+                {
+                  "string": "Failed Idea"
+                },
+                {
+                  "u32": 0
+                }
+              ]
             }
           }
         }
@@ -3087,9 +3117,28 @@
                 },
                 {
                   "key": {
+                    "symbol": "effective_amount_raised"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 1500
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "fee_override"
                   },
                   "val": "void"
+                },
+                {
+                  "key": {
+                    "symbol": "first_creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
                   "key": {
@@ -3159,14 +3208,6 @@
                       "hi": 0,
                       "lo": 0
                     }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "original_creator"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   }
                 },
                 {

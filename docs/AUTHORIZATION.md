@@ -32,7 +32,27 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `get_version()` | no auth |
 | `update_platform_fee(new_fee)` | stored `admin` (from `get_admin`) |
 | `set_min_campaign_funding_goal(admin, min_goal)` | stored `admin` (and `admin` must match stored admin) |
-| `update_admin(admin, new_admin)` | stored `admin` (and `admin` must match stored admin) |
+| `set_max_campaign_funding_goal(admin, max_goal)` | stored `admin` (and `admin` must match stored admin) |
+| `update_admin(new_admin)` | stored `admin` — legacy shim, initiates a 2-step transfer via `initiate_admin_transfer` |
+| `initiate_admin_transfer(admin, new_admin)` | `admin` (must match stored admin) |
+| `accept_admin_transfer()` | pending admin (from `get_pending_admin`) |
+| `cancel_admin_transfer(admin)` | `admin` (must match stored admin) |
+| `propose_token_update(admin, new_token)` | `admin` (must match stored admin) |
+| `accept_token_update(admin)` | `admin` (must match stored admin) |
+| `cancel_token_update(admin)` | `admin` (must match stored admin) |
+| `migrate(admin, expected_old_version)` | `admin` (must match stored admin) |
+| `set_campaign_fee_override(campaign_id, admin, fee_bps)` | `admin` (must match stored admin) |
+| `set_category_duration_cap(admin, category, max_days)` | `admin` (must match stored admin) |
+| `remove_category_duration_cap(admin, category)` | `admin` (must match stored admin) |
+| `set_min_voting_balance(admin, min_balance)` | `admin` (must match stored admin) |
+| `set_creation_disabled(disabled)` | stored `admin` (from `get_admin`) |
+| `resume_campaign(campaign_id, caller)` | `caller` (must be `campaign.creator` or stored `admin`) |
+| `purge_voting_state(campaign_id, voters, finalize_aggregate)` | stored `admin` (from `get_admin`) |
+| `set_personal_cap(campaign_id, contributor, amount)` | `contributor` |
+| `remove_personal_cap(campaign_id, contributor)` | `contributor` |
+| `extend_campaign_deadline(campaign_id, additional_days)` | `campaign.creator` |
+| `withdraw_reserve(campaign_id)` | `campaign.creator` |
+| `set_vesting_params(admin, delay_days, reserve_bps)` | stored `admin` (and `admin` must match stored admin) |
 | `get_approve_votes(...)` | no auth |
 | `get_reject_votes(...)` | no auth |
 | `has_voted(..., voter)` | no auth |
@@ -47,4 +67,11 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `initiate_campaign_transfer(campaign_id, new_creator)` | `campaign.creator` |
 | `accept_campaign_transfer(campaign_id)` | pending creator (from `campaign.pending_creator`) |
 | `cancel_campaign_transfer(campaign_id)` | `campaign.creator` |
+| `save_campaign(user, campaign_id)` | `user` |
+| `remove_saved_campaign(user, campaign_id)` | `user` |
+| `batch_save_campaigns(user, campaign_ids)` | `user` |
+| `clear_saved_campaigns(user)` | `user` |
+| `get_saved(user)` | no auth |
+| `get_saved_count(user)` | no auth |
+| `get_saved_campaigns(user)` | no auth |
 

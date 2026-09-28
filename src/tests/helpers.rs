@@ -1,10 +1,12 @@
+extern crate std;
+
 pub use crate::storage::set_min_campaign_funding_goal;
 pub use crate::{Category, CreateCampaignParams, ProofOfHeart, ProofOfHeartClient};
 pub use soroban_sdk::token::Client as TokenClient;
 pub use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 pub use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, IntoVal, String, Symbol,
+    Address, Env, IntoVal, String,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -130,4 +132,18 @@ pub(crate) fn setup_env_with_version<'a>(version: u32) -> (
         token_admin,
         client,
     )
+pub(crate) fn setup_token<'a>(env: &Env, admin: &Address) -> TokenClient<'a> {
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+    TokenClient::new(env, &token_address)
+}
+
+pub(crate) fn setup_contract<'a>(
+    env: &Env,
+    admin: &Address,
+    token_address: &Address,
+) -> ProofOfHeartClient<'a> {
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(env, &contract_id);
+    client.init(admin, token_address, &300);
+    client
 }

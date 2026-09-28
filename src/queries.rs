@@ -1,0 +1,650 @@
+use soroban_sdk::{Address, Env, String};
+
+use crate::constants::MAX_SCAN_WINDOW;
+use crate::storage::{
+    get_active_campaign_count, get_campaign, get_campaign_count, get_campaign_tags,
+    get_cancelled_campaign_count, get_category_campaign_bucket, get_category_campaign_count,
+    get_contribution, get_contributor_count, get_creator_campaign_bucket,
+    get_creator_campaign_count, get_last_contribution_time, get_platform_fee,
+    get_tag_campaign_count, get_tag_campaigns_bucket, get_token, get_top_contributor,
+    get_total_raised_global, get_verified_campaign_count, hash_text,
+    CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE, TAG_CAMPAIGNS_BUCKET_SIZE,
+};
+use crate::types::{
+    Campaign, CampaignStats, Category, CreatorStats, MaybePendingCreator, PlatformReport,
+    PlatformStats,
+};
+
+// #787: read-only query helpers work with `&Campaign` references where they
+// inspect campaign state, avoiding by-value copies of the heavy Campaign
+// struct in the WASM VM.
+
+/// Returns all campaigns (active, inactive, cancelled) ordered by campaign ID,
+/// in ascending order.
+///
+/// # Pagination
+///
+/// The `start` parameter is an **exclusive cursor** — pass the last campaign ID
+/// from the previous page to begin the next page. Begin with `start = 0`.
+///
+/// After each request, set `start` to the ID of the last campaign received.
+/// Stop when fewer than `limit` results are returned (all results have been
+/// retrieved).
+///
+/// ```text
+/// // Example: fetch all campaigns in pages of 10
+/// let mut start = 0u32;
+/// let limit = 10u32;
+/// loop {
+///     let page = client.list_campaigns(&start, &limit);
+///     if page.len() == 0 { break; }
+///     // process page
+///     start = page.get(page.len() - 1).unwrap().id;
+///     if page.len() < limit as usize { break; }
+/// }
+/// ```
+pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+    let total_count = get_campaign_count(env);
+    let mut campaigns = soroban_sdk::Vec::new(env);
+
+    if start >= total_count || limit == 0 {
+        return campaigns;
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let end = start.saturating_add(capped_limit).min(total_count);
+
+    for id in (start.saturating_add(1))..=end {
+        if let Some(campaign) = get_campaign(env, id) {
+            campaigns.push_back(campaign);
+        }
+    }
+
+    campaigns
+}
+
+/// Lists active campaigns by scanning campaign IDs starting after `start`, up to
+/// `MAX_SCAN_WINDOW` ids per call. If the scan window is exhausted before
+/// `limit` active campaigns are collected, a `scan_window_exhausted` event is
+/// published so callers/indexers know to re-query with the returned cursor
+/// rather than assuming pagination is complete.
+pub(crate) fn list_active_campaigns(
+    env: &Env,
+    start: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<Campaign>, u32) {
+    let total_count = get_campaign_count(env);
+    let mut campaigns = soroban_sdk::Vec::new(env);
+
+    if start >= total_count || limit == 0 {
+        return (campaigns, 0);
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let mut collected = 0u32;
+    let mut current_id = start.saturating_add(1);
+    let mut next_cursor = 0u32;
+    let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
+
+    while current_id <= total_count {
+        if current_id > start.saturating_add(MAX_SCAN_WINDOW) {
+            env.events().publish(
+                ("scan_window_exhausted",),
+                (start, current_id, collected, capped_limit),
+            );
+            next_cursor = current_id;
+            break;
+        }
+
+        if let Some(campaign) = get_campaign(env, current_id) {
+            if campaign.is_active && !campaign.is_cancelled {
+                campaigns.push_back(campaign);
+                collected += 1;
+                if collected >= capped_limit {
+                    next_cursor = current_id.saturating_add(1);
+                    break;
+                }
+            }
+        }
+
+        if current_id == u32::MAX {
+            break;
+        }
+        current_id += 1;
+    }
+
+    (campaigns, next_cursor)
+}
+
+/// Shared bucket-pagination helper used by `get_campaigns_by_category`,
+/// `get_campaigns_by_tag`, and `get_creator_campaigns`. The query functions
+/// differ only in how they derive the total count and how they load a
+/// bucket — this helper captures the identical traversal algorithm so there
+/// is one canonical implementation.
+///
+/// # Cursor contract (#845)
+///
+/// `start` here is a **zero-based positional offset** into the query's own
+/// result ordering (the Nth campaign matching that category/tag/creator),
+/// *not* a campaign ID. This is a different contract from [`list_campaigns`],
+/// whose `start` is an **exclusive campaign-ID cursor**. The two are not
+/// interchangeable: a cursor obtained from one of these bucket-paginated
+/// queries cannot be passed as `start` to `list_campaigns` (or vice versa).
+/// To page through a bucket-paginated query, set the next `start` to
+/// `previous_start + previous_page.len()` and stop once a page returns fewer
+/// than `limit` results.
+///
+/// Algorithm overview:
+///   1. Jump to the bucket containing `start`.
+///   2. Walk entries within that bucket starting at the requested position.
+///   3. Collect up to `limit` campaigns (capped at `LIST_MAX_LIMIT`).
+///   4. When the bucket is exhausted, advance `position` past the bucket
+///      boundary and repeat from step 1 with the next bucket.
+pub(crate) fn get_campaigns_from_buckets<F>(
+    env: &Env,
+    start: u32,
+    limit: u32,
+    total: u32,
+    bucket_size: u32,
+    get_bucket: F,
+) -> (soroban_sdk::Vec<Campaign>, u32)
+where
+    F: Fn(&Env, u32) -> soroban_sdk::Vec<u32>,
+{
+    let mut campaigns = soroban_sdk::Vec::new(env);
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+
+    if start >= total || capped_limit == 0 {
+        return (campaigns, start);
+    }
+
+    let end = start.saturating_add(capped_limit).min(total);
+    let mut position = start;
+    let mut next_cursor = start;
+
+    while position < end {
+        let bucket_idx = position / bucket_size;
+        let bucket = get_bucket(env, bucket_idx);
+        let bucket_start = bucket_idx * bucket_size;
+        let mut idx_in_bucket = position - bucket_start;
+
+        let bucket_len = bucket.len();
+        while idx_in_bucket < bucket_len && position < end {
+            // `if let Some` rather than `unwrap()` is intentional: a sparse
+            // bucket entry is skipped (not a panic), mirroring the
+            // creator-campaign path's behaviour.
+            if let Some(campaign_id) = bucket.get(idx_in_bucket) {
+                if let Some(campaign) = get_campaign(env, campaign_id) {
+                    campaigns.push_back(campaign);
+                    next_cursor = position + 1;
+                }
+            }
+            idx_in_bucket += 1;
+            position += 1;
+        }
+
+        if idx_in_bucket >= bucket_len {
+            // Bucket exhausted (or empty). The natural next position is just
+            // past this bucket's known entries. But if the stored bucket is
+            // shorter than `idx_in_bucket` already implies (malformed/
+            // inconsistent metadata — e.g. `bucket_len` was truncated after
+            // `position` had already advanced past it), that "natural" value
+            // can be *less* than the current `position`, walking it
+            // backwards into the same bucket on the next iteration forever.
+            // Clamp to `position + 1` so `position` is always strictly
+            // monotonically increasing regardless of what the bucket reports.
+            let natural_next = if bucket_len == 0 {
+                bucket_start + bucket_size
+            } else {
+                bucket_start + bucket_len
+            };
+            position = natural_next.max(position.saturating_add(1));
+        }
+    }
+
+    (campaigns, next_cursor)
+}
+
+#[cfg(test)]
+mod bucket_pagination_tests {
+    use super::get_campaigns_from_buckets;
+    use core::cell::Cell;
+    use soroban_sdk::Env;
+
+    /// Guards against #844: a bucket that reports fewer entries than the
+    /// current position implies (malformed/inconsistent bucket metadata)
+    /// must not walk `position` backwards and re-fetch the same bucket
+    /// forever. This caps the number of `get_bucket` calls and fails loudly
+    /// if that bound is ever exceeded, rather than hanging.
+    #[test]
+    fn malformed_short_bucket_does_not_loop_forever() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 25u32;
+        let start = 5u32; // mid-bucket: idx_in_bucket = 5
+        let limit = 50u32;
+
+        let calls = Cell::new(0u32);
+        // Every bucket, regardless of index, reports only 2 entries — far
+        // fewer than `bucket_size` and fewer than `start`'s offset into it.
+        let result =
+            get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
+                let n = calls.get() + 1;
+                calls.set(n);
+                assert!(
+                    n <= 32,
+                    "get_bucket called {n} times — position is not advancing (infinite loop)"
+                );
+                soroban_sdk::Vec::from_array(e, [1u32, 2u32])
+            });
+
+        // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
+        // is collected — the point of the test is termination, not content.
+        assert_eq!(result.0.len(), 0);
+        assert!(calls.get() > 0);
+    }
+
+    /// Same malformed-bucket scenario, but with an always-empty bucket
+    /// (`bucket_len == 0`), which already advanced correctly before #844 —
+    /// kept here as a regression guard alongside the short-bucket case.
+    #[test]
+    fn always_empty_bucket_terminates() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 100u32;
+        let calls = Cell::new(0u32);
+
+        let result = get_campaigns_from_buckets(&env, 0, 50, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(
+                n <= 32,
+                "get_bucket called {n} times — possible infinite loop"
+            );
+            soroban_sdk::Vec::new(e)
+        });
+
+        assert_eq!(result.0.len(), 0);
+        assert!(calls.get() > 0);
+    }
+}
+
+pub(crate) fn get_campaigns_by_category(
+    env: &Env,
+    category: Category,
+    offset: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<Campaign>, u32) {
+    let total = get_category_campaign_count(env, category);
+    get_campaigns_from_buckets(
+        env,
+        offset,
+        limit,
+        total,
+        CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_category_campaign_bucket(e, category, idx),
+    )
+}
+
+/// Returns the campaigns tagged with `tag`, paginated (#798).
+///
+/// Backed by the inverted tag index maintained by `add_campaign_tag`, so this
+/// is O(page) rather than a full campaign scan. `offset` is a zero-based
+/// index into the tag's campaign list (not a campaign id) — see the cursor
+/// contract note on [`get_campaigns_from_buckets`] (#845). An unknown,
+/// empty, or over-long tag returns an empty page.
+pub(crate) fn get_campaigns_by_tag(
+    env: &Env,
+    tag: String,
+    offset: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<Campaign>, u32) {
+    if tag.len() < crate::CAMPAIGN_TAG_MIN_LEN || tag.len() > crate::CAMPAIGN_TAG_MAX_LEN {
+        return (soroban_sdk::Vec::new(env), offset);
+    }
+    let tag_hash = hash_text(env, &tag);
+    let total = get_tag_campaign_count(env, &tag_hash);
+    get_campaigns_from_buckets(
+        env,
+        offset,
+        limit,
+        total,
+        TAG_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_tag_campaigns_bucket(e, &tag_hash, idx),
+    )
+}
+
+/// Returns the tags applied to a campaign, in the order they were added (#798).
+pub(crate) fn get_campaign_tag_list(env: &Env, campaign_id: u32) -> soroban_sdk::Vec<String> {
+    get_campaign_tags(env, campaign_id)
+}
+
+/// #534: jumps straight to the bucket containing `start` instead of reading
+/// every preceding bucket just to advance a counter, so paginating deep into
+/// a creator with many campaigns no longer costs one ledger read per skipped
+/// bucket (mirrors `get_campaigns_by_category`'s direct-jump approach).
+///
+/// `start` is a zero-based positional index into this creator's campaign
+/// list — **not** a campaign ID. See the cursor contract note on
+/// [`get_campaigns_from_buckets`] (#845) for how this differs from
+/// `list_campaigns`'s ID-based cursor.
+pub(crate) fn get_creator_campaigns(
+    env: &Env,
+    creator: Address,
+    start: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<Campaign>, u32) {
+    let total = get_creator_campaign_count(env, &creator);
+    get_campaigns_from_buckets(
+        env,
+        start,
+        limit,
+        total,
+        CREATOR_CAMPAIGNS_BUCKET_SIZE,
+        |e, idx| get_creator_campaign_bucket(e, &creator, idx),
+    )
+}
+
+/// Aggregates total raised, active campaign count, and total contributors
+/// across every campaign owned by `creator` (#519). Walks the creator's
+/// campaign buckets directly (same storage layout `get_creator_campaigns`
+/// paginates over) rather than the paginated query, since a creator's own
+/// campaign count is bounded by normal usage and the caller wants a
+/// complete aggregate, not a page.
+///
+/// **Existence semantics:** `total_campaigns` is the existence indicator.
+/// Consumers can distinguish an unknown creator from a known creator with no
+/// activity by checking `total_campaigns > 0`. A value of `0` means `creator`
+/// has no campaign index and is not a known creator. A known creator with no
+/// activity still has `total_campaigns > 0`; its other aggregate fields may be
+/// zero.
+///
+/// **Note:** `total_contributors` is a sum of the contributor counts of all
+/// creator's campaigns. Because no registry of unique contributor addresses
+/// is maintained per campaign/creator in storage, this value can double-count
+/// contributors who support multiple campaigns by this creator. It represents
+/// the total contribution events rather than the count of unique wallets.
+pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
+    let total = get_creator_campaign_count(env, &creator);
+
+    let mut active_campaigns = 0u32;
+    let mut total_raised: i128 = 0;
+    let mut total_contributors: u32 = 0;
+
+    let num_buckets = total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
+    for bucket_idx in 0..num_buckets {
+        let bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
+        for i in 0..bucket.len() {
+            if let Some(campaign_id) = bucket.get(i) {
+                if let Some(campaign) = get_campaign(env, campaign_id) {
+                    if campaign.is_active && !campaign.is_cancelled {
+                        active_campaigns += 1;
+                    }
+                    if !campaign.is_cancelled {
+                        total_raised += campaign.amount_raised;
+                    }
+                    total_contributors += get_contributor_count(env, campaign_id);
+                }
+            }
+        }
+    }
+
+    CreatorStats {
+        is_known_creator: total > 0,
+        total_campaigns: total,
+        active_campaigns,
+        total_raised,
+        total_contributors,
+    }
+}
+
+/// Checks the consistency invariants that the independently-maintained
+/// platform counters must satisfy for the aggregates in `PlatformStats` to
+/// describe a possible state of the contract.
+///
+/// The counters live in separate instance-storage keys (`CampaignCount`,
+/// `ActiveCampaignCount`, `VerifiedCampaignCount`, `CancelledCampaignCount`)
+/// and are only ever written together inside individual contract invocations.
+/// A partial migration or a failed legacy write can therefore leave them out
+/// of step with each other, and `get_platform_stats` would otherwise report
+/// impossible totals (e.g. more active campaigns than campaigns ever created).
+///
+/// The invariants, all derived from the lifecycle tracked in `lifecycle.rs`:
+///
+/// * `active <= total` — every active campaign is a campaign that exists;
+/// * `verified <= total` — every verified campaign is a campaign that exists;
+/// * `cancelled <= total` — every cancelled campaign is a campaign that exists;
+/// * `active + cancelled <= total` — a campaign is counted in at most one of
+///   the active and cancelled buckets (withdrawn campaigns are in neither),
+///   so the two buckets together cannot exceed the number of campaigns.
+///
+/// Returns `true` only when every invariant holds.
+pub(crate) fn counters_are_consistent(
+    total: u32,
+    active: u32,
+    verified: u32,
+    cancelled: u32,
+) -> bool {
+    active <= total
+        && verified <= total
+        && cancelled <= total
+        && active.saturating_add(cancelled) <= total
+}
+
+pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
+    // O(1) reads from maintained instance-storage counters (#411).
+    // Counters are kept in sync by: create_campaign (+active), cancel_campaign (-active,
+    // +cancelled), withdraw_funds (-active), and admin_verify / verify_with_votes
+    // (+verified). No scan needed; `scanned_up_to` always equals
+    // `total_campaigns`.
+    //
+    // Because the counters are independent storage keys, `get_platform_stats`
+    // validates their relationship before reporting. When the invariants hold
+    // (the healthy case), `stats_are_partial` is `false` and every count can
+    // be trusted. When a partial migration or a failed legacy write has left
+    // the counters inconsistent — impossible totals such as
+    // `active_campaigns > total_campaigns` — the raw stored values are still
+    // returned so the corruption is auditable, but `stats_are_partial` is set
+    // to `true` and a `platform_stats_inconsistent` event is published so
+    // indexers and dashboards know the aggregates must not be displayed or
+    // relied upon until the counters are reconciled.
+    let total_campaigns = get_campaign_count(env);
+    let active_campaigns = get_active_campaign_count(env);
+    let verified_campaigns = get_verified_campaign_count(env);
+    let cancelled_campaigns = get_cancelled_campaign_count(env);
+
+    let stats_are_partial = !counters_are_consistent(
+        total_campaigns,
+        active_campaigns,
+        verified_campaigns,
+        cancelled_campaigns,
+    );
+
+    if stats_are_partial {
+        env.events().publish(
+            ("platform_stats_inconsistent",),
+            (
+                total_campaigns,
+                active_campaigns,
+                verified_campaigns,
+                cancelled_campaigns,
+            ),
+        );
+    }
+
+    PlatformStats {
+        total_campaigns,
+        active_campaigns,
+        verified_campaigns,
+        cancelled_campaigns,
+        total_amount_raised: get_total_raised_global(env),
+        stats_are_partial,
+        scanned_up_to: total_campaigns,
+    }
+}
+
+/// Returns aggregate contribution stats for a single campaign: contributor
+/// count, current top contributor, average contribution size, and the
+/// timestamp of the most recent contribution.
+pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    let contributor_count = get_contributor_count(env, campaign_id);
+    let campaign = get_campaign(env, campaign_id);
+    let amount_raised = campaign.as_ref().map(|c| c.amount_raised).unwrap_or(0);
+
+    let avg_contribution = if contributor_count > 0 {
+        amount_raised / contributor_count as i128
+    } else {
+        0
+    };
+
+    // #863: a cancelled campaign is terminal and every contribution to it is
+    // refundable, so it has no winner. `cancel_campaign` and
+    // `admin_cancel_campaign` clear the marker as part of the cancellation
+    // write; this read-time guard additionally covers campaigns cancelled
+    // *before* that write existed, whose marker is still in ledger storage.
+    // Same write-time-prune / read-time-filter split already used for
+    // bookmarks of cancelled campaigns.
+    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled).unwrap_or(false) {
+        MaybePendingCreator::None
+    } else {
+        get_top_contributor(env, campaign_id)
+            .map(MaybePendingCreator::from)
+            .unwrap_or(MaybePendingCreator::None)
+    };
+
+    CampaignStats {
+        contributor_count,
+        top_contributor,
+        avg_contribution,
+        last_contribution_time: get_last_contribution_time(env, campaign_id),
+    }
+}
+
+/// Returns a comprehensive platform report with all key metrics in a
+/// single call (#541). Useful for admin dashboards and health checks.
+pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
+    let total_campaigns = get_campaign_count(env);
+    let active_campaigns = get_active_campaign_count(env);
+    let total_raised = get_total_raised_global(env);
+    let platform_fee_bps = get_platform_fee(env);
+    let is_paused = env
+        .storage()
+        .instance()
+        .get(&crate::storage::AdminKey::Paused)
+        .unwrap_or(false)
+        || env
+            .storage()
+            .instance()
+            .get(&crate::storage::AdminKey::AutoPaused)
+            .unwrap_or(false);
+
+    let mut total_contributors: u32 = 0;
+    for id in 1..=total_campaigns {
+        if get_campaign(env, id).is_some() {
+            total_contributors += get_contributor_count(env, id);
+        }
+    }
+
+    PlatformReport {
+        total_campaigns,
+        active_campaigns,
+        total_raised,
+        total_contributors,
+        platform_fee_bps,
+        is_paused,
+        token: get_token(env),
+    }
+}
+
+/// Returns a page of the contributor's portfolio: for each campaign the
+/// contributor has backed, the campaign ID, the contribution amount, the
+/// campaign's current status, and whether a refund is currently available
+/// (#539).
+///
+/// # Pagination (#849)
+///
+/// `start` is an **exclusive cursor** — pass the last campaign ID scanned from
+/// the previous page to begin the next page. Begin with `start = 0`. Each call
+/// scans at most [`MAX_SCAN_WINDOW`] campaign IDs and returns at most `limit`
+/// contributions (capped at [`LIST_MAX_LIMIT`]), so a heavily active wallet can
+/// never produce an unbounded response.
+///
+/// The returned `u32` is the next cursor: pass it as `start` to fetch the next
+/// page, and stop when it equals `0`. If the scan window is exhausted before
+/// `limit` contributions are collected, a `scan_window_exhausted` event is
+/// published so callers/indexers know to re-query with the returned cursor
+/// rather than assuming pagination is complete (mirrors
+/// [`list_active_campaigns`]).
+pub(crate) fn get_contributor_portfolio(
+    env: &Env,
+    contributor: Address,
+    start: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<(u32, i128, String, bool)>, u32) {
+    let total_campaigns = get_campaign_count(env);
+    let mut portfolio = soroban_sdk::Vec::new(env);
+
+    if start >= total_campaigns || limit == 0 {
+        return (portfolio, 0);
+    }
+
+    let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
+    let mut collected = 0u32;
+    let mut current_id = start + 1;
+    let mut next_cursor = 0u32;
+
+    while current_id <= total_campaigns {
+        if current_id > start + MAX_SCAN_WINDOW {
+            env.events().publish(
+                ("scan_window_exhausted",),
+                (start, current_id, collected, capped_limit),
+            );
+            next_cursor = current_id;
+            break;
+        }
+
+        // Test the cheap key before loading the heavy value (#792).
+        //
+        // `get_contribution` is a single keyed read of an `i128`; `get_campaign`
+        // deserializes the whole `Campaign` — creator, title, description, and a
+        // dozen more fields. This loop runs over every campaign that has ever
+        // existed, and a contributor is in almost none of them, so loading the
+        // campaign first meant deserializing thousands of structs to discard
+        // all but a handful. The filter now decides before the copy happens.
+        let amount = get_contribution(env, current_id, &contributor);
+        if amount != 0 {
+            if let Some(campaign) = get_campaign(env, current_id) {
+                let status = if campaign.is_cancelled {
+                    "cancelled"
+                } else if campaign.funds_withdrawn {
+                    "withdrawn"
+                } else if !campaign.is_active {
+                    "inactive"
+                } else if campaign.is_verified {
+                    "verified"
+                } else {
+                    "active"
+                };
+
+                let refundable = campaign.is_cancelled
+                    || (env.ledger().timestamp() > campaign.deadline
+                        && campaign.amount_raised < campaign.funding_goal);
+
+                portfolio.push_back((
+                    current_id,
+                    amount,
+                    String::from_str(env, status),
+                    refundable,
+                ));
+                collected += 1;
+                if collected >= capped_limit {
+                    next_cursor = current_id + 1;
+                    break;
+                }
+            }
+        }
+        current_id += 1;
+    }
+
+    (portfolio, next_cursor)
+}

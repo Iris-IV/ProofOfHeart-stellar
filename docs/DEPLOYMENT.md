@@ -2,6 +2,8 @@
 
 This guide covers deploying the ProofOfHeart smart contract on Stellar testnet and mainnet, from building the WASM to contract initialization and verification.
 
+> **Automated deploy:** `scripts/deploy.sh` scripts the build/deploy/init/verify steps below (#495). See [Scripted Deployment](#scripted-deployment) for usage, or read on for the full manual walkthrough.
+
 ## Table of Contents
 
 1. [Prerequisites & Setup](#prerequisites--setup)
@@ -561,6 +563,34 @@ soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet 
 ```
 
 This clears the pending state with no effect on the current token.
+
+---
+
+## Scripted Deployment
+
+`scripts/deploy.sh` automates the manual steps above into four commands (#495):
+
+```bash
+# Build + deploy to testnet (prints CONTRACT_ID to export)
+scripts/deploy.sh deploy-testnet
+
+# Build + deploy to mainnet (uses SOURCE_ACCOUNT=deployer-mainnet)
+SOURCE_ACCOUNT=deployer-mainnet scripts/deploy.sh deploy-mainnet
+
+# Initialize a deployed contract
+CONTRACT_ID="C..." ADMIN_ADDRESS="G..." TOKEN_ADDRESS="C..." \
+  scripts/deploy.sh init --network testnet
+
+# Verify a deployed contract (contract info + contract_version)
+CONTRACT_ID="C..." scripts/deploy.sh verify --network testnet
+```
+
+Run `scripts/deploy.sh --help` for the full list of supported environment
+variables (`SOURCE_ACCOUNT`, `ADMIN_ADDRESS`, `TOKEN_ADDRESS`,
+`PLATFORM_FEE`, `CONTRACT_ID`). The script wraps the same `stellar` CLI
+commands documented in the sections above — it doesn't do anything the
+manual steps don't, it just sequences them and fails fast with a clear
+error message on missing prerequisites.
 
 ---
 

@@ -380,9 +380,28 @@
                     },
                     {
                       "key": {
+                        "symbol": "effective_amount_raised"
+                      },
+                      "val": {
+                        "i128": {
+                          "hi": 0,
+                          "lo": 0
+                        }
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "fee_override"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "first_creator"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                      }
                     },
                     {
                       "key": {
@@ -452,14 +471,6 @@
                           "hi": 0,
                           "lo": 0
                         }
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "original_creator"
-                      },
-                      "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     },
                     {
@@ -770,6 +781,18 @@
                       "wasm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     },
                     "storage": [
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "ActiveCampaignCount"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 1
+                        }
+                      },
                       {
                         "key": {
                           "vec": [
@@ -2560,7 +2583,14 @@
               }
             ],
             "data": {
-              "string": "Science Book"
+              "vec": [
+                {
+                  "string": "Science Book"
+                },
+                {
+                  "u32": 1
+                }
+              ]
             }
           }
         }
@@ -2686,9 +2716,28 @@
                 },
                 {
                   "key": {
+                    "symbol": "effective_amount_raised"
+                  },
+                  "val": {
+                    "i128": {
+                      "hi": 0,
+                      "lo": 0
+                    }
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "fee_override"
                   },
                   "val": "void"
+                },
+                {
+                  "key": {
+                    "symbol": "first_creator"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                  }
                 },
                 {
                   "key": {
@@ -2758,14 +2807,6 @@
                       "hi": 0,
                       "lo": 0
                     }
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "original_creator"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                   }
                 },
                 {
