@@ -66,6 +66,15 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --features testutils
+
   # Formatting is enforced; clippy runs with zero warnings denied (#1259).
   lint:
     runs-on: ubuntu-latest
@@ -116,6 +125,24 @@ jobs:
         with:
           cache-all-targets: "true"
       - run: cargo test --features testutils
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy -- -D warnings
+
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: cargo test --doc --features testutils
 
   # Issue #1216: Assert that contract methods stay within gas budget thresholds.

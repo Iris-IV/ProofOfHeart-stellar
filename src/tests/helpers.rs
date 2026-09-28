@@ -90,6 +90,48 @@ pub(crate) fn setup_env<'a>() -> (
     setup
 }
 
+pub(crate) fn setup_env_with_version<'a>(version: u32) -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    Address,
+    TokenClient<'a>,
+    TokenAdminClient<'a>,
+    ProofOfHeartClient<'a>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let contributor1 = Address::generate(&env);
+    let contributor2 = Address::generate(&env);
+
+    let token_address = env.register_stellar_asset_contract(admin.clone());
+    let token = TokenClient::new(&env, &token_address);
+    let token_admin = TokenAdminClient::new(&env, &token_address);
+
+    let contract_id = env.register_contract(None, ProofOfHeart);
+    let client = ProofOfHeartClient::new(&env, &contract_id);
+
+    client.init(&admin, &token_address, &300);
+
+    env.as_contract(&client.address, || {
+        crate::storage::set_version(&env, version);
+        set_min_campaign_funding_goal(&env, 1);
+    });
+
+    (
+        env,
+        admin,
+        creator,
+        contributor1,
+        contributor2,
+        token,
+        token_admin,
+        client,
+    )
 pub(crate) fn setup_token<'a>(env: &Env, admin: &Address) -> TokenClient<'a> {
     let token_address = env.register_stellar_asset_contract(admin.clone());
     TokenClient::new(env, &token_address)
