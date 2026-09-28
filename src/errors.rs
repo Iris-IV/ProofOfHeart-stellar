@@ -249,10 +249,6 @@ pub enum Error {
     VotingQuorumNotMet = 18,
     /// The approval vote share did not meet the required threshold.
     VotingThresholdNotMet = 19,
-    /// Admin verification was attempted on an already verified campaign.
-    AdminVerificationConflict = 34,
-    /// Community verification was attempted on an already verified campaign.
-    CommunityVerificationConflict = 35,
 
     // ── Validation / arithmetic ─────────────────────────────────────────────
     /// A general input validation constraint was violated.
@@ -283,22 +279,14 @@ pub enum Error {
     InvalidTokenContract = 31,
 
     // ── Deadline extension ──────────────────────────────────────────────────
-    /// Campaign creation is disabled by the admin.
-    CreationDisabled = 32,
-    /// The funding goal is below the configured minimum.
-    FundingGoalTooLow = 33,
-    /// Admin or community verification was attempted on an already verified campaign.
-    VerificationConflict = 34,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
-    /// The funding goal exceeds the configured maximum (anti-spam cap).
-    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 39,
-    /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 40,
+    InvalidPlatformFee = 52,
+    /// Admin or community verification was attempted on an already verified campaign.
+    VerificationConflict = 53,
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
