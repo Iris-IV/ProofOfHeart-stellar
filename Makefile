@@ -1,6 +1,7 @@
 default: build
 
 .PHONY: all build build-docker test wasm check-wasm clippy fmt fmt-check lint audit ci clean
+.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint ci clean
 
 CLIPPY_FLAGS ?= -D warnings
 
@@ -30,6 +31,10 @@ fmt-check:
 # Zero-warning policy (#1259): any clippy warning fails the build.
 clippy:
 	cargo clippy --all-targets --features testutils -- $(CLIPPY_FLAGS)
+
+# Auto-fix clippy suggestions locally; always review the diff before committing.
+clippy-fix:
+	cargo clippy --all-targets --features testutils --fix --allow-dirty --allow-staged
 
 lint: fmt-check clippy
 

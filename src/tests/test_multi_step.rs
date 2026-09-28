@@ -117,7 +117,7 @@ fn test_lifecycle_cancel_and_refund() {
     // Contributor refunds
     client.claim_refund(&campaign_id, &contributor1);
     assert_eq!(token.balance(&contributor1), 5000);
-#![cfg(test)]
+}
 
 use crate::tests::helpers::{setup_contract, setup_token};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};

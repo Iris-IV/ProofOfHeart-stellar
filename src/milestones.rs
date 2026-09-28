@@ -1,9 +1,131 @@
+//! # Milestone release escrow — functional specification
+//!
+//! A campaign creator may split the payout of a *successful* campaign into
+//! milestones. Instead of one `withdraw_funds` call, the platform admin verifies
+//! each milestone after review and the creator claims a share of the escrow per
+//! verified milestone (#783).
+//!
+//! ## Actors and entrypoints
+//!
+//! | Entrypoint          | Caller  | Purpose                                            |
+//! |---------------------|---------|----------------------------------------------------|
+//! | `set_milestones`    | creator | Define the milestone plan (once)                   |
+//! | `verify_milestone`  | admin   | Mark one milestone as verified (once each)         |
+//! | `claim_milestone`   | creator | Release a verified milestone's share of the escrow |
+//!
+//! ## Lifecycle
+//!
+//! ```text
+//!  no plan ── set_milestones(creator, once) ──► plan defined
+//!                                               (all verified = false, none claimed)
+//!
+//!  per milestone:
+//!    unverified ── verify_milestone(admin) ──► verified ── claim_milestone(creator) ──► claimed
+//!
+//!  when the last milestone is claimed:
+//!    campaign.funds_withdrawn = true, campaign.is_active = false
+//! ```
+//!
+//! Milestones may be verified and claimed in any order. Claiming requires the
+//! campaign to be verified, not cancelled, not fully withdrawn, and to have
+//! reached its funding goal.
+//!
+//! ## Plan rules (`set_milestones`)
+//!
+//! * The campaign must exist, must not be cancelled or already withdrawn, and
+//!   the contract must not be paused. The creator authorises the call.
+//! * A plan holds 1 to `MAX_MILESTONES` (10) milestones.
+//! * Each milestone has a unique `id`, a non-empty `description` and a
+//!   `payout_bps` in `1..=10_000`.
+//! * The `payout_bps` values must sum to exactly `BPS_DENOMINATOR` (10_000).
+//! * A plan can be set once; a second call fails with `ValidationFailed`.
+//! * Whatever `verified` value the caller passes is ignored: every milestone is
+//!   stored with `verified = false`.
+//! * Once a plan exists, `withdraw_funds` is refused for the campaign
+//!   (`ValidationFailed`) — milestones are the only way to release its funds.
+//!
+//! ## Release math (`claim_milestone`)
+//!
+//! All arithmetic is checked; overflow reverts with `Overflow`.
+//!
+//! ```text
+//! fee_total       = ceil(amount_raised * fee_bps / 10_000)      // campaign fee_override, else platform fee
+//! total_after_fee = amount_raised - fee_total
+//!
+//! claimable(i)    = floor(total_after_fee * payout_bps(i) / 10_000)
+//! fee_slice(i)    = floor(fee_total       * payout_bps(i) / 10_000)
+//! ```
+//!
+//! Rounding dust is not lost. The claim that leaves no other milestone
+//! unclaimed (the remaining basis points equal that milestone's own
+//! `payout_bps`) absorbs it:
+//!
+//! ```text
+//! claimable(last) = total_after_fee - sum(claimable(j) for already-claimed j)
+//! fee_claim(last) = max(fee_slice(last), fee_total - sum(fee_slice(j) for already-claimed j))
+//! ```
+//!
+//! Worked example: `amount_raised = 1000`, fee 300 bps, three milestones of
+//! 3333 / 3333 / 3334 bps.
+//!
+//! ```text
+//! fee_total = ceil(1000 * 300 / 10_000) = 30      total_after_fee = 970
+//! milestone 1:  floor(970 * 3333 / 10_000) = 323
+//! milestone 2:  floor(970 * 3333 / 10_000) = 323
+//! milestone 3:  970 - (323 + 323)          = 324  // last claim takes the dust
+//! ```
+//!
+//! On each claim the fee slice is transferred to the admin and the claimable
+//! amount to the creator, both in the campaign's token, and
+//! `total_raised_global` is reduced by `fee_claim + claimable`. A claim whose
+//! `claimable` is zero or negative fails with `NoFundsToWithdraw`.
+//!
+//! ## Checks-effects-interactions
+//!
+//! `claim_milestone` validates first, then records the effects — the milestone
+//! is marked claimed, the global total is reduced and, for the final claim, the
+//! campaign is closed — and only then calls the token's `transfer`. A milestone
+//! therefore cannot be claimed twice, even by a token that calls back into the
+//! contract (see `tests/test_cei_reentrancy.rs`).
+//!
+//! ## Errors
+//!
+//! | Error                    | When                                                        |
+//! |--------------------------|-------------------------------------------------------------|
+//! | `ValidationFailed`       | Bad plan (size, bps, ids, description), plan already set, or milestone already verified |
+//! | `CampaignNotActive`      | Campaign cancelled (or, when planning, already withdrawn)   |
+//! | `CampaignNotVerified`    | Claiming on an unverified campaign                          |
+//! | `FundsAlreadyWithdrawn`  | Claiming after the campaign was fully withdrawn             |
+//! | `NoFundsToWithdraw`      | Nothing raised, or the computed claim is not positive       |
+//! | `FundingGoalNotReached`  | Claiming before `amount_raised >= funding_goal`             |
+//! | `MilestoneNotFound`      | No plan, or no milestone with that id                       |
+//! | `MilestoneNotVerified`   | Claiming before the admin verified the milestone            |
+//! | `MilestoneAlreadyClaimed`| The milestone was already claimed                           |
+//! | `Overflow`               | Checked arithmetic overflowed                               |
+//!
+//! Every entrypoint also reverts while the contract is paused, and requires the
+//! caller's authorisation (creator for plan and claim, admin for verification).
+//!
+//! ## Events
+//!
+//! | Topics                                              | Data                     |
+//! |-----------------------------------------------------|--------------------------|
+//! | `("milestones_set", campaign_id)`                   | number of milestones     |
+//! | `("milestone_verified", campaign_id, milestone_id)` | `()`                     |
+//! | `("milestone_claimed", campaign_id, milestone_id)`  | `(claimable, fee_claim)` |
+//!
+//! ## Storage
+//!
+//! The plan is one `Vec<Milestone>` per campaign, plus a claimed flag per
+//! `(campaign_id, milestone_id)`; both go through the helpers in `storage.rs`,
+//! which extend TTL on write (see `docs/rent.md`). `bump_instance_ttl` runs on
+//! every state-changing entrypoint here.
+
 use super::*;
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::testutils::Ledger;
-use soroban_sdk::Address;
 
 fn setup_env<'a>() -> (
     Env,

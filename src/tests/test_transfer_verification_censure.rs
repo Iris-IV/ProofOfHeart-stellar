@@ -404,3 +404,98 @@ fn test_multiple_censures_accumulate_and_lift_independently() {
     assert!(!client.is_comment_censured(&campaign_id, &b));
     assert!(client.is_comment_censured(&campaign_id, &c));
 }
+
+// ── #797 + campaign suspension: funds remain locked during active censure ─────
+
+/// Comment censure does not interfere with contribution flow: a contributor can
+/// still contribute to a campaign that has censured comments.
+#[test]
+fn test_censure_does_not_block_contributions() {
+    let (env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
+    token_admin.mint(&contributor1, &5000);
+
+    client.censure_comment(
+        &campaign_id,
+        &hash(&env, 0x20),
+        &String::from_str(&env, "Spam"),
+    );
+    assert!(client.is_comment_censured(&campaign_id, &hash(&env, 0x20)));
+
+    client.contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
+    assert_eq!(token.balance(&contributor1), 4500);
+}
+
+/// After admin cancels a campaign (targeted fraud response), contributions are
+/// blocked and existing funds are locked in the contract until refunds are
+/// claimed — the admin cancellation does not leak funds.
+#[test]
+fn test_admin_cancel_campaign_locks_funds() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
+    token_admin.mint(&contributor1, &5000);
+
+    client.contribute(&campaign_id, &contributor1, &2000);
+    assert_eq!(token.balance(&client.address), 2000);
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
+
+    let res = client.try_withdraw_funds(&campaign_id);
+    assert!(res.is_err());
+
+    assert_eq!(token.balance(&client.address), 2000);
+}
+
+/// Admin cancellation during active censure: both features coexist without
+/// interfering. The campaign is cancelled, censure records are preserved, and
+/// contributors can still claim refunds.
+#[test]
+fn test_admin_cancel_during_active_censure_preserves_censure_records() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
+    token_admin.mint(&contributor1, &5000);
+
+    let comment = hash(&env, 0x30);
+    client.censure_comment(
+        &campaign_id,
+        &comment,
+        &String::from_str(&env, "Harassment"),
+    );
+    assert!(client.is_comment_censured(&campaign_id, &comment));
+
+    client.contribute(&campaign_id, &contributor1, &1000);
+
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.is_comment_censured(&campaign_id, &comment));
+
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5000);
+    assert!(client.is_comment_censured(&campaign_id, &comment));
+}
+
+/// Lifting a censure after admin cancellation still works: the uncensure
+/// operation is independent of the campaign's active/cancelled state.
+#[test]
+fn test_uncensure_works_after_campaign_cancellation() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+    let campaign_id = make_campaign(&env, &creator, &client, 0);
+    let comment = hash(&env, 0x40);
+
+    client.censure_comment(
+        &campaign_id,
+        &comment,
+        &String::from_str(&env, "Test"),
+    );
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
+
+    client.uncensure_comment(&campaign_id, &comment);
+    assert!(!client.is_comment_censured(&campaign_id, &comment));
+    assert_eq!(client.get_censured_comment_count(&campaign_id), 0);
+}
