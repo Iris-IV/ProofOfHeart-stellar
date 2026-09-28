@@ -1,6 +1,7 @@
 pub(crate) mod helpers;
 
 mod test_admin;
+mod test_bookmarks;
 mod test_campaign_create;
 mod test_campaign_update;
 mod test_cancel_revenue_orphan;
