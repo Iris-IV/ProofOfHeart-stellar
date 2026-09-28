@@ -41,4 +41,6 @@ mod test_counter_overflow_and_batch;
 mod test_cei_reentrancy;
 mod test_regressions;
 mod test_snapshots;
+mod test_multi_step;
+mod test_milestones;
 mod test_lifecycle_events;

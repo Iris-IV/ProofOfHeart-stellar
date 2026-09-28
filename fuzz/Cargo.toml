@@ -20,6 +20,10 @@ features = ["testutils"]
 # ethnum 1.5.0, which fails to compile on Rust 1.80+). Kept in sync with the
 # `[patch.crates-io]` section in ../Cargo.toml.
 ethnum = { path = "../vendor/ethnum" }
+# Same vendored soroban-env-host patch as the parent crate: fixes the
+# ed25519-dalek 3.0.0 CryptoRng incompatibility in the testutils feature.
+# Without it the fuzz crate cannot build against soroban-sdk 22.
+soroban-env-host = { path = "../vendor/soroban-env-host" }
 
 # Prevent this from interfering with workspace resolution of the library.
 [workspace]

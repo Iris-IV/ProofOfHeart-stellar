@@ -178,12 +178,33 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
+    extern crate std;
     use alloc::format;
 
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;
     use soroban_sdk::{Address, FromVal, String};
+
+    #[test]
+    fn dbg_save_campaign_events() {
+        let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Campaign"),
+            String::from_str(&env, "Desc"),
+            1000, 30, Category::Learner, false, 0, 0i128,
+        ));
+        let before = env.events().all().len();
+        client.save_campaign(&user, &id);
+        let after = env.events().all().len();
+        std::println!("before={before} after={after}");
+        for (i, e) in env.events().all().iter().enumerate() {
+            let topics = &e.1;
+            let name: String = soroban_sdk::FromVal::from_val(&env, &topics.get(0).unwrap());
+            std::println!("event {i}: {}", name.to_string());
+        }
+    }
 
     #[test]
     fn test_save_campaign_emits_campaign_bookmarked_event() {

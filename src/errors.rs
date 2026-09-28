@@ -171,11 +171,6 @@
 
 use soroban_sdk::contracterror;
 
-/// Unified error enum for the Proof of Heart contract.
-///
-/// Every entrypoint returns `Result<T, Error>` so callers can pattern-match
-/// on a single, exhaustive type rather than juggling panic strings or
-/// ad-hoc error codes.
 /// Represents a distinct error type that can occur within the contract.
 ///
 /// NOTE: Soroban's contract-spec XDR caps error enums at 50 cases
@@ -188,29 +183,20 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    // ── Authorization ───────────────────────────────────────────────────────
     /// The caller is not authorized to perform this action.
     NotAuthorized = 1,
-
-    // ── Campaign lookup / state ─────────────────────────────────────────────
     /// No campaign exists with the given ID.
     CampaignNotFound = 2,
     /// The campaign is not in an active state (cancelled or closed).
     CampaignNotActive = 3,
-    /// The campaign has already been verified.
-    CampaignAlreadyVerified = 14,
-    /// The campaign requires verification before actions can occur.
-    CampaignNotVerified = 26,
-    /// Campaign cancellation is disallowed because funds have already been withdrawn.
-    CancellationNotAllowed = 29,
-    /// Campaign creation is disabled by the admin.
-    CreationDisabled = 32,
-
-    // ── Funding / contributions ─────────────────────────────────────────────
     /// The provided funding goal must be a positive amount.
     FundingGoalMustBePositive = 4,
     /// The campaign duration must be between 1 and 365 days.
     InvalidDuration = 5,
+    /// The revenue share percentage is out of the allowed range.
+    InvalidRevenueShare = 6,
+    /// Revenue sharing is only permitted for `EducationalStartup` campaigns.
+    RevenueShareOnlyForStartup = 7,
     /// The contribution was made after the campaign's deadline.
     DeadlinePassed = 8,
     /// Contribution amount must be greater than zero.
@@ -223,24 +209,10 @@ pub enum Error {
     FundingGoalNotReached = 12,
     /// There are no funds available to withdraw or claim.
     NoFundsToWithdraw = 13,
-    /// The contribution would exceed the per-user cap set by the campaign creator.
-    ContributionCapExceeded = 25,
-    /// The funding goal is below the configured minimum.
-    FundingGoalTooLow = 33,
-    /// The funding goal exceeds the configured maximum (anti-spam cap).
-    FundingGoalTooHigh = 38,
-
-    // ── Revenue sharing ─────────────────────────────────────────────────────
-    /// The revenue share percentage is out of the allowed range.
-    InvalidRevenueShare = 6,
-    /// Revenue sharing is only permitted for `EducationalStartup` campaigns.
-    RevenueShareOnlyForStartup = 7,
-    /// Revenue claim calculation is invalid because `amount_raised` is zero.
-    AmountRaisedIsZero = 27,
-    /// Revenue deposit attempted on a campaign without revenue sharing enabled.
-    RevenueSharingNotEnabled = 28,
-
-    // ── Voting / verification ───────────────────────────────────────────────
+    /// The campaign has already been verified.
+    CampaignAlreadyVerified = 14,
+    /// A general input validation constraint was violated.
+    ValidationFailed = 15,
     /// The caller has already voted on this campaign.
     AlreadyVoted = 16,
     /// The caller holds no tokens and is therefore not eligible to vote.
@@ -273,8 +245,24 @@ pub enum Error {
     // ── Pause / token ───────────────────────────────────────────────────────
     /// The contract is currently paused.
     ContractPaused = 24,
+    /// The contribution would exceed the per-user cap set by the campaign creator.
+    ContributionCapExceeded = 25,
+    /// The campaign requires verification before actions can occur.
+    CampaignNotVerified = 26,
+    /// Revenue claim calculation is invalid because `amount_raised` is zero.
+    AmountRaisedIsZero = 27,
+    /// Revenue deposit attempted on a campaign without revenue sharing enabled.
+    RevenueSharingNotEnabled = 28,
+    /// Campaign cancellation is disallowed because funds have already been withdrawn.
+    CancellationNotAllowed = 29,
+    /// An arithmetic operation overflowed.
+    Overflow = 30,
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
+    /// Campaign creation is disabled by the admin.
+    CreationDisabled = 32,
+    /// The funding goal is below the configured minimum.
+    FundingGoalTooLow = 33,
 
     // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
