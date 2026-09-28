@@ -194,6 +194,10 @@ impl ProofOfHeart {
     /// Admin: sets the vesting policy applied at withdrawal — `reserve_bps` of
     /// the payout is held back and becomes withdrawable via `withdraw_reserve`
     /// after `delay_days`.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
+    /// * `ValidationFailed` — `reserve_bps > 10000` or `delay_days > 365`.
     pub fn set_vesting_params(
         env: Env,
         admin: Address,
@@ -435,7 +439,16 @@ impl ProofOfHeart {
 
     /// Casts `voter`'s approve/reject vote on an unverified campaign. Requires
     /// `voter`'s authorization and the minimum voting balance; each address may
-    /// vote once. Reverts if the contract is paused.
+    /// vote once.
+    ///
+    /// # Errors
+    /// * `ContractPaused` — The contract is paused.
+    /// * `CampaignNotFound` — No campaign with that id.
+    /// * `CampaignNotActive` — The campaign is not in an active state.
+    /// * `DeadlinePassed` — The campaign deadline has passed.
+    /// * `CampaignAlreadyVerified` — The campaign is already verified.
+    /// * `NotTokenHolder` — Voter holds no tokens or is below the minimum balance.
+    /// * `AlreadyVoted` — Voter has already voted on this campaign.
     pub fn vote_on_campaign(
         env: Env,
         campaign_id: u32,
@@ -448,7 +461,13 @@ impl ProofOfHeart {
     }
 
     /// Admin: verifies `campaign_id` directly, bypassing community voting.
-    /// Reverts if the contract is paused.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
+    /// * `ContractPaused` — The contract is paused.
+    /// * `CampaignNotFound` — No campaign with that id.
+    /// * `CampaignNotActive` — The campaign is not in an active state.
+    /// * `CampaignAlreadyVerified` — The campaign is already verified.
     pub fn verify_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         let admin = get_admin(&env);
         assert_admin(&env, &admin)?;
@@ -507,9 +526,16 @@ impl ProofOfHeart {
     }
 
     /// Verifies `campaign_id` once its community vote meets quorum and the
-    /// applicable approval threshold. Callable by anyone; reverts if paused,
-    /// the campaign is inactive or past its deadline, or the vote has not
-    /// passed.
+    /// applicable approval threshold. Callable by anyone.
+    ///
+    /// # Errors
+    /// * `ContractPaused` — The contract is paused.
+    /// * `CampaignNotFound` — No campaign with that id.
+    /// * `CampaignNotActive` — The campaign is not in an active state.
+    /// * `DeadlinePassed` — The campaign deadline has passed.
+    /// * `CampaignAlreadyVerified` — The campaign is already verified.
+    /// * `VotingQuorumNotMet` — Fewer total votes than the required quorum.
+    /// * `VotingThresholdNotMet` — Approval percentage below the required threshold.
     pub fn verify_campaign_with_votes(env: Env, campaign_id: u32) -> Result<(), Error> {
         lifecycle::require_not_paused(&env)?;
         bump_instance_ttl(&env);
@@ -528,6 +554,9 @@ impl ProofOfHeart {
 
     /// Admin: deletes per-voter records for `voters` on `campaign_id` to reclaim
     /// storage; `finalize_aggregate` also clears the campaign's vote tallies.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
     pub fn purge_voting_state(
         env: Env,
         campaign_id: u32,
@@ -540,11 +569,17 @@ impl ProofOfHeart {
     // ── Admin: pause / creation gate ─────────────────────────────────────────
 
     /// Admin: pauses all state-changing user operations.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
     pub fn pause(env: Env) -> Result<(), Error> {
         admin::pause(&env)
     }
 
     /// Admin: lifts a manual or automatic pause.
+    ///
+    /// # Errors
+    /// * `NotAuthorized` — Caller is not the stored admin.
     pub fn unpause(env: Env) -> Result<(), Error> {
         admin::unpause(&env)
     }

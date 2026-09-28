@@ -865,3 +865,70 @@ fn test_category_duration_cap_non_admin_rejected() {
     let res = client.try_set_category_duration_cap(&impostor, &Category::Learner, &30);
     assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
 }
+
+#[test]
+fn test_pause_non_admin_rejected() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let impostor = Address::generate(&env);
+    env.mock_auths(&[soroban_sdk::testutils::Auth {
+        address: &impostor,
+        invocation: &soroban_sdk::testutils::AuthInvocation {
+            function: soroban_sdk::testutils::AuthFunction::ContractFn(
+                soroban_sdk::testutils::AuthContractFn {
+                    contract: client.address.clone(),
+                    function_name: "pause".into_val(&env),
+                    args: (&).into_val(&env),
+                },
+            ),
+            sub_invocations: (&).into_val(&env),
+        },
+    }]);
+    let res = client.try_pause();
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
+fn test_update_platform_fee_non_admin_rejected() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let impostor = Address::generate(&env);
+    env.mock_auths(&[soroban_sdk::testutils::Auth {
+        address: &impostor,
+        invocation: &soroban_sdk::testutils::AuthInvocation {
+            function: soroban_sdk::testutils::AuthFunction::ContractFn(
+                soroban_sdk::testutils::AuthContractFn {
+                    contract: client.address.clone(),
+                    function_name: "update_platform_fee".into_val(&env),
+                    args: (500u32,).into_val(&env),
+                },
+            ),
+            sub_invocations: (&).into_val(&env),
+        },
+    }]);
+    let res = client.try_update_platform_fee(&500);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
+
+#[test]
+fn test_initiate_admin_transfer_non_admin_rejected() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+    let impostor = Address::generate(&env);
+    let target = Address::generate(&env);
+    env.mock_auths(&[soroban_sdk::testutils::Auth {
+        address: &impostor,
+        invocation: &soroban_sdk::testutils::AuthInvocation {
+            function: soroban_sdk::testutils::AuthFunction::ContractFn(
+                soroban_sdk::testutils::AuthContractFn {
+                    contract: client.address.clone(),
+                    function_name: "initiate_admin_transfer".into_val(&env),
+                    args: (&impostor, &target).into_val(&env),
+                },
+            ),
+            sub_invocations: (&).into_val(&env),
+        },
+    }]);
+    let res = client.try_initiate_admin_transfer(&impostor, &target);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NotAuthorized);
+}
