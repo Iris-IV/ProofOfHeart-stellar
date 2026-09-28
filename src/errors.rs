@@ -269,8 +269,6 @@ pub enum Error {
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
     InvalidNewOwner = 23,
-    /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 39,
 
     // ── Pause / token ───────────────────────────────────────────────────────
     /// The contract is currently paused.
@@ -279,6 +277,8 @@ pub enum Error {
     InvalidTokenContract = 31,
 
     // ── Deadline extension ──────────────────────────────────────────────────
+    /// Admin or community verification was attempted on an already verified campaign.
+    VerificationConflict = 34,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.

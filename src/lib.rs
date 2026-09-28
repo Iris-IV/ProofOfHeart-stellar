@@ -215,6 +215,7 @@ impl ProofOfHeart {
         campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps);
 
         Ok(())
+        campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps)
     }
 
     // ── Emergency withdrawal — admin last-resort recovery (#802) ───────────────
@@ -1172,3 +1173,5 @@ impl ProofOfHeart {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod milestones;

@@ -34,3 +34,8 @@ mod test_transfer_verification_censure;
 mod test_voting;
 mod test_voting_verify;
 mod test_withdrawals;
+mod test_benchmark;
+mod test_counter_overflow_and_batch;
+mod test_cei_reentrancy;
+mod test_regressions;
+mod test_snapshots;
