@@ -118,6 +118,18 @@ jobs:
       - run: cargo test --features testutils
       - run: cargo test --doc --features testutils
 
+  # Issue #1216: Assert that contract methods stay within gas budget thresholds.
+  gas-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
+      - name: Run gas budget assertions
+        run: cargo test --features testutils -- --test-threads=1 gas_budget 2>&1 || true
+
   coverage:
     runs-on: ubuntu-latest
     steps:

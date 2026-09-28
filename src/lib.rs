@@ -498,9 +498,10 @@ impl ProofOfHeart {
             }
         }
 
-        env.events().publish(
+        lifecycle::emit_event!(
+            env,
             ("campaigns_bulk_verified",),
-            (verified_ids.len(), failed_ids.clone()),
+            (verified_ids.len(), failed_ids.clone())
         );
 
         Ok((verified_ids, failed_ids))
