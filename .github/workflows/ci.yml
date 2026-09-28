@@ -7,6 +7,15 @@ on:
     branches: [main]
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --features testutils
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -15,4 +24,22 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo test --features testutils
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy -- -D warnings
+
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: cargo build --target wasm32-unknown-unknown --release
