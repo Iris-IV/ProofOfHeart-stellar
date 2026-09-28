@@ -166,6 +166,8 @@ fn test_campaign_payout_rejects_zero_balance() {
 
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+}
+
 //! # Milestone release escrow — functional specification
 //!
 //! A campaign creator may split the payout of a *successful* campaign into

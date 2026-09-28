@@ -1,6 +1,6 @@
 default: build
 
-.PHONY: all build build-docker test wasm check-wasm clippy fmt fmt-check lint ci clean
+.PHONY: all build build-docker test wasm check-wasm clippy fmt fmt-check lint audit ci clean
 
 CLIPPY_FLAGS ?= -D warnings
 
@@ -32,6 +32,10 @@ clippy:
 	cargo clippy --all-targets --features testutils -- $(CLIPPY_FLAGS)
 
 lint: fmt-check clippy
+
+# Issue #1217: run cargo audit for known dependency vulnerabilities.
+audit:
+	cargo audit --ignore RUSTSEC-2026-0009 --ignore RUSTSEC-2025-0001 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2026-0097
 
 ci: lint test check-wasm
 

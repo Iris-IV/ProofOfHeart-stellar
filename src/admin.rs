@@ -17,7 +17,7 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
-use crate::lifecycle::{ensure_admin, get_campaign_or_error, require_active_campaign};
+use crate::lifecycle::{emit_event, ensure_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_max_contribution_per_transaction,
@@ -95,7 +95,7 @@ pub(crate) fn pause(env: &Env) -> Result<(), Error> {
     let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
-    env.events().publish(("contract_paused", admin), ());
+    emit_event!(env, ("contract_paused", admin), ());
     Ok(())
 }
 
@@ -104,7 +104,7 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &false);
     env.storage().instance().set(&AdminKey::AutoPaused, &false);
-    env.events().publish(("contract_unpaused", admin), ());
+    emit_event!(env, ("contract_unpaused", admin), ());
     Ok(())
 }
 
@@ -136,7 +136,7 @@ pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
     }
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
-    env.events().publish(("emergency_paused", caller), ());
+    emit_event!(env, ("emergency_paused", caller), ());
     Ok(())
 }
 
@@ -246,7 +246,7 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let old_fee = get_platform_fee(env);
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
-    env.events().publish(("fee_updated",), (old_fee, new_fee));
+    emit_event!(env, ("fee_updated",), (old_fee, new_fee));
     Ok(())
 }
 
