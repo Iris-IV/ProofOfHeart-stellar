@@ -9,6 +9,37 @@ pub use soroban_sdk::{
     Address, Env, IntoVal, String,
 };
 
+pub(crate) fn advance_ledger(env: &Env, ledgers: u32) {
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: env.ledger().timestamp(),
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence() + ledgers,
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+}
+
+pub(crate) fn set_ledger_timestamp(env: &Env, timestamp: u64) {
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+}
+
+pub(crate) fn advance_days(env: &Env, days: u64) {
+    let new_timestamp = env.ledger().timestamp() + days * 86400;
+    set_ledger_timestamp(env, new_timestamp);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn make_params(
     creator: Address,
