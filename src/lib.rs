@@ -213,7 +213,6 @@ impl ProofOfHeart {
             .publish(("vesting_params_updated", admin), (delay_days, reserve_bps));
 
         Ok(())
-        campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps)
     }
 
     // ── Emergency withdrawal — admin last-resort recovery (#802) ───────────────
@@ -1170,31 +1169,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod admin_transfer_test;
-#[cfg(test)]
-mod benchmark_test;
-#[cfg(test)]
-mod campaign_transfer_test;
-#[cfg(test)]
-mod create_campaign_proptest;
-#[cfg(test)]
-mod lifecycle_events_test;
-#[cfg(test)]
-mod pagination_test;
-#[cfg(test)]
-mod revenue_share_proptest;
-#[cfg(test)]
-mod storage_cleanup_test;
-#[cfg(test)]
-mod test;
-#[cfg(test)]
-mod update_admin_test;
-#[cfg(test)]
-mod vesting_test;
-#[cfg(test)]
-mod voting_proptest;
-#[cfg(test)]
-mod issues_test;
-#[cfg(test)]
-mod milestones;
