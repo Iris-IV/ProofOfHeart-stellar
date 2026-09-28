@@ -284,9 +284,9 @@ pub enum Error {
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 39,
-    /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 40,
+    InvalidPlatformFee = 52,
+    /// Admin or community verification was attempted on an already verified campaign.
+    VerificationConflict = 53,
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
