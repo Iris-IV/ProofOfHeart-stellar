@@ -175,7 +175,7 @@ fn test_admin_cancel_campaign_allows_contributor_refund() {
 #[test]
 fn test_admin_cancel_campaign_refunds_revenue_pool_and_zeroes_pool() {
     let (env, admin, creator, _, _, token, token_admin, client) = setup_env();
-    let campaign_id = make_campaign(&env, &client, &creator, 1000);
+    let campaign_id = make_campaign(&env, &client, &creator, 1000, 0);
     client.verify_campaign(&campaign_id);
 
     // Simulate revenue deposited in revenue pool and contract balance
@@ -234,7 +234,7 @@ fn test_admin_cancel_campaign_succeeds_pre_goal_with_partial_funding() {
 
     // Goal not met (500 < 1000), but admin can still cancel
     let campaign = client.get_campaign(&campaign_id);
-    assert!(!campaign.is_goal_met);
+    assert!(campaign.amount_raised < campaign.funding_goal);
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
 
@@ -254,7 +254,8 @@ fn test_admin_can_cancel_when_creator_cannot_post_goal() {
     client.contribute(&campaign_id, &contributor1, &goal);
 
     // Goal met; creator cannot self-cancel
-    assert!(client.get_campaign(&campaign_id).is_goal_met);
+    let c = client.get_campaign(&campaign_id);
+    assert!(c.amount_raised >= c.funding_goal);
     let creator_cancel = client.try_cancel_campaign(&campaign_id);
     assert_eq!(creator_cancel, Err(Ok(Error::GoalMetCancellationNotAllowed)));
 

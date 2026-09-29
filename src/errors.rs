@@ -222,12 +222,6 @@ pub enum Error {
     /// The approval vote share did not meet the required threshold.
     VotingThresholdNotMet = 19,
 
-    // ── Validation / arithmetic ─────────────────────────────────────────────
-    /// A general input validation constraint was violated.
-    ValidationFailed = 15,
-    /// An arithmetic operation overflowed.
-    Overflow = 30,
-
     // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
@@ -271,10 +265,12 @@ pub enum Error {
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
+    /// The funding goal exceeds the configured maximum.
+    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 52,
-    /// Admin or community verification was attempted on an already verified campaign.
-    VerificationConflict = 53,
+    InvalidPlatformFee = 39,
+    /// A campaign transfer is already pending.
+    TransferAlreadyPending = 40,
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.

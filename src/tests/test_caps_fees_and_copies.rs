@@ -326,6 +326,7 @@ fn test_contributor_portfolio_is_empty_for_a_non_contributor() {
     assert_eq!(
         client
             .get_contributor_portfolio(&contributor2, &0, &100)
+            .0
             .len(),
         0
     );

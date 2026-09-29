@@ -635,7 +635,7 @@ fn test_max_campaign_funding_goal_boundary_and_admin_update() {
     let campaign_id2 = client.create_campaign(&make_params(
         creator.clone(),
         String::from_str(&env, "Max Goal 2"),
-        desc.clone(),
+        desc1.clone(),
         CAMPAIGN_FUNDING_GOAL_MAX + 1,
         30,
         Category::Educator,

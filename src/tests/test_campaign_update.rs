@@ -2,7 +2,7 @@ use super::helpers::*;
 use crate::{AdminKey, Category, CreateCampaignParams, Error, MaybePendingCreator};
 use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
-    Address, IntoVal, String, Symbol,
+    Address, IntoVal, String, Symbol, TryFromVal,
 };
 
 #[test]
@@ -563,15 +563,9 @@ fn test_cancel_campaign_transfer_emits_creator() {
         .iter()
         .find(|(_, topics, _)| {
             topics
-                .to_vec()
-                .first()
-                .map(|t| {
-                    if let soroban_sdk::Val::String(s) = t {
-                        s.to_string(&env) == "campaign_transfer_cancelled"
-                    } else {
-                        false
-                    }
-                })
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|s| s == String::from_str(&env, "campaign_transfer_cancelled"))
                 .unwrap_or(false)
         })
         .expect("No cancel event found");
@@ -579,16 +573,13 @@ fn test_cancel_campaign_transfer_emits_creator() {
     // The event data contains both creator and pending address.
     // Topics: ("campaign_transfer_cancelled", campaign_id, creator)
     // Data: pending_address
-    let topics = cancel_event.1.to_vec();
+    let topics = cancel_event.1;
     assert_eq!(topics.len(), 3);
-    if let soroban_sdk::Val::String(s) = &topics[0] {
-        assert_eq!(s.to_string(&env), "campaign_transfer_cancelled");
-    } else {
-        panic!("Expected first topic to be the event name");
-    }
+    let topic_str = String::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+    assert_eq!(topic_str, String::from_str(&env, "campaign_transfer_cancelled"));
 
     // Verify the creator is included in the event topics
-    let creator_in_topics = topics.get(2).cloned();
+    let creator_in_topics = topics.get(2);
     assert!(creator_in_topics.is_some());
 
     let campaign = client.get_campaign(&campaign_id);
@@ -869,4 +860,194 @@ fn original_creator_can_contribute_after_campaign_transfer() {
 
     let res = client.try_contribute(&campaign_id, &creator, &100);
     assert!(res.is_ok());
+}
+
+// ── #1218: Campaign update history event log edge cases ────────────────────
+
+#[test]
+fn test_update_campaign_emits_event_when_only_title_changes() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Old Title"),
+        String::from_str(&env, "Stable Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let new_title = String::from_str(&env, "New Title");
+    client.update_campaign(&campaign_id, &new_title, &String::from_str(&env, "Stable Description"));
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+
+    assert_eq!(payload.0, String::from_str(&env, "Old Title"));
+    assert_eq!(payload.1, String::from_str(&env, "Stable Description"));
+    assert_eq!(payload.2, new_title);
+    assert_eq!(payload.3, String::from_str(&env, "Stable Description"));
+}
+
+#[test]
+fn test_update_campaign_description_emits_event_with_unchanged_title() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "My Title"),
+        String::from_str(&env, "Old Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let new_desc = String::from_str(&env, "New Desc");
+    client.update_campaign_description(&campaign_id, &new_desc);
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let payload: (String, String, String, String) =
+        soroban_sdk::FromVal::from_val(&env, &last_event.2);
+
+    // Title should be unchanged in both old and new slots (#510).
+    assert_eq!(payload.0, String::from_str(&env, "My Title"));
+    assert_eq!(payload.1, String::from_str(&env, "Old Desc"));
+    assert_eq!(payload.2, String::from_str(&env, "My Title"));
+    assert_eq!(payload.3, new_desc);
+}
+
+#[test]
+fn test_update_campaign_no_event_on_noop() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let title = String::from_str(&env, "Same Title");
+    let desc = String::from_str(&env, "Same Desc");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        title.clone(),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Noop update should succeed without error
+    client.update_campaign(&campaign_id, &title, &desc);
+
+    // Verify nothing changed
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.title, title);
+    assert_eq!(campaign.description, desc);
+}
+
+#[test]
+fn test_update_campaign_description_no_event_on_noop() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let desc = String::from_str(&env, "Same Desc");
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        desc.clone(),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // Noop update should succeed without error
+    client.update_campaign_description(&campaign_id, &desc);
+
+    // Verify description unchanged
+    let campaign = client.get_campaign(&campaign_id);
+    assert_eq!(campaign.description, desc);
+}
+
+#[test]
+fn test_update_campaign_rejects_title_too_long() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let long_title = String::from_str(&env, &"A".repeat(101));
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &long_title,
+        &String::from_str(&env, "Desc"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_update_campaign_rejects_description_too_long() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    let long_desc = String::from_str(&env, &"B".repeat(1001));
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "Title"),
+        &long_desc,
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+}
+
+#[test]
+fn test_update_campaign_rejects_for_cancelled_campaign() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Title"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.cancel_campaign(&campaign_id);
+
+    let res = client.try_update_campaign(
+        &campaign_id,
+        &String::from_str(&env, "New"),
+        &String::from_str(&env, "New Desc"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
 }
