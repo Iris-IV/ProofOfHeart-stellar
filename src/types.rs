@@ -117,9 +117,9 @@ pub struct Campaign {
 impl Campaign {
     /// Derives the current lifecycle status from the stored boolean flags.
     pub fn status(&self) -> CampaignStatus {
-        if self.is_cancelled {
+        if self.is_cancelled() {
             CampaignStatus::Cancelled
-        } else if self.funds_withdrawn {
+        } else if self.funds_withdrawn() {
             CampaignStatus::Withdrawn
         } else {
             CampaignStatus::Active

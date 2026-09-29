@@ -240,7 +240,7 @@ fn test_personal_cap_exact_boundary() {
     ));
     env.as_contract(&client.address, || {
         let mut campaign = crate::storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.is_verified = true;
+        campaign.set_verified(true);
         crate::storage::set_campaign(&env, campaign_id, &campaign);
     });
 

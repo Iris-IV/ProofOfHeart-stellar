@@ -211,6 +211,8 @@ pub enum Error {
     NoFundsToWithdraw = 13,
     /// The campaign has already been verified.
     CampaignAlreadyVerified = 14,
+    /// Catch-all input/constraint violation.
+    ValidationFailed = 15,
     /// The caller has already voted on this campaign.
     AlreadyVoted = 16,
     /// The caller holds no tokens and is therefore not eligible to vote.
@@ -247,6 +249,8 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
+    /// Checked arithmetic overflowed.
+    Overflow = 30,
 
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
@@ -266,8 +270,6 @@ pub enum Error {
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
-    /// The funding goal exceeds the configured maximum.
-    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
     InvalidPlatformFee = 52,
 
