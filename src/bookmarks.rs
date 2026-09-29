@@ -181,6 +181,7 @@ mod tests {
     extern crate alloc;
     extern crate std;
     use alloc::format;
+    use alloc::string::ToString;
 
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;

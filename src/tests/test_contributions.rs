@@ -1581,7 +1581,7 @@ proptest! {
                 prop_assert_eq!(recorded, attempted_total,
                     "Recorded contribution should be sum of both");
             }
-            Err(Some(Error::ContributionCapExceeded)) => {
+            Err(Ok(Error::ContributionCapExceeded)) => {
                 prop_assert!(!should_succeed,
                     "Contribution should fail only if exceeds cap: {} > {}",
                     attempted_total, cap);

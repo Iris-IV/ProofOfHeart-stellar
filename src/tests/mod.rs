@@ -22,6 +22,7 @@ mod test_issue_819;
 mod test_issue_863;
 mod test_lifecycle;
 mod test_lifecycle_events;
+mod test_milestones;
 mod test_multi_step;
 mod test_multi_token;
 mod test_queries;
