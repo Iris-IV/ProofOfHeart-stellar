@@ -91,13 +91,7 @@ pub struct Campaign {
     /// Total tokens raised so far.
     pub amount_raised: i128,
     /// Whether the campaign is currently accepting contributions.
-    pub is_active: bool,
-    /// Whether the creator has already withdrawn funds.
-    pub funds_withdrawn: bool,
-    /// Whether the campaign has been cancelled by the creator.
-    pub is_cancelled: bool,
-    /// Whether the campaign has been verified (by admin or community vote).
-    pub is_verified: bool,
+    pub status: u32,
     /// The category of the campaign.
     pub category: Category,
     /// Whether contributors are entitled to a share of future revenue.
@@ -123,9 +117,9 @@ pub struct Campaign {
 impl Campaign {
     /// Derives the current lifecycle status from the stored boolean flags.
     pub fn status(&self) -> CampaignStatus {
-        if self.is_cancelled {
+        if self.is_cancelled() {
             CampaignStatus::Cancelled
-        } else if self.funds_withdrawn {
+        } else if self.funds_withdrawn() {
             CampaignStatus::Withdrawn
         } else {
             CampaignStatus::Active
@@ -313,4 +307,55 @@ pub struct CampaignDeadlineExtended {
     pub additional_days: u64,
     /// The resulting total duration after the extension, in seconds.
     pub total_duration: u64,
+}
+
+pub const CAMPAIGN_ACTIVE: u32 = 1 << 0;
+pub const CAMPAIGN_PAUSED: u32 = 1 << 1;
+pub const CAMPAIGN_VALIDATED: u32 = 1 << 2;
+pub const CAMPAIGN_SUCCEEDED: u32 = 1 << 3;
+
+impl Campaign {
+    pub fn is_active(&self) -> bool {
+        (self.status & CAMPAIGN_ACTIVE) != 0
+    }
+    pub fn set_active(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_ACTIVE;
+        } else {
+            self.status &= !CAMPAIGN_ACTIVE;
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        (self.status & CAMPAIGN_PAUSED) != 0
+    }
+    pub fn set_cancelled(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_PAUSED;
+        } else {
+            self.status &= !CAMPAIGN_PAUSED;
+        }
+    }
+
+    pub fn is_verified(&self) -> bool {
+        (self.status & CAMPAIGN_VALIDATED) != 0
+    }
+    pub fn set_verified(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_VALIDATED;
+        } else {
+            self.status &= !CAMPAIGN_VALIDATED;
+        }
+    }
+
+    pub fn funds_withdrawn(&self) -> bool {
+        (self.status & CAMPAIGN_SUCCEEDED) != 0
+    }
+    pub fn set_funds_withdrawn(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_SUCCEEDED;
+        } else {
+            self.status &= !CAMPAIGN_SUCCEEDED;
+        }
+    }
 }

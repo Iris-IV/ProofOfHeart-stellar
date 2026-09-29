@@ -38,7 +38,7 @@ fn test_community_voting_verification_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::VerificationConflict);
@@ -109,7 +109,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
     client.vote_on_campaign(&campaign_id_1, &voter4, &false);
     client.verify_campaign(&campaign_id_1);
-    assert!(client.get_campaign(&campaign_id_1).is_verified);
+    assert!(client.get_campaign(&campaign_id_1).is_verified());
 
     let campaign_id_2 = client.create_campaign(&make_params(
         creator.clone(),
@@ -324,7 +324,7 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn test_verify_campaigns_partial_failure_reports_failed_ids() {
     );
     assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
     assert!(
-        client.get_campaign(&campaign_id).is_verified,
+        client.get_campaign(&campaign_id).is_verified(),
         "the valid campaign must be committed even though the batch also failed"
     );
 }
@@ -440,8 +440,8 @@ fn test_verify_campaigns_cancelled_campaign_in_batch_reported_as_failed() {
         failed_ids,
         soroban_sdk::Vec::from_array(&env, [cancelled_id])
     );
-    assert!(client.get_campaign(&valid_id).is_verified);
-    assert!(!client.get_campaign(&cancelled_id).is_verified);
+    assert!(client.get_campaign(&valid_id).is_verified());
+    assert!(!client.get_campaign(&cancelled_id).is_verified());
 }
 
 #[test]
@@ -735,7 +735,7 @@ fn test_verify_campaign_with_votes_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
 
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 // ── #536: per-category voting threshold ─────────────────────────────────────────
@@ -781,7 +781,7 @@ fn test_category_voting_threshold_overrides_global_default() {
     );
 
     client.verify_campaign_with_votes(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]

@@ -58,8 +58,8 @@ fn test_admin_cancel_campaign_succeeds_after_goal_met() {
         &campaign_id,
         &String::from_str(&env, "fraud reported"),
     );
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
-    assert!(!client.get_campaign(&campaign_id).is_active);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
+    assert!(!client.get_campaign(&campaign_id).is_active());
 }
 
 #[test]
@@ -69,8 +69,8 @@ fn test_admin_cancel_campaign_succeeds_on_unverified_campaign() {
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_cancelled);
-    assert!(!campaign.is_verified);
+    assert!(campaign.is_cancelled());
+    assert!(!campaign.is_verified());
 }
 
 #[test]
@@ -238,7 +238,7 @@ fn test_admin_cancel_campaign_succeeds_pre_goal_with_partial_funding() {
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
 
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// Admin can override creator's self-cancel protection after goal is met.
@@ -262,7 +262,7 @@ fn test_admin_can_cancel_when_creator_cannot_post_goal() {
     // Admin can still cancel despite creator being blocked
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
 
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// Admin cancellation succeeds with exact goal met (boundary condition).
@@ -281,7 +281,7 @@ fn test_admin_cancel_succeeds_with_exact_goal_met() {
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
 
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// Admin cancellation fails after funds have been withdrawn and claimed.
@@ -298,7 +298,7 @@ fn test_admin_cancel_fails_when_campaign_already_inactive() {
 
     // Withdrawal deactivates the campaign
     client.withdraw_funds(&campaign_id);
-    assert!(!client.get_campaign(&campaign_id).is_active);
+    assert!(!client.get_campaign(&campaign_id).is_active());
 
     // Admin cannot cancel inactive campaign
     let res =
@@ -315,7 +315,7 @@ fn test_admin_cancel_campaign_cannot_be_cancelled_twice() {
 
     // First admin cancel succeeds
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "fraud"));
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     // Second admin cancel fails (campaign already cancelled)
     let res =

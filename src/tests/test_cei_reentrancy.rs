@@ -115,13 +115,13 @@ fn campaign_with_revenue_pool_and_recording_token<'a>(
     // (Same shape as `test_cancel_campaign_refunds_revenue_pool`.)
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(env, campaign_id, &campaign);
     });
     client.deposit_revenue(&campaign_id, &revenue);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(env, campaign_id).unwrap();
-        campaign.funds_withdrawn = false;
+        campaign.set_funds_withdrawn(false);
         storage::set_campaign(env, campaign_id, &campaign);
     });
 
@@ -168,8 +168,8 @@ fn test_cancel_campaign_refunds_pool_exactly_once() {
     // Post-conditions a re-entrant caller would have needed to violate.
     assert_eq!(client.get_revenue_pool(&campaign_id), 0);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_cancelled);
-    assert!(!campaign.is_active);
+    assert!(campaign.is_cancelled());
+    assert!(!campaign.is_active());
 
     // A second cancel is refused, so the refund cannot be replayed by an
     // ordinary caller either.
@@ -209,7 +209,7 @@ fn test_cancel_campaign_without_pool_never_calls_token() {
     client.cancel_campaign(&campaign_id);
 
     assert_eq!(recorder.transfers(), 0);
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// The cancellation event still lands when a refund happens, so the refund
@@ -523,7 +523,7 @@ fn test_control_unarmed_withdraw_pays_out_once() {
 
     client.withdraw_funds(&campaign_id);
 
-    assert!(client.get_campaign(&campaign_id).funds_withdrawn);
+    assert!(client.get_campaign(&campaign_id).funds_withdrawn());
     assert!(token.transfers() >= 1);
     assert!(token.moved() > 0 && token.moved() <= GOAL);
     assert_eq!(
@@ -552,7 +552,7 @@ fn test_withdraw_funds_reentry_cannot_double_withdraw() {
     assert_reentry_refused(&outcome, &attacker, GOAL);
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(
-        campaign.funds_withdrawn,
+        campaign.funds_withdrawn(),
         outcome.is_ok(),
         "withdrawal state disagrees with the call outcome"
     );
@@ -578,7 +578,7 @@ fn test_withdraw_funds_reentry_cannot_cancel_mid_payout() {
     assert_reentry_refused(&outcome, &attacker, GOAL);
     let campaign = client.get_campaign(&campaign_id);
     assert!(
-        !(campaign.is_cancelled && campaign.funds_withdrawn),
+        !(campaign.is_cancelled() && campaign.funds_withdrawn()),
         "campaign is both cancelled (refundable) and withdrawn (paid out)"
     );
 }

@@ -166,7 +166,7 @@ fn test_description_edit_blocked_on_verified_campaign() {
     let id = campaign(&env, &creator, &client, 30);
 
     client.verify_campaign(&id);
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
 
     let res = client.try_update_campaign_description(
         &id,
@@ -175,7 +175,7 @@ fn test_description_edit_blocked_on_verified_campaign() {
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
 
     // Badge and counter are untouched.
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
     assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
@@ -223,7 +223,7 @@ fn test_bait_and_switch_is_prevented_by_freeze() {
     let res =
         client.try_update_campaign_description(&id, &String::from_str(&env, "Bait and switch"));
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
 }
 
 /// Editing an unverified campaign still works, and does not disturb its votes.
@@ -239,7 +239,7 @@ fn test_description_edit_on_unverified_campaign_keeps_votes() {
     client.update_campaign_description(&id, &String::from_str(&env, "Still gathering votes"));
 
     assert_eq!(client.get_approve_votes(&id), 1);
-    assert!(!client.get_campaign(&id).is_verified);
+    assert!(!client.get_campaign(&id).is_verified());
 }
 
 /// `update_campaign` also rejects edits after verification — consistent
@@ -257,7 +257,7 @@ fn test_update_campaign_still_rejects_edits_after_verification() {
         &String::from_str(&env, "New Description"),
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignAlreadyVerified);
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
 }
 
 // ── Edge case tests for contributions at deadline boundaries ────────────────
@@ -337,14 +337,14 @@ fn test_verified_campaign_remains_frozen_after_deadline_extension() {
     let id = campaign(&env, &creator, &client, 30);
 
     client.verify_campaign(&id);
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
 
     // Extend deadline
     client.extend_campaign_deadline(&id, &5);
 
     // Campaign should still be verified and frozen
     let updated = client.get_campaign(&id);
-    assert!(updated.is_verified);
+    assert!(updated.is_verified());
     assert!(updated.deadline_extended);
 
     // Description edit should still be rejected

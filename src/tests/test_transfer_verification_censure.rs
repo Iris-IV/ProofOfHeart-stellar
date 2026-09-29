@@ -105,7 +105,7 @@ fn test_update_description_blocked_when_verified() {
     let campaign_id = make_campaign(&env, &creator, &client, 0);
 
     client.verify_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
     assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 
     let res = client.try_update_campaign_description(
@@ -119,7 +119,7 @@ fn test_update_description_blocked_when_verified() {
     );
 
     // Badge and counter are untouched.
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
     assert_eq!(client.get_platform_stats().verified_campaigns, 1);
 }
 
@@ -157,7 +157,7 @@ fn test_update_description_on_unverified_campaign_is_inert() {
     assert_eq!(client.get_platform_stats().verified_campaigns, 0);
     client.update_campaign_description(&campaign_id, &String::from_str(&env, "Edited copy"));
 
-    assert!(!client.get_campaign(&campaign_id).is_verified);
+    assert!(!client.get_campaign(&campaign_id).is_verified());
     assert_eq!(client.get_platform_stats().verified_campaigns, 0);
 
     let unexpected = String::from_str(&env, "campaign_verification_revoked");
@@ -189,8 +189,8 @@ fn test_blocked_edit_does_not_affect_other_campaigns() {
 
     // Both badges survive because the edits were rejected.
     assert_eq!(client.get_platform_stats().verified_campaigns, 2);
-    assert!(client.get_campaign(&a).is_verified);
-    assert!(client.get_campaign(&b).is_verified);
+    assert!(client.get_campaign(&a).is_verified());
+    assert!(client.get_campaign(&b).is_verified());
 }
 
 // ── #797: on-chain censure record for off-chain comments ─────────────────────
@@ -440,7 +440,7 @@ fn test_admin_cancel_campaign_locks_funds() {
     assert_eq!(token.balance(&client.address), 2000);
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     let res = client.try_contribute(&campaign_id, &contributor1, &500);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
@@ -471,7 +471,7 @@ fn test_admin_cancel_during_active_censure_preserves_censure_records() {
     client.contribute(&campaign_id, &contributor1, &1000);
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
     assert!(client.is_comment_censured(&campaign_id, &comment));
 
     client.claim_refund(&campaign_id, &contributor1);

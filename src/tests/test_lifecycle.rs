@@ -293,7 +293,7 @@ fn test_admin_verification_refreshes_campaign_ttl() {
     });
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 }
 
 #[test]
@@ -319,9 +319,9 @@ fn test_storage_state_after_withdraw_funds() {
     client.withdraw_funds(&id);
 
     let campaign = client.get_campaign(&id);
-    assert!(campaign.funds_withdrawn, "funds_withdrawn must be true");
+    assert!(campaign.funds_withdrawn(), "funds_withdrawn must be true");
     assert!(
-        !campaign.is_active,
+        !campaign.is_active(),
         "campaign must be inactive after withdraw"
     );
 }

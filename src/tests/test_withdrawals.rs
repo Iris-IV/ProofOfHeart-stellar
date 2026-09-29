@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use super::helpers::*;
 use crate::{
     storage, Category, ContributionKey, Error, BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY,

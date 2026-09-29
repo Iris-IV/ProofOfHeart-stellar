@@ -211,7 +211,7 @@ pub enum Error {
     NoFundsToWithdraw = 13,
     /// The campaign has already been verified.
     CampaignAlreadyVerified = 14,
-    /// A general input validation constraint was violated.
+    /// Catch-all input/constraint violation.
     ValidationFailed = 15,
     /// The caller has already voted on this campaign.
     AlreadyVoted = 16,
@@ -249,14 +249,19 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
-    /// An arithmetic operation overflowed.
+    /// Checked arithmetic overflowed.
     Overflow = 30,
+
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
     /// Campaign creation is disabled by the admin.
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
+    /// The funding goal is above the configured maximum.
+    FundingGoalTooHigh = 38,
+    /// A transfer is already pending.
+    TransferAlreadyPending = 35,
 
     // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
@@ -265,12 +270,9 @@ pub enum Error {
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
-    /// The funding goal exceeds the configured maximum.
-    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 39,
-    /// A campaign transfer is already pending.
-    TransferAlreadyPending = 40,
+    InvalidPlatformFee = 52,
+
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.

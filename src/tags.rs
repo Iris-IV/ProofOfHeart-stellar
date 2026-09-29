@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Tag-based campaign discovery (#798).
 //!
 //! Campaigns carry a small set of free-text tags, applied by the creator

@@ -186,7 +186,7 @@ pub(crate) fn contribute(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
-    if !campaign.is_verified {
+    if !campaign.is_verified() {
         return Err(Error::CampaignNotVerified);
     }
 
@@ -284,7 +284,7 @@ pub(crate) fn batch_contribute(
         }
 
         let mut campaign = get_campaign_or_error(env, campaign_id)?;
-        if !campaign.is_verified {
+        if !campaign.is_verified() {
             return Err(Error::CampaignNotVerified);
         }
         require_active_campaign(&campaign)?;
@@ -375,7 +375,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
         && campaign.amount_raised < campaign.funding_goal;
 
-    if !(campaign.is_cancelled || failed_due_to_goal) {
+    if !(campaign.is_cancelled() || failed_due_to_goal) {
         return Err(Error::ValidationFailed);
     }
 
@@ -394,7 +394,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     // #819: For cancelled campaigns effective_amount_raised was already zeroed
     // at cancel time. Only decrement here for the failed-funding path
     // (deadline passed, goal not met).
-    if !campaign.is_cancelled {
+    if !campaign.is_cancelled() {
         campaign.effective_amount_raised = campaign
             .effective_amount_raised
             .checked_sub(amount)
@@ -402,7 +402,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         set_campaign(env, campaign_id, &campaign);
     }
 
-    if !campaign.is_cancelled {
+    if !campaign.is_cancelled() {
         let total_raised = get_total_raised_global(env);
         set_total_raised_global(
             env,
