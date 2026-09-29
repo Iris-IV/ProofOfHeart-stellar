@@ -1,5 +1,22 @@
 use soroban_sdk::{contracttype, Address, String};
 
+/// Represents the lifecycle state of a campaign as a single strongly-typed
+/// enum, replacing the previous ad-hoc combination of boolean flags.
+///
+/// The discriminant ordering mirrors the typical lifecycle progression but
+/// does **not** enforce transitions — the contract modules handle that.
+/// `#[contracttype]` is required for Soroban storage serialization.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CampaignStatus {
+    /// Campaign is live and accepting contributions.
+    Active,
+    /// Campaign was cancelled by its creator or admin.
+    Cancelled,
+    /// Campaign met its goal and funds were withdrawn by the creator.
+    Withdrawn,
+}
+
 /// Represents an optional pending campaign creator for ownership transfers.
 /// Mirrors `Option<Address>` — used instead of the standard `Option` because
 /// Soroban 20.1.0's `#[contracttype]` derive doesn't support `Option<Address>`
@@ -101,6 +118,19 @@ pub struct Campaign {
     pub deadline_extended: bool,
     /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
     pub effective_amount_raised: i128,
+}
+
+impl Campaign {
+    /// Derives the current lifecycle status from the stored boolean flags.
+    pub fn status(&self) -> CampaignStatus {
+        if self.is_cancelled {
+            CampaignStatus::Cancelled
+        } else if self.funds_withdrawn {
+            CampaignStatus::Withdrawn
+        } else {
+            CampaignStatus::Active
+        }
+    }
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.

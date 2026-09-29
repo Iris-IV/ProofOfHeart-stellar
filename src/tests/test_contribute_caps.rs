@@ -198,3 +198,135 @@ fn test_huge_contribution_is_rejected() {
     let res = client.try_contribute(&campaign_id, &contributor1, &2001i128);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
 }
+
+// ── #1220: Personal contribution cap edge cases ───────────────────────────
+
+#[test]
+fn test_zero_campaign_cap_means_unlimited() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Unlimited"),
+        String::from_str(&env, "No cap"),
+        10_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128, // 0 = no cap
+    ));
+
+    // With 0 cap, personal cap is not set — get_personal_cap returns 0
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_personal_cap_exact_boundary() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Boundary Test"),
+        String::from_str(&env, "Testing exact boundary"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    env.as_contract(&client.address, || {
+        let mut campaign = crate::storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.is_verified = true;
+        crate::storage::set_campaign(&env, campaign_id, &campaign);
+    });
+
+    // Set personal cap at exact boundary
+    client.set_personal_cap(&campaign_id, &contributor1, &1_000);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 1_000);
+
+    // Cap can be updated to a higher value
+    client.set_personal_cap(&campaign_id, &contributor1, &2_000);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 2_000);
+}
+
+#[test]
+fn test_remove_personal_cap_restores_campaign_wide_cap() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Remove Cap"),
+        String::from_str(&env, "Cap removal test"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        2_000i128, // campaign-wide cap
+    ));
+
+    // Set then remove personal cap
+    client.set_personal_cap(&campaign_id, &contributor1, &500);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 500);
+
+    client.remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+}
+
+#[test]
+fn test_remove_personal_cap_not_set_returns_error() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "No Cap Set"),
+        String::from_str(&env, "Trying to remove non-existent cap"),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let res = client.try_remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::PersonalCapNotFound);
+}
+
+#[test]
+fn test_two_contributors_independent_caps() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+    token_admin.mint(&contributor1, &5_000);
+    token_admin.mint(&contributor2, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Independent Caps"),
+        String::from_str(&env, "Each contributor has own cap"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        500i128,
+    ));
+
+    // Each contributor has independent caps
+    client.set_personal_cap(&campaign_id, &contributor1, &300);
+    client.set_personal_cap(&campaign_id, &contributor2, &400);
+
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 300);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor2), 400);
+
+    // Removing one doesn't affect the other
+    client.remove_personal_cap(&campaign_id, &contributor1);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_personal_cap(&campaign_id, &contributor2), 400);
+}

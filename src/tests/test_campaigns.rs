@@ -167,7 +167,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("{} {}", title, 1)),
+            String::from_str(&env, &std::format!("{} {}", "T1", 1)),
             String::from_str(&env, "a"),
             1000,
             30,

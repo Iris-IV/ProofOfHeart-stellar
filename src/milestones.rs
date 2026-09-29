@@ -223,7 +223,7 @@ fn test_campaign_payout_with_fee_override() {
     });
     client.verify_campaign(&campaign_id);
 
-    client.set_campaign_fee_override(&admin, &campaign_id, &1000);
+    client.set_campaign_fee_override(&campaign_id, &admin, &1000);
 
     client.contribute(&campaign_id, &contributor1, &1000);
 

@@ -1,5 +1,6 @@
 default: build
 
+.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help
 .PHONY: all build build-docker test wasm wasm-opt check-wasm clippy fmt fmt-check lint audit ci clean
 .PHONY: all build build-docker test wasm wasm-opt check-wasm clippy clippy-fix fmt fmt-check lint ci clean
 
@@ -85,3 +86,20 @@ ci: lint test check-wasm
 
 clean:
 	cargo clean
+
+help:
+	@echo "Available targets:"
+	@echo "  build        - Build the Stellar contract WASM"
+	@echo "  build-docker - Build via Docker (reproducible)"
+	@echo "  test         - Run unit tests"
+	@echo "  wasm         - Compile to wasm32-unknown-unknown"
+	@echo "  check-wasm   - Build and validate WASM output"
+	@echo "  fmt          - Format code with cargo fmt"
+	@echo "  fmt-check    - Check formatting without modifying"
+	@echo "  clippy       - Run clippy with zero-warning policy"
+	@echo "  clippy-fix   - Auto-fix clippy suggestions"
+	@echo "  lint         - Run fmt-check + clippy"
+	@echo "  audit        - Run cargo audit for dependency vulnerabilities"
+	@echo "  ci           - Run full CI pipeline (lint + test + check-wasm)"
+	@echo "  clean        - Remove build artifacts"
+	@echo "  help         - Show this help message"
