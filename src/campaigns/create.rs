@@ -173,7 +173,7 @@ fn create_campaign_inner(
         funding_goal,
         deadline,
         amount_raised: 0,
-        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+        status: crate::types::CAMPAIGN_ACTIVE,
         category,
         has_revenue_sharing,
         revenue_share_percentage,

@@ -166,7 +166,7 @@ pub(crate) fn set_milestones(
         if m.payout_bps == 0 || m.payout_bps > crate::BPS_DENOMINATOR {
             return Err(Error::ValidationFailed);
         }
-        if m.description.len() == 0 {
+        if m.description.is_empty() {
             return Err(Error::ValidationFailed);
         }
         if seen_ids.iter().any(|id| id == m.id) {

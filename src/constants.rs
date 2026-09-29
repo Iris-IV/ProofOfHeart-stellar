@@ -65,7 +65,7 @@ pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
 ///    category cap is itself clamped to `CAMPAIGN_DURATION_MAX_DAYS` when an
 ///    admin sets it. No campaign can run longer than a year, extension
 ///    included.
-//.
+///
 /// Named rather than left as a literal so a future edit has to state that it
 /// is changing a security bound.
 pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;

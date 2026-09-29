@@ -204,12 +204,8 @@ where
             // backwards into the same bucket on the next iteration forever.
             // Clamp to `position + 1` so `position` is always strictly
             // monotonically increasing regardless of what the bucket reports.
-            let natural_next = if bucket_len == 0 {
-                bucket_start + bucket_size
-            } else {
-                bucket_start + bucket_len
-            };
-            position = natural_next.max(position.saturating_add(1));
+            let next_bucket_start = bucket_start + bucket_size;
+            position = next_bucket_start.max(position);
         }
     }
 

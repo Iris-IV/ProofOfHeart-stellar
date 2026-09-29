@@ -125,7 +125,7 @@ pub(crate) fn admin_cancel_campaign(
         return Err(Error::CancellationNotAllowed);
     }
 
-    if reason.len() == 0 || reason.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN {
+    if reason.is_empty() || reason.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN {
         return Err(Error::ValidationFailed);
     }
 

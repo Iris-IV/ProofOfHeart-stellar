@@ -195,7 +195,12 @@ mod tests {
             creator.clone(),
             String::from_str(&env, "Campaign"),
             String::from_str(&env, "Desc"),
-            1000, 30, Category::Learner, false, 0, 0i128,
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
         ));
         let before = env.events().all().len();
         client.save_campaign(&user, &id);
@@ -204,7 +209,6 @@ mod tests {
         for (i, e) in env.events().all().iter().enumerate() {
             let topics = &e.1;
             let name: String = soroban_sdk::FromVal::from_val(&env, &topics.get(0).unwrap());
-
         }
     }
 
@@ -317,7 +321,23 @@ mod tests {
             funding_goal: 1000,
             deadline: 100000,
             amount_raised: 0,
-            status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+            status: (if true {
+                crate::types::CAMPAIGN_ACTIVE
+            } else {
+                0
+            }) | (if false {
+                crate::types::CAMPAIGN_SUCCEEDED
+            } else {
+                0
+            }) | (if false {
+                crate::types::CAMPAIGN_PAUSED
+            } else {
+                0
+            }) | (if false {
+                crate::types::CAMPAIGN_VALIDATED
+            } else {
+                0
+            }),
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

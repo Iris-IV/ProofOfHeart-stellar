@@ -205,19 +205,7 @@ impl ProofOfHeart {
         delay_days: u64,
         reserve_bps: u32,
     ) -> Result<(), Error> {
-        assert_admin(&env, &admin)?;
-        if reserve_bps > 10000 || delay_days > 365 {
-            return Err(Error::ValidationFailed);
-        }
-
-        bump_instance_ttl(&env);
-        set_withdraw_release_delay_days(&env, delay_days);
-        set_withdraw_reserve_percentage(&env, reserve_bps);
-
-        env.events()
-            .publish(("vesting_params_updated", &admin), (delay_days, reserve_bps));
-
-        campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps);
+        campaigns::withdraw::set_vesting_params(&env, admin, delay_days, reserve_bps)?;
 
         Ok(())
     }
@@ -1208,6 +1196,3 @@ impl ProofOfHeart {
 
 #[cfg(test)]
 mod tests;
-
-
-

@@ -315,15 +315,47 @@ pub const CAMPAIGN_VALIDATED: u32 = 1 << 2;
 pub const CAMPAIGN_SUCCEEDED: u32 = 1 << 3;
 
 impl Campaign {
-    pub fn is_active(&self) -> bool { (self.status & CAMPAIGN_ACTIVE) != 0 }
-    pub fn set_active(&mut self, val: bool) { if val { self.status |= CAMPAIGN_ACTIVE; } else { self.status &= !CAMPAIGN_ACTIVE; } }
-    
-    pub fn is_cancelled(&self) -> bool { (self.status & CAMPAIGN_PAUSED) != 0 }
-    pub fn set_cancelled(&mut self, val: bool) { if val { self.status |= CAMPAIGN_PAUSED; } else { self.status &= !CAMPAIGN_PAUSED; } }
-    
-    pub fn is_verified(&self) -> bool { (self.status & CAMPAIGN_VALIDATED) != 0 }
-    pub fn set_verified(&mut self, val: bool) { if val { self.status |= CAMPAIGN_VALIDATED; } else { self.status &= !CAMPAIGN_VALIDATED; } }
-    
-    pub fn funds_withdrawn(&self) -> bool { (self.status & CAMPAIGN_SUCCEEDED) != 0 }
-    pub fn set_funds_withdrawn(&mut self, val: bool) { if val { self.status |= CAMPAIGN_SUCCEEDED; } else { self.status &= !CAMPAIGN_SUCCEEDED; } }
+    pub fn is_active(&self) -> bool {
+        (self.status & CAMPAIGN_ACTIVE) != 0
+    }
+    pub fn set_active(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_ACTIVE;
+        } else {
+            self.status &= !CAMPAIGN_ACTIVE;
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        (self.status & CAMPAIGN_PAUSED) != 0
+    }
+    pub fn set_cancelled(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_PAUSED;
+        } else {
+            self.status &= !CAMPAIGN_PAUSED;
+        }
+    }
+
+    pub fn is_verified(&self) -> bool {
+        (self.status & CAMPAIGN_VALIDATED) != 0
+    }
+    pub fn set_verified(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_VALIDATED;
+        } else {
+            self.status &= !CAMPAIGN_VALIDATED;
+        }
+    }
+
+    pub fn funds_withdrawn(&self) -> bool {
+        (self.status & CAMPAIGN_SUCCEEDED) != 0
+    }
+    pub fn set_funds_withdrawn(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_SUCCEEDED;
+        } else {
+            self.status &= !CAMPAIGN_SUCCEEDED;
+        }
+    }
 }
