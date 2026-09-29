@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Snapshot testing for contract state serialization and validation.
 //!
 //! These tests capture and validate the contract state against golden snapshot
@@ -41,8 +42,8 @@ fn test_campaign_initial_state_snapshot() {
     assert_eq!(client.get_approve_votes(&id), 0);
     assert_eq!(client.get_reject_votes(&id), 0);
     assert_eq!(campaign.effective_amount_raised, 0);
-    assert!(!campaign.is_cancelled);
-    assert!(!campaign.funds_withdrawn);
+    assert!(!campaign.is_cancelled());
+    assert!(!campaign.funds_withdrawn());
 }
 
 /// Test: Verified campaign state changes correctly through the lifecycle.
@@ -56,8 +57,8 @@ fn test_verified_campaign_state_snapshot() {
     let campaign = client.get_campaign(&id);
 
     // Verify the campaign is marked as verified
-    assert!(!campaign.is_cancelled);
-    assert!(!campaign.funds_withdrawn);
+    assert!(!campaign.is_cancelled());
+    assert!(!campaign.funds_withdrawn());
     assert_eq!(campaign.amount_raised, 0);
 }
 
@@ -78,8 +79,8 @@ fn test_contributed_campaign_state_snapshot() {
     assert_eq!(campaign.amount_raised, 2500);
     assert_eq!(client.get_approve_votes(&id), 0);
     assert_eq!(client.get_reject_votes(&id), 0);
-    assert!(!campaign.is_cancelled);
-    assert!(!campaign.funds_withdrawn);
+    assert!(!campaign.is_cancelled());
+    assert!(!campaign.funds_withdrawn());
 }
 
 /// Test: Multiple contributions accumulate correctly in the campaign state.
@@ -118,7 +119,7 @@ fn test_cancelled_campaign_state_snapshot() {
 
     let campaign = client.get_campaign(&id);
 
-    assert!(campaign.is_cancelled);
+    assert!(campaign.is_cancelled());
     assert_eq!(campaign.amount_raised, 3000);
     // #819: cancelling zeroes effective_amount_raised for indexers/dashboards.
     assert_eq!(campaign.effective_amount_raised, 0);
@@ -139,9 +140,9 @@ fn test_withdrawn_campaign_state_snapshot() {
 
     let campaign = client.get_campaign(&id);
 
-    assert!(campaign.funds_withdrawn);
+    assert!(campaign.funds_withdrawn());
     assert_eq!(campaign.amount_raised, 4000);
-    assert!(!campaign.is_cancelled);
+    assert!(!campaign.is_cancelled());
 }
 
 /// Test: Voting state changes are correctly reflected in the snapshot.
@@ -246,7 +247,7 @@ fn test_refund_accounting_state_snapshot() {
 
     let campaign = client.get_campaign(&id);
 
-    assert!(campaign.is_cancelled);
+    assert!(campaign.is_cancelled());
     assert_eq!(campaign.amount_raised, 5000);
     // Refunds reduce effective_amount_raised: 5000 raised - 3000 refunded.
     assert_eq!(campaign.effective_amount_raised, 2000);

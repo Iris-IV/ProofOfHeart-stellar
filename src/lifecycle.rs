@@ -33,11 +33,11 @@ impl CampaignState {
     /// Derives the dominant lifecycle state from a campaign's flags, in
     /// priority order: `Cancelled` > `Withdrawn` > `Verified` > `Active`.
     pub fn of(campaign: &Campaign) -> Self {
-        if campaign.is_cancelled {
+        if campaign.is_cancelled() {
             CampaignState::Cancelled
-        } else if campaign.funds_withdrawn {
+        } else if campaign.funds_withdrawn() {
             CampaignState::Withdrawn
-        } else if campaign.is_verified {
+        } else if campaign.is_verified() {
             CampaignState::Verified
         } else {
             CampaignState::Active
@@ -126,14 +126,14 @@ macro_rules! emit_event {
 pub(crate) use emit_event;
 
 pub(crate) fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
-    if campaign.is_cancelled || !campaign.is_active {
+    if campaign.is_cancelled() || !campaign.is_active() {
         return Err(Error::CampaignNotActive);
     }
     Ok(())
 }
 
 pub(crate) fn require_unverified_campaign(campaign: &Campaign) -> Result<(), Error> {
-    if campaign.is_verified {
+    if campaign.is_verified() {
         return Err(Error::CampaignAlreadyVerified);
     }
     Ok(())
@@ -216,10 +216,10 @@ mod tests {
             funding_goal: 1_000,
             deadline: 0,
             amount_raised: 0,
-            is_active,
-            funds_withdrawn,
-            is_cancelled,
-            is_verified,
+            status: (if is_active { crate::types::CAMPAIGN_ACTIVE } else { 0 }) |
+                    (if funds_withdrawn { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) |
+                    (if is_cancelled { crate::types::CAMPAIGN_PAUSED } else { 0 }) |
+                    (if is_verified { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

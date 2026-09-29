@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! # Admin trust model (#810)
 //!
 //! A single admin key controls sensitive operations: `update_platform_fee`,
@@ -583,7 +584,7 @@ pub(crate) fn purge_voting_state(
     let admin = ensure_admin!(env);
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if !campaign.funds_withdrawn && !campaign.is_cancelled {
+    if !campaign.funds_withdrawn() && !campaign.is_cancelled() {
         return Err(Error::ValidationFailed);
     }
 

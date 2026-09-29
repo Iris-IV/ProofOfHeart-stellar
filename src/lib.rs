@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 #![no_std]
 #![allow(unexpected_cfgs)]
 
@@ -1000,7 +1001,7 @@ impl ProofOfHeart {
 
     /// Returns up to `limit` campaigns (capped at `LIST_MAX_LIMIT`) with ids
     /// after the exclusive cursor `start`.
-    pub fn list_campaigns(env: Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+    pub fn list_campaigns(env: Env, start: u32, limit: u32) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::list_campaigns(&env, start, limit)
     }
 
@@ -1173,5 +1174,5 @@ impl ProofOfHeart {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod milestones;
+
+

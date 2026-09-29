@@ -59,8 +59,8 @@ fn test_emergency_withdraw_full_happy_path() {
     assert_eq!(token.balance(&recipient), goal);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
+    assert!(campaign.funds_withdrawn());
+    assert!(!campaign.is_active());
     assert_eq!(campaign.effective_amount_raised, 0);
     // Audit total is preserved.
     assert_eq!(campaign.amount_raised, goal);
@@ -398,8 +398,8 @@ fn test_multiple_emergency_withdrawals_concurrent() {
 
     assert_eq!(token.balance(&recipient_1), goal1);
     assert_eq!(token.balance(&recipient_2), goal2);
-    assert!(client.get_campaign(&campaign_1).funds_withdrawn);
-    assert!(client.get_campaign(&campaign_2).funds_withdrawn);
+    assert!(client.get_campaign(&campaign_1).funds_withdrawn());
+    assert!(client.get_campaign(&campaign_2).funds_withdrawn());
 }
 
 #[test]

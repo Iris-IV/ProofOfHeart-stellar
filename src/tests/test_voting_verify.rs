@@ -153,7 +153,7 @@ fn test_verify_campaign_with_votes_past_deadline_fails() {
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
-    assert!(!client.get_campaign(&campaign_id).is_verified);
+    assert!(!client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn test_verify_campaign_with_votes_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
 
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]

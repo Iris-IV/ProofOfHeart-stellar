@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use soroban_sdk::{Address, Env, String};
 
 use crate::constants::MAX_SCAN_WINDOW;
@@ -43,24 +44,34 @@ use crate::types::{
 ///     if page.len() < limit as usize { break; }
 /// }
 /// ```
-pub(crate) fn list_campaigns(env: &Env, start: u32, limit: u32) -> soroban_sdk::Vec<Campaign> {
+pub(crate) fn list_campaigns(
+    env: &Env,
+    start: u32,
+    limit: u32,
+) -> (soroban_sdk::Vec<Campaign>, u32) {
     let total_count = get_campaign_count(env);
     let mut campaigns = soroban_sdk::Vec::new(env);
 
     if start >= total_count || limit == 0 {
-        return campaigns;
+        return (campaigns, start);
     }
 
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
-    let end = start.saturating_add(capped_limit).min(total_count);
+    let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
+    let mut current_id = start.saturating_add(1);
 
-    for id in (start.saturating_add(1))..=end {
-        if let Some(campaign) = get_campaign(env, id) {
+    while current_id <= total_count
+        && current_id <= scan_window_end
+        && campaigns.len() < capped_limit
+    {
+        if let Some(campaign) = get_campaign(env, current_id) {
             campaigns.push_back(campaign);
         }
+        current_id = current_id.saturating_add(1);
     }
 
-    campaigns
+    let next_cursor = current_id.saturating_sub(1);
+    (campaigns, next_cursor)
 }
 
 /// Lists active campaigns by scanning campaign IDs starting after `start`, up to
@@ -97,7 +108,7 @@ pub(crate) fn list_active_campaigns(
         }
 
         if let Some(campaign) = get_campaign(env, current_id) {
-            if campaign.is_active && !campaign.is_cancelled {
+            if campaign.is_active() && !campaign.is_cancelled() {
                 campaigns.push_back(campaign);
                 collected += 1;
                 if collected >= capped_limit {
@@ -377,10 +388,10 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
         for i in 0..bucket.len() {
             if let Some(campaign_id) = bucket.get(i) {
                 if let Some(campaign) = get_campaign(env, campaign_id) {
-                    if campaign.is_active && !campaign.is_cancelled {
+                    if campaign.is_active() && !campaign.is_cancelled() {
                         active_campaigns += 1;
                     }
-                    if !campaign.is_cancelled {
+                    if !campaign.is_cancelled() {
                         total_raised += campaign.amount_raised;
                     }
                     total_contributors += get_contributor_count(env, campaign_id);
@@ -504,7 +515,7 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
     // *before* that write existed, whose marker is still in ledger storage.
     // Same write-time-prune / read-time-filter split already used for
     // bookmarks of cancelled campaigns.
-    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled).unwrap_or(false) {
+    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled()).unwrap_or(false) {
         MaybePendingCreator::None
     } else {
         get_top_contributor(env, campaign_id)
@@ -614,19 +625,19 @@ pub(crate) fn get_contributor_portfolio(
         let amount = get_contribution(env, current_id, &contributor);
         if amount != 0 {
             if let Some(campaign) = get_campaign(env, current_id) {
-                let status = if campaign.is_cancelled {
+                let status = if campaign.is_cancelled() {
                     "cancelled"
-                } else if campaign.funds_withdrawn {
+                } else if campaign.funds_withdrawn() {
                     "withdrawn"
-                } else if !campaign.is_active {
+                } else if !campaign.is_active() {
                     "inactive"
-                } else if campaign.is_verified {
+                } else if campaign.is_verified() {
                     "verified"
                 } else {
                     "active"
                 };
 
-                let refundable = campaign.is_cancelled
+                let refundable = campaign.is_cancelled()
                     || (env.ledger().timestamp() > campaign.deadline
                         && campaign.amount_raised < campaign.funding_goal);
 

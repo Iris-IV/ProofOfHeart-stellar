@@ -136,7 +136,7 @@ fn test_update_campaign_blocks_after_community_verification() {
     client.vote_on_campaign(&campaign_id, &contributor2, &true);
     client.vote_on_campaign(&campaign_id, &voter3, &true);
     client.verify_campaign_with_votes(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 
     // Fix #416: update_campaign must be blocked after community verification.
     let res = client.try_update_campaign(
@@ -613,8 +613,8 @@ fn test_cancel_campaign_already_cancelled_is_terminal() {
 
     client.cancel_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_cancelled);
-    assert!(!campaign.is_active);
+    assert!(campaign.is_cancelled());
+    assert!(!campaign.is_active());
 
     let res = client.try_cancel_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
@@ -642,8 +642,8 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
     client.withdraw_funds(&campaign_id);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
+    assert!(campaign.funds_withdrawn());
+    assert!(!campaign.is_active());
 
     let res = client.try_cancel_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);

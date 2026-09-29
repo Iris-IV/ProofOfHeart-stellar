@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use super::helpers::*;
 use crate::Error;
 use soroban_sdk::testutils::Ledger;
@@ -23,14 +24,14 @@ fn test_full_campaign_lifecycle_active_to_completed() {
         0i128,
     ));
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_active);
-    assert!(!campaign.is_verified);
-    assert!(!campaign.funds_withdrawn);
+    assert!(campaign.is_active());
+    assert!(!campaign.is_verified());
+    assert!(!campaign.funds_withdrawn());
 
     // 2. Verify campaign
     client.verify_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 
     // 3. Contribute tokens
     client.contribute(&campaign_id, &contributor1, &1000);
@@ -47,8 +48,8 @@ fn test_full_campaign_lifecycle_active_to_completed() {
     // 5. Withdraw funds (goal met)
     client.withdraw_funds(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
+    assert!(campaign.funds_withdrawn());
+    assert!(!campaign.is_active());
 }
 
 #[test]
@@ -111,8 +112,8 @@ fn test_lifecycle_cancel_and_refund() {
     // Creator cancels
     client.cancel_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_cancelled);
-    assert!(!campaign.is_active);
+    assert!(campaign.is_cancelled());
+    assert!(!campaign.is_active());
 
     // Contributor refunds
     client.claim_refund(&campaign_id, &contributor1);

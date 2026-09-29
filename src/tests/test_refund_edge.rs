@@ -135,7 +135,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     // Artificially mark funds as withdrawn so deposit/claim_revenue bypass the guard.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -333,7 +333,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
         campaign.effective_amount_raised = 0;
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 

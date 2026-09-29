@@ -23,299 +23,7 @@
 //!    unverified ── verify_milestone(admin) ──► verified ── claim_milestone(creator) ──► claimed
 //!
 //!  when the last milestone is claimed:
-//!    campaign.funds_withdrawn = true, campaign.is_active = false
-//! ```
-//!
-//! Milestones may be verified and claimed in any order. Claiming requires the
-//! campaign to be verified, not cancelled, not fully withdrawn, and to have
-//! reached its funding goal.
-//!
-//! ## Plan rules (`set_milestones`)
-//!
-//! * The campaign must exist, must not be cancelled or already withdrawn, and
-//!   the contract must not be paused. The creator authorises the call.
-//! * A plan holds 1 to `MAX_MILESTONES` (10) milestones.
-//! * Each milestone has a unique `id`, a non-empty `description` and a
-//!   `payout_bps` in `1..=10_000`.
-//! * The `payout_bps` values must sum to exactly `BPS_DENOMINATOR` (10_000).
-//! * A plan can be set once; a second call fails with `ValidationFailed`.
-//! * Whatever `verified` value the caller passes is ignored: every milestone is
-//!   stored with `verified = false`.
-//! * Once a plan exists, `withdraw_funds` is refused for the campaign
-//!   (`ValidationFailed`) — milestones are the only way to release its funds.
-//!
-//! ## Release math (`claim_milestone`)
-//!
-//! All arithmetic is checked; overflow reverts with `Overflow`.
-//!
-//! ```text
-//! fee_total       = ceil(amount_raised * fee_bps / 10_000)      // campaign fee_override, else platform fee
-//! total_after_fee = amount_raised - fee_total
-//!
-//! claimable(i)    = floor(total_after_fee * payout_bps(i) / 10_000)
-//! fee_slice(i)    = floor(fee_total       * payout_bps(i) / 10_000)
-//! ```
-//!
-//! Rounding dust is not lost. The claim that leaves no other milestone
-//! unclaimed (the remaining basis points equal that milestone's own
-//! `payout_bps`) absorbs it:
-//!
-//! ```text
-//! claimable(last) = total_after_fee - sum(claimable(j) for already-claimed j)
-//! fee_claim(last) = max(fee_slice(last), fee_total - sum(fee_slice(j) for already-claimed j))
-//! ```
-//!
-//! Worked example: `amount_raised = 1000`, fee 300 bps, three milestones of
-//! 3333 / 3333 / 3334 bps.
-//!
-//! ```text
-//! fee_total = ceil(1000 * 300 / 10_000) = 30      total_after_fee = 970
-//! milestone 1:  floor(970 * 3333 / 10_000) = 323
-//! milestone 2:  floor(970 * 3333 / 10_000) = 323
-//! milestone 3:  970 - (323 + 323)          = 324  // last claim takes the dust
-//! ```
-//!
-//! On each claim the fee slice is transferred to the admin and the claimable
-//! amount to the creator, both in the campaign's token, and
-//! `total_raised_global` is reduced by `fee_claim + claimable`. A claim whose
-//! `claimable` is zero or negative fails with `NoFundsToWithdraw`.
-//!
-//! ## Checks-effects-interactions
-//!
-//! `claim_milestone` validates first, then records the effects — the milestone
-//! is marked claimed, the global total is reduced and, for the final claim, the
-//! campaign is closed — and only then calls the token's `transfer`. A milestone
-//! therefore cannot be claimed twice, even by a token that calls back into the
-//! contract (see `tests/test_cei_reentrancy.rs`).
-//!
-//! ## Errors
-//!
-//! | Error                    | When                                                        |
-//! |--------------------------|-------------------------------------------------------------|
-//! | `ValidationFailed`       | Bad plan (size, bps, ids, description), plan already set, or milestone already verified |
-//! | `CampaignNotActive`      | Campaign cancelled (or, when planning, already withdrawn)   |
-//! | `CampaignNotVerified`    | Claiming on an unverified campaign                          |
-//! | `FundsAlreadyWithdrawn`  | Claiming after the campaign was fully withdrawn             |
-//! | `NoFundsToWithdraw`      | Nothing raised, or the computed claim is not positive       |
-//! | `FundingGoalNotReached`  | Claiming before `amount_raised >= funding_goal`             |
-//! | `MilestoneNotFound`      | No plan, or no milestone with that id                       |
-//! | `MilestoneNotVerified`   | Claiming before the admin verified the milestone            |
-//! | `MilestoneAlreadyClaimed`| The milestone was already claimed                           |
-//! | `Overflow`               | Checked arithmetic overflowed                               |
-//!
-//! Every entrypoint also reverts while the contract is paused, and requires the
-//! caller's authorisation (creator for plan and claim, admin for verification).
-//!
-//! ## Events
-//!
-//! | Topics                                              | Data                     |
-//! |-----------------------------------------------------|--------------------------|
-//! | `("milestones_set", campaign_id)`                   | number of milestones     |
-//! | `("milestone_verified", campaign_id, milestone_id)` | `()`                     |
-//! | `("milestone_claimed", campaign_id, milestone_id)`  | `(claimable, fee_claim)` |
-//!
-//! ## Storage
-//!
-//! The plan is one `Vec<Milestone>` per campaign, plus a claimed flag per
-//! `(campaign_id, milestone_id)`; both go through the helpers in `storage.rs`,
-//! which extend TTL on write (see `docs/rent.md`). `bump_instance_ttl` runs on
-//! every state-changing entrypoint here.
-
-use super::*;
-use soroban_sdk::token::Client as TokenClient;
-use soroban_sdk::token::StellarAssetClient as TokenAdminClient;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::testutils::Ledger;
-
-fn setup_env<'a>() -> (
-    Env,
-    Address,
-    Address,
-    Address,
-    Address,
-    TokenClient<'a>,
-    TokenAdminClient<'a>,
-    ProofOfHeartClient<'a>,
-) {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let creator = Address::generate(&env);
-    let contributor1 = Address::generate(&env);
-    let contributor2 = Address::generate(&env);
-
-    let token_address = env.register_stellar_asset_contract(admin.clone());
-    let token = TokenClient::new(&env, &token_address);
-    let token_admin = TokenAdminClient::new(&env, &token_address);
-
-    let contract_id = env.register_contract(None, ProofOfHeart);
-    let client = ProofOfHeartClient::new(&env, &contract_id);
-
-    client.init(&admin, &token_address, &300);
-    env.as_contract(&client.address, || set_min_campaign_funding_goal(&env, 1));
-
-    (
-        env,
-        admin,
-        creator,
-        contributor1,
-        contributor2,
-        token,
-        token_admin,
-        client,
-    )
-}
-
-#[test]
-fn test_campaign_payout_full_amount() {
-    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
-
-    token_admin.mint(&contributor1, &5000);
-
-    let title = String::from_str(&env, "Payout Campaign");
-    let desc = String::from_str(&env, "Full payout test");
-    let campaign_id = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title,
-        description: desc,
-        funding_goal: 1000,
-        duration_days: 30,
-        category: Category::Educator,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
-    });
-    client.verify_campaign(&campaign_id);
-
-    client.contribute(&campaign_id, &contributor1, &1000);
-
-    let campaign = client.get_campaign(&campaign_id);
-    let deadline = campaign.deadline;
-    env.ledger().with_mut(|li| {
-        li.timestamp = deadline + 1;
-    });
-
-    client.withdraw_funds(&campaign_id);
-
-    assert_eq!(token.balance(&admin), 30);
-    assert_eq!(token.balance(&creator), 970);
-}
-
-#[test]
-fn test_campaign_payout_with_fee_override() {
-    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
-
-    token_admin.mint(&contributor1, &5000);
-
-    let title = String::from_str(&env, "Override Fee Campaign");
-    let desc = String::from_str(&env, "Fee override payout");
-    let campaign_id = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title,
-        description: desc,
-        funding_goal: 1000,
-        duration_days: 30,
-        category: Category::Educator,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
-    });
-    client.verify_campaign(&campaign_id);
-
-    client.set_campaign_fee_override(&admin, &campaign_id, &1000);
-
-    client.contribute(&campaign_id, &contributor1, &1000);
-
-    let campaign = client.get_campaign(&campaign_id);
-    let deadline = campaign.deadline;
-    env.ledger().with_mut(|li| {
-        li.timestamp = deadline + 1;
-    });
-
-    client.withdraw_funds(&campaign_id);
-
-    assert_eq!(token.balance(&admin), 100);
-    assert_eq!(token.balance(&creator), 900);
-}
-
-#[test]
-fn test_campaign_payout_rejects_unverified() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-
-    let title = String::from_str(&env, "Unverified Payout");
-    let desc = String::from_str(&env, "Cannot withdraw unverified");
-    let campaign_id = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title,
-        description: desc,
-        funding_goal: 1000,
-        duration_days: 30,
-        category: Category::Educator,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
-    });
-
-    let campaign = client.get_campaign(&campaign_id);
-    let deadline = campaign.deadline;
-    env.ledger().with_mut(|li| {
-        li.timestamp = deadline + 1;
-    });
-
-    let res = client.try_withdraw_funds(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotVerified);
-}
-
-#[test]
-fn test_campaign_payout_rejects_zero_balance() {
-    let (env, _admin, creator, _, _, _, _, client) = setup_env();
-
-    let title = String::from_str(&env, "Empty Payout");
-    let desc = String::from_str(&env, "No funds to withdraw");
-    let campaign_id = client.create_campaign(&CreateCampaignParams {
-        creator: creator.clone(),
-        title,
-        description: desc,
-        funding_goal: 1000,
-        duration_days: 30,
-        category: Category::Educator,
-        has_revenue_sharing: false,
-        revenue_share_percentage: 0,
-        max_contribution_per_user: 0,
-    });
-    client.verify_campaign(&campaign_id);
-
-    let res = client.try_withdraw_funds(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
-}
-
-//! # Milestone release escrow — functional specification
-//!
-//! A campaign creator may split the payout of a *successful* campaign into
-//! milestones. Instead of one `withdraw_funds` call, the platform admin verifies
-//! each milestone after review and the creator claims a share of the escrow per
-//! verified milestone (#783).
-//!
-//! ## Actors and entrypoints
-//!
-//! | Entrypoint          | Caller  | Purpose                                            |
-//! |---------------------|---------|----------------------------------------------------|
-//! | `set_milestones`    | creator | Define the milestone plan (once)                   |
-//! | `verify_milestone`  | admin   | Mark one milestone as verified (once each)         |
-//! | `claim_milestone`   | creator | Release a verified milestone's share of the escrow |
-//!
-//! ## Lifecycle
-//!
-//! ```text
-//!  no plan ── set_milestones(creator, once) ──► plan defined
-//!                                               (all verified = false, none claimed)
-//!
-//!  per milestone:
-//!    unverified ── verify_milestone(admin) ──► verified ── claim_milestone(creator) ──► claimed
-//!
-//!  when the last milestone is claimed:
-//!    campaign.funds_withdrawn = true, campaign.is_active = false
+//!    campaign.funds_withdrawn() = true, campaign.is_active() = false
 //! ```
 //!
 //! Milestones may be verified and claimed in any order. Claiming requires the
@@ -441,7 +149,7 @@ pub(crate) fn set_milestones(
     campaign.creator.require_auth();
     require_not_paused(env)?;
 
-    if campaign.is_cancelled || campaign.funds_withdrawn {
+    if campaign.is_cancelled() || campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
     if milestones.is_empty() || milestones.len() > MAX_MILESTONES {
@@ -499,7 +207,7 @@ pub(crate) fn verify_milestone(
     crate::lifecycle::assert_admin(env, &admin)?;
     require_not_paused(env)?;
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
 
@@ -544,13 +252,13 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     campaign.creator.require_auth();
     require_not_paused(env)?;
 
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if !campaign.is_verified {
+    if !campaign.is_verified() {
         return Err(Error::CampaignNotVerified);
     }
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::FundsAlreadyWithdrawn);
     }
     if campaign.amount_raised == 0 {
@@ -691,8 +399,8 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
         all
     };
     if all_claimed {
-        campaign.funds_withdrawn = true;
-        campaign.is_active = false;
+        campaign.set_funds_withdrawn(true);
+        campaign.set_active(false);
         set_campaign(env, campaign_id, &campaign);
         decrement_active_campaign_count(env);
     }
@@ -773,8 +481,8 @@ mod tests {
         client.claim_milestone(&id, &2);
         // campaign should now be withdrawn
         let camp = client.get_campaign(&id);
-        assert!(camp.funds_withdrawn);
-        assert!(!camp.is_active);
+        assert!(camp.funds_withdrawn());
+        assert!(!camp.is_active());
     }
 
     #[test]
@@ -876,6 +584,6 @@ mod tests {
         // fee_total = 30, split 9 / 9 / 12; the creator gets the other 970.
         assert_eq!(token.balance(&admin), 30);
         assert_eq!(token.balance(&creator), 970);
-        assert!(client.get_campaign(&id).funds_withdrawn);
+        assert!(client.get_campaign(&id).funds_withdrawn());
     }
 }

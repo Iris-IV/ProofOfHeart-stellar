@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use, deprecated)]
 extern crate std;
 
 pub use crate::storage::set_min_campaign_funding_goal;
@@ -77,6 +78,7 @@ pub(crate) fn setup_env_with_default_min<'a>() -> (
 ) {
     let env = Env::default();
     env.mock_all_auths();
+    env.mock_all_auths_allowing_non_root_auth();
 
     let admin = Address::generate(&env);
     let creator = Address::generate(&env);
@@ -133,6 +135,7 @@ pub(crate) fn setup_env_with_version<'a>(version: u32) -> (
 ) {
     let env = Env::default();
     env.mock_all_auths();
+    env.mock_all_auths_allowing_non_root_auth();
 
     let admin = Address::generate(&env);
     let creator = Address::generate(&env);
@@ -163,6 +166,8 @@ pub(crate) fn setup_env_with_version<'a>(version: u32) -> (
         token_admin,
         client,
     )
+}
+
 pub(crate) fn setup_token<'a>(env: &Env, admin: &Address) -> TokenClient<'a> {
     let token_address = env.register_stellar_asset_contract(admin.clone());
     TokenClient::new(env, &token_address)

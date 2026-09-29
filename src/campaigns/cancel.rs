@@ -17,7 +17,7 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     require_not_paused(env)?;
 
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::CancellationNotAllowed);
     }
     // Prevent rug-pull: reject cancellation after the funding goal has been met but
@@ -65,8 +65,8 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     // #819: Zero effective_amount_raised so indexers and dashboards report 0
     // live contributions on a dead campaign immediately, even before refunds.
     campaign.effective_amount_raised = 0;
-    campaign.is_cancelled = true;
-    campaign.is_active = false;
+    campaign.set_cancelled(true);
+    campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     // #863: a cancelled campaign is terminal and every contribution to it is
@@ -121,7 +121,7 @@ pub(crate) fn admin_cancel_campaign(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::CancellationNotAllowed);
     }
 
@@ -151,8 +151,8 @@ pub(crate) fn admin_cancel_campaign(
     }
 
     campaign.effective_amount_raised = 0;
-    campaign.is_cancelled = true;
-    campaign.is_active = false;
+    campaign.set_cancelled(true);
+    campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     // #863: same terminal-state cleanup as creator cancel — an admin-cancelled

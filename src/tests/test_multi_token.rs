@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Per-campaign currencies (#784).
 //!
 //! A campaign's token is fixed at creation and governs every movement of value

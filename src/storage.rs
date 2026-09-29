@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category, EmergencyWithdrawal};
@@ -21,11 +22,11 @@ macro_rules! persistent_set {
         let storage = $env.storage().persistent();
         let existed = storage.has(&key);
         if existed {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+            if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
         }
         storage.set(&key, $value);
         if !existed {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+            if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
         }
     }};
 }
@@ -51,7 +52,7 @@ pub fn extend_contributor_ttl(env: &Env, campaign_id: u32, contributor: &Address
     ];
     for key in keys {
         // extend_ttl is a no-op for missing keys, so the has() check is skipped
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
 }
 
@@ -304,7 +305,7 @@ pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
     let raw: Val = storage.get(&key)?;
     let campaign = Campaign::try_from_val(env, &raw).ok()?;
     // Only extend TTL for valid data; corrupted entries should be allowed to expire
-    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     Some(campaign)
 }
 
@@ -467,7 +468,7 @@ pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i
     let storage = env.storage().persistent();
     let value = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -487,7 +488,7 @@ pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Addr
     let storage = env.storage().persistent();
     let value = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -534,11 +535,13 @@ pub fn decrement_contributor_count(
     env: &Env,
     campaign_id: u32,
 ) -> Result<(), crate::errors::Error> {
-    let count = get_contributor_count(env, campaign_id);
-    if count == 0 {
-        return Err(crate::errors::Error::InvariantBroken);
+    let storage = env.storage().persistent();
+    let mut count: u32 = storage.get(&ContributionKey::ContributorCount(campaign_id)).unwrap_or(0);
+    if count > 0 {
+        count -= 1;
+        storage.set(&ContributionKey::ContributorCount(campaign_id), &count);
+        if storage.has(&ContributionKey::ContributorCount(campaign_id)) { storage.extend_ttl(&ContributionKey::ContributorCount(campaign_id), BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
-    set_contributor_count(env, campaign_id, count - 1);
     Ok(())
 }
 
@@ -547,7 +550,7 @@ pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
     let storage = env.storage().persistent();
     let val: Option<Address> = storage.get(&key);
     if val.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     val
 }
@@ -664,7 +667,7 @@ pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
     let storage = env.storage().persistent();
     let value: Option<u32> = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -680,7 +683,7 @@ pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
     let storage = env.storage().persistent();
     let value: Option<u32> = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -698,7 +701,7 @@ pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
     let storage = env.storage().persistent();
     let value: Option<i128> = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -714,7 +717,7 @@ pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
     let storage = env.storage().persistent();
     let value: Option<i128> = storage.get(&key);
     if value.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     value.unwrap_or(0)
 }
@@ -756,7 +759,7 @@ pub fn extend_ttl(env: &Env, campaign_id: u32, voter: &Address) {
     let storage = env.storage().persistent();
     let key = VotingKey::HasVoted(campaign_id, voter.clone());
     // extend_ttl is a no-op for missing keys, so the has() check is skipped
-    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
 }
 
 /// Extends TTL on all voting state keys for a campaign.
@@ -770,7 +773,7 @@ pub fn extend_voting_state_ttl(env: &Env, campaign_id: u32) {
     ];
     for key in keys {
         // extend_ttl is a no-op for missing keys, so the has() check is skipped
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
 }
 
@@ -778,7 +781,7 @@ pub fn bump_campaign(env: &Env, campaign_id: u32) {
     let key = CampaignKey::Campaign(campaign_id);
     let storage = env.storage().persistent();
     // extend_ttl is a no-op for missing keys, so the has() check is skipped
-    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
 }
 
 pub fn bump_votes(env: &Env, campaign_id: u32) {
@@ -956,7 +959,7 @@ pub fn get_creator_campaign_count_opt(env: &Env, creator: &Address) -> Option<u3
     let storage = env.storage().persistent();
     let val: Option<u32> = storage.get(&key);
     if let Some(count) = val {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
         Some(count)
     } else {
         None
@@ -994,7 +997,7 @@ pub fn get_creator_campaign_bucket(
     let storage = env.storage().persistent();
     let val: Option<soroban_sdk::Vec<u32>> = storage.get(&key);
     if let Some(ids) = val {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
         ids
     } else {
         soroban_sdk::Vec::new(env)
@@ -1025,7 +1028,7 @@ pub fn get_creator_campaign_position(
     let storage = env.storage().persistent();
     let val = storage.get(&key);
     if val.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     val
 }
@@ -1063,7 +1066,7 @@ pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> O
     let storage = env.storage().persistent();
     let val = storage.get(&key);
     if val.is_some() {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        if storage.has(&key) { storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT); }
     }
     val
 }

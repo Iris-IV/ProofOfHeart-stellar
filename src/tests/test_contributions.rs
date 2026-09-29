@@ -42,8 +42,8 @@ fn test_contribute_and_withdraw_success() {
     assert_eq!(token.balance(&creator), 970);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(!campaign.is_active);
-    assert!(campaign.funds_withdrawn);
+    assert!(!campaign.is_active());
+    assert!(campaign.funds_withdrawn());
 }
 
 #[test]
@@ -186,19 +186,19 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
 
     client.withdraw_funds(&campaign_1);
 
-    assert!(client.get_campaign(&campaign_1).funds_withdrawn);
-    assert!(!client.get_campaign(&campaign_1).is_active);
+    assert!(client.get_campaign(&campaign_1).funds_withdrawn());
+    assert!(!client.get_campaign(&campaign_1).is_active());
     assert_eq!(client.get_campaign(&campaign_2).amount_raised, 900);
-    assert!(!client.get_campaign(&campaign_2).funds_withdrawn);
+    assert!(!client.get_campaign(&campaign_2).funds_withdrawn());
     assert_eq!(client.get_campaign(&campaign_3).amount_raised, 2000);
 
     client.cancel_campaign(&campaign_2);
-    assert!(client.get_campaign(&campaign_2).is_cancelled);
-    assert!(client.get_campaign(&campaign_3).is_active);
+    assert!(client.get_campaign(&campaign_2).is_cancelled());
+    assert!(client.get_campaign(&campaign_3).is_active());
 
     client.withdraw_funds(&campaign_3);
-    assert!(client.get_campaign(&campaign_3).funds_withdrawn);
-    assert!(!client.get_campaign(&campaign_3).is_active);
+    assert!(client.get_campaign(&campaign_3).funds_withdrawn());
+    assert!(!client.get_campaign(&campaign_3).is_active());
 
     client.deposit_revenue(&campaign_3, &3000);
 
@@ -721,7 +721,7 @@ fn test_cancel_and_refund() {
     client.contribute(&campaign_id, &contributor2, &500);
 
     client.cancel_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     client.claim_refund(&campaign_id, &contributor1);
     client.claim_refund(&campaign_id, &contributor2);
@@ -1011,7 +1011,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     // Artificially mark funds as withdrawn so deposit/claim_revenue bypass the guard.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1205,7 +1205,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
         campaign.effective_amount_raised = 0;
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 

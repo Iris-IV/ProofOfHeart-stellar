@@ -25,11 +25,11 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     // Defense-in-depth: re-check verification even though `contribute`
     // already requires it, in case a future code path seeds an unverified
     // campaign directly (admin grant, migration, etc.).
-    if !campaign.is_verified {
+    if !campaign.is_verified() {
         return Err(Error::CampaignNotVerified);
     }
 
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
     // Withdrawal is only allowed after the campaign deadline has passed.
@@ -38,7 +38,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if env.ledger().timestamp() <= campaign.deadline {
         return Err(Error::DeadlineNotPassed);
     }
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::FundsAlreadyWithdrawn);
     }
     if campaign.amount_raised == 0 {
@@ -84,8 +84,8 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
-    campaign.funds_withdrawn = true;
-    campaign.is_active = false;
+    campaign.set_funds_withdrawn(true);
+    campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
     decrement_active_campaign_count(env);
 
@@ -189,7 +189,7 @@ pub(crate) fn withdraw_reserve(env: &Env, campaign_id: u32) -> Result<(), Error>
     // all) and FundingGoalNotReached (goal not met) describe different
     // failure modes — this guard is about the campaign never having called
     // withdraw_funds, which is a distinct invariant violation.
-    if !campaign.funds_withdrawn {
+    if !campaign.funds_withdrawn() {
         return Err(Error::ValidationFailed);
     }
 

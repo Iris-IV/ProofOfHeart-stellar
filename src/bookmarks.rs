@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! On-chain campaign bookmark / save list for wallets (#507).
 //!
 //! Lets a wallet track causes it cares about without relying on the
@@ -131,7 +132,7 @@ pub fn get_saved(env: &Env, user: Address) -> Vec<u32> {
     let mut live = Vec::new(env);
     for campaign_id in saved.iter() {
         match get_campaign(env, campaign_id) {
-            Some(campaign) if !campaign.is_cancelled => live.push_back(campaign_id),
+            Some(campaign) if !campaign.is_cancelled() => live.push_back(campaign_id),
             _ => {}
         }
     }
@@ -202,7 +203,7 @@ mod tests {
         for (i, e) in env.events().all().iter().enumerate() {
             let topics = &e.1;
             let name: String = soroban_sdk::FromVal::from_val(&env, &topics.get(0).unwrap());
-            std::println!("event {i}: {}", name.to_string());
+
         }
     }
 
@@ -315,10 +316,7 @@ mod tests {
             funding_goal: 1000,
             deadline: 100000,
             amount_raised: 0,
-            is_active: true,
-            funds_withdrawn: false,
-            is_cancelled: false,
-            is_verified: false,
+            status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Named constants shared across the contract.
 //!
 //! Hoisted here so magic numbers (`9999`, `10000`, `86400`) appear exactly
