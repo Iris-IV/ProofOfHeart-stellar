@@ -95,3 +95,13 @@ pub(crate) const TRANSFER_EXPIRY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// exceeds the per-invocation CPU budget once a creator has created several dozen
 /// campaigns (see `test_creator_buckets_100_campaigns`).
 pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
+
+/// Maximum number of campaigns folded into the aggregate queries
+/// (`get_platform_report`, `get_creator_stats`) per call (#1237).
+///
+/// Those queries do one or two persistent reads per campaign, and a Soroban
+/// transaction may touch at most 100 ledger entries, so the far larger
+/// [`MAX_SCAN_WINDOW`] would overrun the CPU/read budget long before it was
+/// reached. Keeping the bound below the entry limit leaves room for the fixed
+/// reads (counters, buckets, token, fee) each query also performs.
+pub(crate) const MAX_STATS_SCAN: u32 = 40;
