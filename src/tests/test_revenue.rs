@@ -270,8 +270,8 @@ fn test_revenue_lifecycle_e2e() {
     client.withdraw_funds(&campaign_id);
 
     let campaign_after_withdrawal = client.get_campaign(&campaign_id);
-    assert!(campaign_after_withdrawal.funds_withdrawn);
-    assert!(!campaign_after_withdrawal.is_active);
+    assert!(campaign_after_withdrawal.funds_withdrawn());
+    assert!(!campaign_after_withdrawal.is_active());
 
     token_admin.mint(&creator, &10000);
     client.deposit_revenue(&campaign_id, &10000);
@@ -902,13 +902,13 @@ fn test_cancel_campaign_refunds_revenue_pool() {
     let revenue_amount = 5000i128;
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
     client.deposit_revenue(&campaign_id, &revenue_amount);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = false;
+        campaign.set_funds_withdrawn(false);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -922,7 +922,7 @@ fn test_cancel_campaign_refunds_revenue_pool() {
     client.cancel_campaign(&campaign_id);
 
     // Verify campaign is cancelled
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     // Revenue pool should be cleared
     assert_eq!(client.get_revenue_pool(&campaign_id), 0);
@@ -965,13 +965,13 @@ fn test_cannot_claim_revenue_after_cancel() {
     client.contribute(&campaign_id, &contributor1, &1000);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
     client.deposit_revenue(&campaign_id, &1000);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = false;
+        campaign.set_funds_withdrawn(false);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1021,13 +1021,13 @@ fn test_cancel_with_multiple_contributors_and_revenue() {
     let revenue_deposited = 3000i128;
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
     client.deposit_revenue(&campaign_id, &revenue_deposited);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = false;
+        campaign.set_funds_withdrawn(false);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1085,13 +1085,13 @@ fn test_cancel_campaign_emits_revenue_refund_event() {
     let revenue_amount = 5000i128;
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
     client.deposit_revenue(&campaign_id, &revenue_amount);
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = false;
+        campaign.set_funds_withdrawn(false);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1099,7 +1099,7 @@ fn test_cancel_campaign_emits_revenue_refund_event() {
     client.cancel_campaign(&campaign_id);
 
     // Verify campaign is cancelled
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
     assert_eq!(client.get_revenue_pool(&campaign_id), 0);
 }
 
@@ -1131,7 +1131,7 @@ fn test_cancel_campaign_with_no_revenue() {
     client.cancel_campaign(&campaign_id);
 
     // Verify campaign is cancelled
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     // Revenue pool should remain 0
     assert_eq!(client.get_revenue_pool(&campaign_id), 0);

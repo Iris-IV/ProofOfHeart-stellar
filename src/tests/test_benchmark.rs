@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Performance Benchmarking & Gas Usage Metrics Report
 //!
 //! This module contains CPU instruction budget regression tests for key Proof of Heart
@@ -66,12 +67,12 @@
 //! ### Example 2: Cache Storage Reads
 //! ```rust
 //! // Inefficient: Read campaign twice
-//! if client.get_campaign(&id).is_active {
+//! if client.get_campaign(&id).is_active() {
 //!     let title = client.get_campaign(&id).title;
 //! }
 //! // Efficient: Cache in variable
 //! let campaign = client.get_campaign(&id);
-//! if campaign.is_active {
+//! if campaign.is_active() {
 //!     let title = campaign.title;
 //! }
 //! ```
@@ -473,7 +474,7 @@ fn test_verify_campaign_instruction_budget() {
     client.verify_campaign(&id);
 
     assert_cpu_budget(&env, "verify_campaign()", VERIFY_CAMPAIGN_CPU_LIMIT);
-    assert!(client.get_campaign(&id).is_verified);
+    assert!(client.get_campaign(&id).is_verified());
 }
 
 #[test]
@@ -488,7 +489,7 @@ fn test_cancel_campaign_instruction_budget() {
     client.cancel_campaign(&id);
 
     assert_cpu_budget(&env, "cancel_campaign()", CANCEL_CAMPAIGN_CPU_LIMIT);
-    assert!(client.get_campaign(&id).is_cancelled);
+    assert!(client.get_campaign(&id).is_cancelled());
 }
 
 #[test]

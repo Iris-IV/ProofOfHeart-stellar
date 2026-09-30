@@ -85,7 +85,7 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     voter.require_auth();
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
     require_active_campaign(&campaign)?;
@@ -163,10 +163,10 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 /// * `AdminVerificationConflict` - The campaign is already verified.
 pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if campaign.is_verified {
+    if campaign.is_verified() {
         return Err(Error::VerificationConflict);
     }
     require_active_campaign(&campaign)?;
@@ -174,7 +174,7 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     bump_campaign(env, campaign_id);
     bump_votes(env, campaign_id);
-    campaign.is_verified = true;
+    campaign.set_verified(true);
     // set_campaign persists the verified campaign and refreshes its persistent
     // TTL through the shared persistent_set helper.
     set_campaign(env, campaign_id, &campaign);
@@ -195,10 +195,10 @@ pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
 /// * `VotingThresholdNotMet` - Approval percentage is below the required threshold.
 pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if campaign.is_verified {
+    if campaign.is_verified() {
         return Err(Error::VerificationConflict);
     }
     require_active_campaign(&campaign)?;
@@ -231,7 +231,7 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     bump_votes(env, campaign_id);
     transition(CampaignState::of(&campaign), CampaignState::Verified)?;
 
-    campaign.is_verified = true;
+    campaign.set_verified(true);
     set_campaign(env, campaign_id, &campaign);
     increment_verified_campaign_count(env);
     env.events()

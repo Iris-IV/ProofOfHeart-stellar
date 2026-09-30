@@ -101,10 +101,10 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     if amount <= 0 {
         return Err(Error::ValidationFailed);
     }
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if !campaign.funds_withdrawn {
+    if !campaign.funds_withdrawn() {
         return Err(Error::ValidationFailed);
     }
     require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
@@ -139,7 +139,7 @@ pub(crate) fn claim_revenue(
     contributor.require_auth();
     require_not_paused(env)?;
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
@@ -149,7 +149,7 @@ pub(crate) fn claim_revenue(
     // contributions arrive, which would let early claimers compute their
     // share against a smaller denominator than late claimers and create a
     // race condition.
-    if !campaign.funds_withdrawn {
+    if !campaign.funds_withdrawn() {
         return Err(Error::ValidationFailed);
     }
 

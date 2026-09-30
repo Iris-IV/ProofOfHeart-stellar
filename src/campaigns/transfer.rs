@@ -77,7 +77,7 @@ pub(crate) fn initiate_campaign_transfer(
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_active_campaign(&campaign)?;
 
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
 

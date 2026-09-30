@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 extern crate alloc;
 use alloc::format;
 
@@ -202,10 +203,7 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
         funding_goal: 1,
         deadline: 100000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -478,10 +476,7 @@ fn test_pending_creator_none_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -523,10 +518,7 @@ fn test_pending_creator_some_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -1433,7 +1425,7 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
     });
 
     client.claim_refund(&id, &contributor);
-    // Failed-funding path still decrements (campaign.is_cancelled is false here).
+    // Failed-funding path still decrements (campaign.is_cancelled() is false here).
     assert_eq!(client.get_total_raised_global(), 0);
 }
 

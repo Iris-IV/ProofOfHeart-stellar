@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 extern crate alloc;
 use alloc::format;
 
@@ -27,12 +29,12 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
         assert_eq!(id, (i + 1) as u32);
     }
 
-    let page1 = client.list_campaigns(&0, &2);
+    let (page1, _) = client.list_campaigns(&0, &2);
     assert_eq!(page1.len(), 2);
     assert_eq!(page1.get(0).unwrap().id, 1);
     assert_eq!(page1.get(1).unwrap().id, 2);
 
-    let page2 = client.list_campaigns(&2, &2);
+    let (page2, _) = client.list_campaigns(&2, &2);
     assert_eq!(page2.len(), 1);
     assert_eq!(page2.get(0).unwrap().id, 3);
 }
@@ -507,20 +509,20 @@ fn list_campaigns_boundary_cases() {
         assert_eq!(id, (idx + 1) as u32);
     }
 
-    let first_page = client.list_campaigns(&0, &2);
+    let (first_page, _) = client.list_campaigns(&0, &2);
     assert_eq!(first_page.len(), 2);
     assert_eq!(first_page.get(0).unwrap().id, 1);
     assert_eq!(first_page.get(1).unwrap().id, 2);
 
-    let all = client.list_campaigns(&0, &u32::MAX);
+    let (all, _) = client.list_campaigns(&0, &u32::MAX);
     assert_eq!(all.len(), 3);
     assert_eq!(all.get(0).unwrap().id, 1);
     assert_eq!(all.get(2).unwrap().id, 3);
 
     let total = client.get_campaign_count();
-    assert_eq!(client.list_campaigns(&total, &5).len(), 0);
-    assert_eq!(client.list_campaigns(&(total + 1), &5).len(), 0);
-    assert_eq!(client.list_campaigns(&0, &0).len(), 0);
+    assert_eq!(client.list_campaigns(&total, &5).0.len(), 0);
+    assert_eq!(client.list_campaigns(&(total + 1), &5).0.len(), 0);
+    assert_eq!(client.list_campaigns(&0, &0).0.len(), 0);
 }
 
 #[test]
@@ -586,10 +588,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
         funding_goal: 1_000,
         deadline: 0,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -676,14 +675,14 @@ fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let total = client.get_campaign_count();
 
     // Both functions should return empty when start == total_count
-    let list_at_boundary = client.list_campaigns(&total, &10);
+    let (list_at_boundary, _) = client.list_campaigns(&total, &10);
     let active_at_boundary = client.list_active_campaigns(&total, &10);
     assert_eq!(list_at_boundary.len(), 0);
     assert_eq!(active_at_boundary.0.len(), 0);
     assert_eq!(active_at_boundary.1, 0);
 
     // Both should also return empty when start > total_count
-    let list_beyond_boundary = client.list_campaigns(&(total + 1), &10);
+    let (list_beyond_boundary, _) = client.list_campaigns(&(total + 1), &10);
     let active_beyond_boundary = client.list_active_campaigns(&(total + 1), &10);
     assert_eq!(list_beyond_boundary.len(), 0);
     assert_eq!(active_beyond_boundary.0.len(), 0);
