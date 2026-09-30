@@ -495,7 +495,6 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
         cancelled_campaigns,
         total_amount_raised: get_total_raised_global(env),
         stats_are_partial,
-        scanned_up_to: total_campaigns,
     }
 }
 

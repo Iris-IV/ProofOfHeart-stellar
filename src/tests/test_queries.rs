@@ -724,7 +724,6 @@ fn test_get_platform_stats_after_initialization() {
     assert_eq!(stats.cancelled_campaigns, 0);
     assert_eq!(stats.total_amount_raised, 0);
     assert!(!stats.stats_are_partial);
-    assert_eq!(stats.scanned_up_to, 0);
 }
 
 // ── #849 get_contributor_portfolio bounded pagination ─────────────────────────

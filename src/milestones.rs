@@ -424,6 +424,8 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     Ok(())
 }
 
+} // end of internal_tests module
+
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::*;

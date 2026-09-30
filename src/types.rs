@@ -18,37 +18,9 @@ pub enum CampaignStatus {
 }
 
 /// Represents an optional pending campaign creator for ownership transfers.
-/// Mirrors `Option<Address>` — used instead of the standard `Option` because
-/// Soroban 20.1.0's `#[contracttype]` derive doesn't support `Option<Address>`
-/// as a struct field: the generated `TryFrom<&Campaign> for ScVal` impl
-/// requires `ScVal: From<Address>`, which the pinned `=20.1.0` SDK does not
-/// provide (confirmed by re-testing `pending_creator: Option<Address>` against
-/// this checkout — it fails to compile with that exact missing-impl error).
-/// Revisit once the `soroban-sdk = "=20.1.0"` pin in Cargo.toml is lifted.
-/// Same binary layout (`None == 0`, `Some(addr) == 1(addr)`).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MaybePendingCreator {
-    /// No ownership transfer is in progress.
-    None,
-    /// An ownership transfer to this address is pending acceptance.
-    Some(Address),
-}
-
-impl MaybePendingCreator {
-    pub fn is_some(&self) -> bool {
-        matches!(self, MaybePendingCreator::Some(_))
-    }
-    pub fn is_none(&self) -> bool {
-        matches!(self, MaybePendingCreator::None)
-    }
-}
-
-impl From<Address> for MaybePendingCreator {
-    fn from(addr: Address) -> Self {
-        MaybePendingCreator::Some(addr)
-    }
-}
+/// Using `Option<Address>` directly since soroban-sdk 22.0.11 supports it.
+/// Same binary layout as the previous `MaybePendingCreator` enum (`None == 0`, `Some(addr) == 1(addr)`).
+pub type MaybePendingCreator = Option<Address>;
 
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.
 #[contracttype]
@@ -152,12 +124,6 @@ pub struct PlatformStats {
     /// are corrupted and must not be displayed or relied upon until the
     /// counters are reconciled.
     pub stats_are_partial: bool,
-    /// The ID up to which the scan was performed. Retained for API
-    /// compatibility: counters have been O(1) reads since #411, no scan is
-    /// performed, and this always equals `total_campaigns` — including when
-    /// `stats_are_partial` is `true`, in which case it still marks the
-    /// authoritative bound for campaign pagination.
-    pub scanned_up_to: u32,
 }
 
 /// Comprehensive platform report for admin dashboards, returning all key
@@ -290,7 +256,7 @@ pub struct EmergencyWithdrawal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignStats {
     pub contributor_count: u32,
-    pub top_contributor: MaybePendingCreator,
+    pub top_contributor: Option<Address>,
     pub avg_contribution: i128,
     pub last_contribution_time: u64,
 }

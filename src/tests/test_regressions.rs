@@ -658,7 +658,6 @@ fn test_platform_stats_counters_track_lifecycle() {
 
     // stats_are_partial must always be false after the O(1) refactor.
     assert!(!stats.stats_are_partial);
-    assert_eq!(stats.scanned_up_to, stats.total_campaigns);
     let _ = (id1, id2, admin);
 }
 
@@ -704,8 +703,6 @@ fn test_platform_stats_flags_active_counter_exceeding_total() {
     // Raw stored values are surfaced for auditability.
     assert_eq!(stats.total_campaigns, 1);
     assert_eq!(stats.active_campaigns, 5);
-    // `scanned_up_to` remains the authoritative pagination bound.
-    assert_eq!(stats.scanned_up_to, 1);
 
     // An audit event is published so indexers/admin can notice the corruption.
     let events = env.events().all();
@@ -790,7 +787,6 @@ fn test_platform_stats_consistent_through_full_lifecycle() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 1);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.scanned_up_to, 2);
 
     // No inconsistency event may be published in the healthy path.
     let events = env.events().all();
