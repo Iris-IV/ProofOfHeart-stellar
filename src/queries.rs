@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use soroban_sdk::{Address, Env, String};
 
-use crate::constants::MAX_SCAN_WINDOW;
+use crate::constants::{MAX_SCAN_WINDOW, MAX_STATS_SCAN};
 use crate::storage::{
     get_active_campaign_count, get_campaign, get_campaign_count, get_campaign_tags,
     get_cancelled_campaign_count, get_category_campaign_bucket, get_category_campaign_count,
@@ -98,7 +98,7 @@ pub(crate) fn list_active_campaigns(
     let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
 
     while current_id <= total_count {
-        if current_id > start.saturating_add(MAX_SCAN_WINDOW) {
+        if current_id > scan_window_end {
             env.events().publish(
                 ("scan_window_exhausted",),
                 (start, current_id, collected, capped_limit),
@@ -366,6 +366,11 @@ pub(crate) fn get_creator_campaigns(
 /// activity still has `total_campaigns > 0`; its other aggregate fields may be
 /// zero.
 ///
+/// **Bounded scan:** at most [`MAX_STATS_SCAN`] of the creator's campaigns
+/// (the oldest first) are aggregated per call, so the CPU cost is capped
+/// regardless of how many campaigns a creator has accumulated (#1237).
+/// `total_campaigns` still reports the full count.
+///
 /// **Note:** `total_contributors` is a sum of the contributor counts of all
 /// creator's campaigns. Because no registry of unique contributor addresses
 /// is maintained per campaign/creator in storage, this value can double-count
@@ -378,20 +383,24 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
     let mut total_raised: i128 = 0;
     let mut total_contributors: u32 = 0;
 
-    let num_buckets = total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
-    for bucket_idx in 0..num_buckets {
+    let scan_total = total.min(MAX_STATS_SCAN);
+    let mut scanned = 0u32;
+    let num_buckets = scan_total.div_ceil(CREATOR_CAMPAIGNS_BUCKET_SIZE);
+    'buckets: for bucket_idx in 0..num_buckets {
         let bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
-        for i in 0..bucket.len() {
-            if let Some(campaign_id) = bucket.get(i) {
-                if let Some(campaign) = get_campaign(env, campaign_id) {
-                    if campaign.is_active() && !campaign.is_cancelled() {
+        for campaign_id in bucket.iter() {
+            if scanned >= scan_total {
+                break 'buckets;
+            }
+            scanned += 1;
+            if let Some(campaign) = get_campaign(env, campaign_id) {
+                if !campaign.is_cancelled() {
+                    if campaign.is_active() {
                         active_campaigns += 1;
                     }
-                    if !campaign.is_cancelled() {
-                        total_raised += campaign.amount_raised;
-                    }
-                    total_contributors += get_contributor_count(env, campaign_id);
+                    total_raised += campaign.amount_raised;
                 }
+                total_contributors += get_contributor_count(env, campaign_id);
             }
         }
     }
@@ -529,6 +538,12 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
 
 /// Returns a comprehensive platform report with all key metrics in a
 /// single call (#541). Useful for admin dashboards and health checks.
+///
+/// `total_contributors` is summed over at most [`MAX_STATS_SCAN`] campaign
+/// IDs (the oldest first) so the call's CPU cost stays bounded no matter how
+/// many campaigns exist (#1237). Contributor counts are read directly by ID:
+/// a missing campaign has no count, so the per-ID `Campaign` deserialization
+/// the loop used to do just to test existence was pure overhead.
 pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
     let total_campaigns = get_campaign_count(env);
     let active_campaigns = get_active_campaign_count(env);
@@ -546,10 +561,8 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
             .unwrap_or(false);
 
     let mut total_contributors: u32 = 0;
-    for id in 1..=total_campaigns {
-        if get_campaign(env, id).is_some() {
-            total_contributors += get_contributor_count(env, id);
-        }
+    for id in 1..=total_campaigns.min(MAX_STATS_SCAN) {
+        total_contributors += get_contributor_count(env, id);
     }
 
     PlatformReport {
@@ -597,11 +610,12 @@ pub(crate) fn get_contributor_portfolio(
 
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
     let mut collected = 0u32;
-    let mut current_id = start + 1;
+    let mut current_id = start.saturating_add(1);
     let mut next_cursor = 0u32;
+    let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
 
     while current_id <= total_campaigns {
-        if current_id > start + MAX_SCAN_WINDOW {
+        if current_id > scan_window_end {
             env.events().publish(
                 ("scan_window_exhausted",),
                 (start, current_id, collected, capped_limit),

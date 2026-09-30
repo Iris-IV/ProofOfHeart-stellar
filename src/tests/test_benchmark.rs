@@ -163,9 +163,9 @@ fn make_revenue_campaign(
         funding_goal: 1_000,
         duration_days: 30,
         category: Category::EducationalStartup,
-        has_revenue_sharing: true,        // Feature-rich: revenue sharing enabled
-        revenue_share_percentage: 1000,   // 10% revenue share
-        max_contribution_per_user: 0,     // No cap
+        has_revenue_sharing: true, // Feature-rich: revenue sharing enabled
+        revenue_share_percentage: 1000, // 10% revenue share
+        max_contribution_per_user: 0, // No cap
     }
 }
 
@@ -435,6 +435,11 @@ const CLAIM_REFUND_CPU_LIMIT: u64 = 1_400_000;
 const BATCH_CONTRIBUTE_CPU_LIMIT: u64 = 9_000_000;
 const DEPOSIT_REVENUE_CPU_LIMIT: u64 = 1_200_000;
 const REJECTED_CALL_CPU_LIMIT: u64 = 500_000;
+const QUERY_REPORT_CPU_LIMIT: u64 = 900_000;
+const QUERY_CREATOR_STATS_CPU_LIMIT: u64 = 3_200_000;
+const QUERY_LIST_ACTIVE_CPU_LIMIT: u64 = 3_000_000;
+const QUERY_REPORT_BOUNDED_CPU_LIMIT: u64 = 40_000_000;
+const QUERY_PORTFOLIO_CPU_LIMIT: u64 = 4_000_000;
 
 fn plain_campaign(
     env: &soroban_sdk::Env,
@@ -638,4 +643,81 @@ fn test_rejected_double_withdraw_is_cheap_and_typed() {
 
     assert_cpu_budget(&env, "withdraw_funds() repeated", REJECTED_CALL_CPU_LIMIT);
     assert_eq!(res, Err(Ok(crate::Error::FundsAlreadyWithdrawn)));
+}
+
+// ── Query loop-bound benchmarks (#1237) ─────────────────────────────────────
+
+const QUERY_BENCH_CAMPAIGNS: u32 = 40;
+
+/// Seeds `QUERY_BENCH_CAMPAIGNS` campaigns, each with one contribution from
+/// `contributor`, so the scanning queries have real work to do.
+fn seed_query_bench(
+    env: &soroban_sdk::Env,
+    creator: &soroban_sdk::Address,
+    contributor: &soroban_sdk::Address,
+    token_admin: &TokenAdminClient,
+    client: &ProofOfHeartClient,
+) {
+    token_admin.mint(contributor, &1_000_000);
+    for i in 0..QUERY_BENCH_CAMPAIGNS {
+        let id =
+            client.create_campaign(&plain_campaign(env, creator.clone(), &format!("Bench {i}")));
+        client.verify_campaign(&id);
+        client.contribute(&id, contributor, &100);
+    }
+}
+
+#[test]
+fn test_query_scans_cpu_budget() {
+    let (env, _admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
+    seed_query_bench(&env, &creator, &contributor1, &token_admin, &client);
+
+    env.budget().reset_default();
+    let report = client.get_platform_report();
+    assert_cpu_budget(&env, "get_platform_report()", QUERY_REPORT_CPU_LIMIT);
+    assert_eq!(report.total_contributors, QUERY_BENCH_CAMPAIGNS);
+
+    env.budget().reset_default();
+    let stats = client.get_creator_stats(&creator);
+    assert_cpu_budget(&env, "get_creator_stats()", QUERY_CREATOR_STATS_CPU_LIMIT);
+    assert_eq!(stats.total_contributors, QUERY_BENCH_CAMPAIGNS);
+
+    env.budget().reset_default();
+    let (page, _) = client.list_active_campaigns(&0, &QUERY_BENCH_CAMPAIGNS);
+    assert_cpu_budget(&env, "list_active_campaigns()", QUERY_LIST_ACTIVE_CPU_LIMIT);
+    assert_eq!(page.len(), QUERY_BENCH_CAMPAIGNS);
+
+    env.budget().reset_default();
+    let (portfolio, _) =
+        client.get_contributor_portfolio(&contributor1, &0, &QUERY_BENCH_CAMPAIGNS);
+    assert_cpu_budget(
+        &env,
+        "get_contributor_portfolio()",
+        QUERY_PORTFOLIO_CPU_LIMIT,
+    );
+    assert_eq!(portfolio.len(), QUERY_BENCH_CAMPAIGNS);
+}
+
+/// The platform report must not scale with the campaign count past
+/// `MAX_STATS_SCAN`: a huge (here, sparse) ID space costs the same as a
+/// window-sized one, and stays inside the default CPU budget.
+#[test]
+fn test_platform_report_scan_is_bounded() {
+    let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+    env.budget().reset_unlimited();
+    env.as_contract(&client.address, || {
+        crate::storage::set_campaign_count(&env, 5_000);
+    });
+
+    env.budget().reset_default();
+    let report = client.get_platform_report();
+    let cpu = env.budget().cpu_instruction_cost();
+    std::println!("bench get_platform_report() bounded: {cpu} CPU instructions");
+
+    assert_eq!(report.total_campaigns, 5_000);
+    assert!(
+        cpu < QUERY_REPORT_BOUNDED_CPU_LIMIT,
+        "report scanned past MAX_STATS_SCAN: {cpu}"
+    );
 }
