@@ -156,7 +156,10 @@ jobs:
           targets: wasm32-unknown-unknown
       - run: cargo test --doc --features testutils
 
-  # Issue #1216: Assert that contract methods stay within gas budget thresholds.
+  # Issues #1216/#1331: Assert that contract methods stay within the CPU and
+  # memory thresholds in src/tests/test_gas_budget.rs (see docs/gas.md). Any
+  # failure -- a compile error, a missing threshold, or a threshold exceeded --
+  # fails this job.
   gas-budget:
     runs-on: ubuntu-latest
     steps:
@@ -165,8 +168,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-targets: "true"
+      - name: Require at least 4 gas budget tests
+        run: |
+          count=$(cargo test --features testutils -- --list gas_budget 2>/dev/null | grep -c ': test$' || true)
+          echo "gas_budget tests found: $count"
+          if [ "$count" -lt 4 ]; then
+            echo "::error::Expected at least 4 tests matching 'gas_budget', found $count."
+            exit 1
+          fi
       - name: Run gas budget assertions
-        run: cargo test --features testutils -- --test-threads=1 gas_budget 2>&1 || true
+        run: cargo test --features testutils -- --test-threads=1 gas_budget
 
   coverage:
     runs-on: ubuntu-latest

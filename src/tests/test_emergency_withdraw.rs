@@ -435,8 +435,7 @@ fn test_emergency_withdraw_partial_timelock_expiration() {
 
 #[test]
 fn test_emergency_withdraw_with_multiple_contributors() {
-    let (env, admin, creator, contributor, contributor2, token, token_admin, client) =
-        setup_env();
+    let (env, admin, creator, contributor, contributor2, token, token_admin, client) = setup_env();
 
     // Create campaign with multiple contributors
     let goal: i128 = 1_000;

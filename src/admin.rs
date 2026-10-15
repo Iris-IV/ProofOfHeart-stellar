@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! # Admin trust model (#810)
 //!
 //! A single admin key controls sensitive operations: `update_platform_fee`,
@@ -224,7 +223,7 @@ pub(crate) fn set_min_voting_balance_fn(
 }
 
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
+    ensure_admin!(env);
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
     // Two bounds, deliberately, though only the tighter one can currently
     // reject (#793):
@@ -581,7 +580,7 @@ pub(crate) fn purge_voting_state(
     voters: Vec<Address>,
     finalize_aggregate: bool,
 ) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
+    ensure_admin!(env);
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
     if !campaign.funds_withdrawn() && !campaign.is_cancelled() {

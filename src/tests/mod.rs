@@ -17,6 +17,7 @@ mod test_counter_overflow_and_batch;
 // mod test_creator_buckets;
 mod test_deadline_and_reverification;
 mod test_emergency_withdraw;
+mod test_gas_budget;
 mod test_issue_817;
 mod test_issue_819;
 mod test_issue_863;
@@ -31,8 +32,8 @@ mod test_regressions;
 mod test_revenue;
 mod test_revenue_deposit;
 mod test_snapshots;
+mod test_tags;
 mod test_transfer_verification_censure;
 mod test_voting;
 mod test_voting_verify;
 mod test_withdrawals;
-

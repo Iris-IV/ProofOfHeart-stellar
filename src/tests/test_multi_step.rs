@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use super::helpers::*;
 use crate::Error;
 use soroban_sdk::testutils::Ledger;
@@ -121,7 +120,7 @@ fn test_lifecycle_cancel_and_refund() {
 }
 
 use crate::tests::helpers::{setup_contract, setup_token};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{Address, Env, String};
 
 #[test]
 fn test_multi_step_sequence() {

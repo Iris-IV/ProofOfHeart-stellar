@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! On-chain campaign bookmark / save list for wallets (#507).
 //!
 //! Lets a wallet track causes it cares about without relying on the
@@ -180,37 +179,10 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 mod tests {
     extern crate alloc;
     extern crate std;
-    use alloc::format;
-    use alloc::string::ToString;
-
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;
     use soroban_sdk::{Address, FromVal, String};
-
-    #[test]
-    fn dbg_save_campaign_events() {
-        let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
-        let id = client.create_campaign(&make_params(
-            creator.clone(),
-            String::from_str(&env, "Campaign"),
-            String::from_str(&env, "Desc"),
-            1000,
-            30,
-            Category::Learner,
-            false,
-            0,
-            0i128,
-        ));
-        let before = env.events().all().len();
-        client.save_campaign(&user, &id);
-        let after = env.events().all().len();
-        std::println!("before={before} after={after}");
-        for (i, e) in env.events().all().iter().enumerate() {
-            let topics = &e.1;
-            let name: String = soroban_sdk::FromVal::from_val(&env, &topics.get(0).unwrap());
-        }
-    }
 
     #[test]
     fn test_save_campaign_emits_campaign_bookmarked_event() {
@@ -321,23 +293,7 @@ mod tests {
             funding_goal: 1000,
             deadline: 100000,
             amount_raised: 0,
-            status: (if true {
-                crate::types::CAMPAIGN_ACTIVE
-            } else {
-                0
-            }) | (if false {
-                crate::types::CAMPAIGN_SUCCEEDED
-            } else {
-                0
-            }) | (if false {
-                crate::types::CAMPAIGN_PAUSED
-            } else {
-                0
-            }) | (if false {
-                crate::types::CAMPAIGN_VALIDATED
-            } else {
-                0
-            }),
+            status: crate::types::CAMPAIGN_ACTIVE,
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

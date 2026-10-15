@@ -1,3 +1,5 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
 //! Performance Benchmarking & Gas Usage Metrics Report
 //!
@@ -235,6 +237,7 @@ fn test_contribute_instruction_budget() {
 /// - Token transfer (creator withdrawal): ~500K instructions
 /// - Campaign state update: ~1M instructions
 /// - Global state update: ~500K instructions
+///
 /// Total: ~2.5M typical, with headroom for regression detection.
 #[test]
 fn test_withdraw_funds_instruction_budget() {
@@ -278,6 +281,7 @@ fn test_withdraw_funds_instruction_budget() {
 /// - Math is minimal (division, multiplication on i128)
 /// - Token transfer: ~500K instructions
 /// - Storage updates: ~1M instructions
+///
 /// Typical total: ~2M instructions with headroom.
 #[test]
 fn test_claim_revenue_instruction_budget() {
@@ -403,6 +407,7 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
 /// - Admin authorization: ~100K instructions
 /// - Instance storage write: ~50K instructions
 /// - Return value construction: ~10K instructions
+///
 /// Total: ~160K instructions (well under 1M limit)
 #[test]
 fn test_unpause_instruction_budget() {

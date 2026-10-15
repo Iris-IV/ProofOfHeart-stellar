@@ -1,3 +1,5 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
 //! Per-campaign currencies (#784).
 //!
@@ -470,8 +472,7 @@ fn test_withdrawal_with_revenue_share_in_campaign_currency() {
 fn test_batch_operations_with_three_currencies() {
     let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
     let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
-    let (euroc, euroc_token, euroc_admin) =
-        second_currency(&env, &admin, &client);
+    let (euroc, euroc_token, euroc_admin) = second_currency(&env, &admin, &client);
 
     platform_admin.mint(&contributor1, &10_000);
     usdc_admin.mint(&contributor1, &10_000);
@@ -530,23 +531,26 @@ fn test_allowlist_toggle_does_not_affect_campaign_mechanics() {
     assert_eq!(usdc_token.balance(&client.address), 3000);
 }
 
-/// Gas budget invariants hold under edge cases: zero contributions (if allowed),
-/// maximum i128 values, and rapid state transitions.
+/// A contribution at the top of the funding-goal range (10^15) is accounted
+/// for exactly, with no i128 overflow in the contract's arithmetic. The goal
+/// matches the contribution so the anomaly guard (which auto-pauses on a
+/// single contribution far above the goal) does not fire. Not a gas-budget
+/// test: those live in `test_gas_budget` and are selected by name in CI.
 #[test]
-fn test_gas_budget_under_i128_edge_cases() {
+fn test_i128_edge_case_contribution_does_not_overflow() {
     let (env, admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
     let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
 
     let large_amount = i128::MAX / 2;
     usdc_admin.mint(&contributor1, &large_amount);
 
-    let id = client.create_campaign_with_token(&params(&env, &creator, "Edge"), &usdc);
+    let max_contribution = crate::CAMPAIGN_FUNDING_GOAL_MAX;
+    let mut p = params(&env, &creator, "Edge");
+    p.funding_goal = max_contribution;
+    let id = client.create_campaign_with_token(&p, &usdc);
     client.verify_campaign(&id);
 
-    // Large contribution should not overflow contract arithmetic
-    let max_contribution = 1_000_000_000_000_000i128;
-    if large_amount >= max_contribution {
-        client.contribute(&id, &contributor1, &max_contribution);
-        assert_eq!(usdc_token.balance(&client.address), max_contribution);
-    }
+    client.contribute(&id, &contributor1, &max_contribution);
+    assert_eq!(usdc_token.balance(&client.address), max_contribution);
+    assert_eq!(client.get_campaign(&id).amount_raised, max_contribution);
 }

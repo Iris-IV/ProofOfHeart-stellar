@@ -1,6 +1,4 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 #![no_std]
-#![allow(unexpected_cfgs)]
 
 /// Current contract version. Increment this on each breaking upgrade.
 const CONTRACT_VERSION: u32 = 1;
@@ -96,7 +94,6 @@ impl ProofOfHeart {
     /// Reverts if the contract is paused, campaign creation is disabled, or any
     /// field in `params` fails validation (title/description length, funding-goal
     /// bounds, duration and category caps).
-    #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(env: Env, params: CreateCampaignParams) -> Result<u32, Error> {
         let id = campaigns::create::create_campaign(&env, params)?;
         increment_active_campaign_count(&env);
@@ -341,6 +338,15 @@ impl ProofOfHeart {
         description: String,
     ) -> Result<(), Error> {
         campaigns::update::update_campaign_description(&env, campaign_id, description)
+    }
+
+    /// Creator: adds a discovery tag to an active campaign and indexes the
+    /// campaign under it (#798). Tags are append-only. Reverts if paused, the
+    /// campaign is not active, or the tag is empty, longer than
+    /// `CAMPAIGN_TAG_MAX_LEN`, a duplicate, or would exceed
+    /// `MAX_TAGS_PER_CAMPAIGN`. Emits `campaign_tag_added`.
+    pub fn add_campaign_tag(env: Env, campaign_id: u32, tag: String) -> Result<(), Error> {
+        tags::add_campaign_tag(&env, campaign_id, tag)
     }
 
     /// Creator: pushes an active campaign's deadline out by `additional_days`.
@@ -1050,6 +1056,25 @@ impl ProofOfHeart {
         limit: u32,
     ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_campaigns_by_category(&env, category, offset, limit)
+    }
+
+    /// Campaigns carrying `tag`, in the order they were tagged (#798).
+    /// `offset` is a zero-based positional index into the tag's campaign
+    /// list, with the same cursor semantics as `get_campaigns_by_category`.
+    /// Tags are matched exactly (case-sensitive); an unknown, empty or
+    /// over-long tag returns an empty page.
+    pub fn get_campaigns_by_tag(
+        env: Env,
+        tag: String,
+        offset: u32,
+        limit: u32,
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
+        queries::get_campaigns_by_tag(&env, tag, offset, limit)
+    }
+
+    /// Tags applied to a campaign, in the order they were added (#798).
+    pub fn get_campaign_tags(env: Env, campaign_id: u32) -> soroban_sdk::Vec<String> {
+        queries::get_campaign_tag_list(&env, campaign_id)
     }
 
     /// `start` is a **zero-based positional index** into this creator's

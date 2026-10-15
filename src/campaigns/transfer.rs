@@ -130,8 +130,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     require_active_campaign(&campaign)?;
     require_not_paused(env)?;
 
-    let pending = match core::mem::replace(&mut campaign.pending_creator, MaybePendingCreator::None)
-    {
+    let pending = match campaign.pending_creator.take() {
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
@@ -243,11 +242,10 @@ pub(crate) fn cancel_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
 
-    let pending_address =
-        match core::mem::replace(&mut campaign.pending_creator, MaybePendingCreator::None) {
-            MaybePendingCreator::Some(addr) => addr,
-            MaybePendingCreator::None => return Err(Error::NoTransferPending),
-        };
+    let pending_address = match campaign.pending_creator.take() {
+        MaybePendingCreator::Some(addr) => addr,
+        MaybePendingCreator::None => return Err(Error::NoTransferPending),
+    };
 
     bump_instance_ttl(env);
     campaign.pending_creator_expiry = 0;
@@ -276,11 +274,10 @@ pub(crate) fn admin_cancel_campaign_transfer(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
-    let pending_address =
-        match core::mem::replace(&mut campaign.pending_creator, MaybePendingCreator::None) {
-            MaybePendingCreator::Some(addr) => addr,
-            MaybePendingCreator::None => return Err(Error::NoTransferPending),
-        };
+    let pending_address = match campaign.pending_creator.take() {
+        MaybePendingCreator::Some(addr) => addr,
+        MaybePendingCreator::None => return Err(Error::NoTransferPending),
+    };
 
     bump_instance_ttl(env);
     campaign.pending_creator_expiry = 0;

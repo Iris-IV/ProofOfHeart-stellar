@@ -158,6 +158,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_tag_added`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_tag_added", campaign_id: u32)` |
+| Data   | `tag: String` |
+| Source | `src/tags.rs` — `add_campaign_tag()` |
+
+---
+
 ### `campaign_unbookmarked`
 
 | Field  | Value |

@@ -218,6 +218,63 @@ fn process_campaign(campaign: Campaign) { /* ... */ }
 
 ## Testing & Benchmarking
 
+### Gas-budget CI gate
+
+The `gas-budget` job in `.github/workflows/ci.yml` fails the build when a
+hot-path entrypoint gets more expensive than its threshold. It runs:
+
+```bash
+cargo test --features testutils -- --test-threads=1 gas_budget
+```
+
+The tests live in `src/tests/test_gas_budget.rs`. Each one sets up state,
+resets the host budget, makes one call, and asserts both CPU instructions and
+memory bytes:
+
+| Test | Entrypoint | CPU limit | Memory limit |
+|------|------------|-----------|--------------|
+| `gas_budget_create_campaign` | `create_campaign` | 750,000 | 119,000 |
+| `gas_budget_contribute` | `contribute` | 930,000 | 182,000 |
+| `gas_budget_withdraw_funds` | `withdraw_funds` | 880,000 | 162,000 |
+| `gas_budget_claim_refund` | `claim_refund` | 520,000 | 92,000 |
+
+All thresholds are defined in one place, the `thresholds` module at the top
+of `src/tests/test_gas_budget.rs`. Each limit is the cost measured when it
+was set (written beside it) plus about 20% headroom.
+
+The job fails if:
+
+- a test exceeds its CPU or memory limit,
+- a threshold constant is removed (the tests stop compiling),
+- the crate fails to compile, or
+- fewer than 4 tests match the `gas_budget` filter. This stops a rename from
+  silently emptying the gate.
+
+**Updating a threshold.** When a change legitimately makes an entrypoint more
+expensive (or cheaper):
+
+1. Print the current measurements:
+   ```bash
+   cargo test --features testutils -- --test-threads=1 gas_budget --nocapture
+   ```
+   Each test prints a line such as
+   `gas_budget contribute: cpu=770385 (limit 930000), mem=151157 (limit 182000)`.
+2. In `thresholds`, set the new limit to about measured × 1.2, rounded up,
+   and update the `// measured` comment.
+3. In the PR description, state the old and new measurements and why the cost
+   changed. Do not raise a limit just to make CI pass without that
+   explanation.
+
+Measurements are deterministic for a given `soroban-sdk` version (pinned to
+`=22.0.11` in `Cargo.toml`). An SDK upgrade usually needs all thresholds
+re-measured in the same PR.
+
+To add an entrypoint to the gate, add a test whose name contains `gas_budget`
+to `test_gas_budget.rs`, with its limits in `thresholds`.
+
+The broader benchmarks in `src/tests/test_benchmark.rs` (`*_instruction_budget`)
+are CPU-only and are not part of the gate.
+
 ### CPU Budget Tests
 
 Proof of Heart includes budget regression tests in `src/tests/test_benchmark.rs`:

@@ -13,6 +13,7 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `cancel_campaign(campaign_id)` | `campaign.creator` |
 | `update_campaign(campaign_id, ...)` | `campaign.creator` |
 | `update_campaign_description(campaign_id, ...)` | `campaign.creator` |
+| `add_campaign_tag(campaign_id, tag)` | `campaign.creator` |
 | `claim_refund(..., contributor)` | `contributor` |
 | `deposit_revenue(campaign_id, ...)` | `campaign.creator` |
 | `claim_revenue(..., contributor)` | `contributor` |
@@ -64,6 +65,8 @@ This contract uses Soroban `Address::require_auth()` checks to ensure only the c
 | `get_min_campaign_funding_goal()` | no auth |
 | `list_campaigns(...)` | no auth |
 | `list_active_campaigns(...)` | no auth |
+| `get_campaigns_by_tag(tag, offset, limit)` | no auth |
+| `get_campaign_tags(campaign_id)` | no auth |
 | `initiate_campaign_transfer(campaign_id, new_creator)` | `campaign.creator` |
 | `accept_campaign_transfer(campaign_id)` | pending creator (from `campaign.pending_creator`) |
 | `cancel_campaign_transfer(campaign_id)` | `campaign.creator` |

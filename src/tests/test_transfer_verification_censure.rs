@@ -488,11 +488,7 @@ fn test_uncensure_works_after_campaign_cancellation() {
     let campaign_id = make_campaign(&env, &creator, &client, 0);
     let comment = hash(&env, 0x40);
 
-    client.censure_comment(
-        &campaign_id,
-        &comment,
-        &String::from_str(&env, "Test"),
-    );
+    client.censure_comment(&campaign_id, &comment, &String::from_str(&env, "Test"));
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));
 
     client.uncensure_comment(&campaign_id, &comment);

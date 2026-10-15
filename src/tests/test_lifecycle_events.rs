@@ -220,11 +220,9 @@ fn test_initialized_event_payload_schema() {
 
     let data: soroban_sdk::Vec<soroban_sdk::Val> =
         soroban_sdk::FromVal::from_val(&env, &init_event.2);
-    let token_addr =
-        soroban_sdk::Address::try_from_val(&env, &data.get(0).unwrap()).unwrap();
+    let token_addr = soroban_sdk::Address::try_from_val(&env, &data.get(0).unwrap()).unwrap();
     assert_eq!(token_addr, token.address);
-    let fee: u32 =
-        soroban_sdk::TryFromVal::try_from_val(&env, &data.get(1).unwrap()).unwrap();
+    let fee: u32 = soroban_sdk::TryFromVal::try_from_val(&env, &data.get(1).unwrap()).unwrap();
     assert!(fee <= 1000, "fee must be capped at 1000 bps");
 }
 
@@ -273,8 +271,7 @@ fn test_campaign_created_event_payload_schema() {
         creator
     );
 
-    let data_title =
-        String::try_from_val(&env, &create_event.2).unwrap();
+    let data_title = String::try_from_val(&env, &create_event.2).unwrap();
     assert_eq!(data_title, title);
 }
 
@@ -326,7 +323,6 @@ fn test_contribution_made_event_payload_schema() {
         contributor1
     );
 
-    let amount: i128 =
-        soroban_sdk::TryFromVal::try_from_val(&env, &contrib_event.2).unwrap();
+    let amount: i128 = soroban_sdk::TryFromVal::try_from_val(&env, &contrib_event.2).unwrap();
     assert_eq!(amount, 500);
 }

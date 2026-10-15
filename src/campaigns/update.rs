@@ -5,7 +5,10 @@ use crate::lifecycle::{
     campaign_start_time_or_error, get_creator_campaign, require_active_campaign,
     require_not_paused, require_unverified_campaign,
 };
-use crate::storage::{bump_instance_ttl, get_category_duration_cap, set_campaign};
+use crate::storage::{
+    bump_instance_ttl, creator_has_title, get_category_duration_cap, hash_text,
+    remove_creator_title_index, set_campaign, set_creator_title_index,
+};
 
 /// Updates the title and description of a campaign.
 ///
@@ -42,11 +45,28 @@ pub(crate) fn update_campaign(
         return Ok(());
     }
 
+    // Keep the per-creator title-uniqueness index in sync with a rename, so a
+    // creator cannot rename into a title they already use and the old title is
+    // released for reuse. Same error as the duplicate check in create.
+    let title_hashes = if campaign.title != title {
+        let new_hash = hash_text(env, &title);
+        if creator_has_title(env, &campaign.creator, &new_hash) {
+            return Err(Error::ValidationFailed);
+        }
+        Some((hash_text(env, &campaign.title), new_hash))
+    } else {
+        None
+    };
+
     bump_instance_ttl(env);
     let old_title = core::mem::replace(&mut campaign.title, title.clone());
     let old_description = core::mem::replace(&mut campaign.description, description.clone());
 
     set_campaign(env, campaign_id, &campaign);
+    if let Some((old_hash, new_hash)) = title_hashes {
+        remove_creator_title_index(env, &campaign.creator, &old_hash);
+        set_creator_title_index(env, &campaign.creator, &new_hash, campaign_id);
+    }
 
     env.events().publish(
         ("campaign_metadata_updated", campaign_id),

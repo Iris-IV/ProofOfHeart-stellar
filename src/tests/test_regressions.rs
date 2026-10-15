@@ -1,3 +1,5 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
 extern crate alloc;
 use alloc::format;
@@ -7,7 +9,7 @@ use crate::{
     storage, AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error,
     MaybePendingCreator, VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
-use soroban_sdk::{vec, Address, Env, FromVal, String, TryFromVal, Vec};
+use soroban_sdk::{vec, Address, Env, FromVal, String, TryFromVal};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
 
@@ -203,7 +205,7 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
         funding_goal: 1,
         deadline: 100000,
         amount_raised: 0,
-        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -476,7 +478,7 @@ fn test_pending_creator_none_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -518,7 +520,7 @@ fn test_pending_creator_some_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -1401,11 +1403,7 @@ fn test_admin_cancel_decrements_total_raised_global() {
 
     assert_eq!(client.get_total_raised_global(), goal);
 
-    client.admin_cancel_campaign(
-        &admin,
-        &id,
-        &String::from_str(&env, "fraud detected"),
-    );
+    client.admin_cancel_campaign(&admin, &id, &String::from_str(&env, "fraud detected"));
 
     assert_eq!(client.get_total_raised_global(), 0);
 }
@@ -1562,8 +1560,14 @@ fn test_burst_guard_block_counts_are_per_campaign_not_global() {
     env.as_contract(&client.address, || {
         let (_, count_a) = crate::storage::get_campaign_block_contribution_count(&env, id_a);
         let (_, count_b) = crate::storage::get_campaign_block_contribution_count(&env, id_b);
-        assert_eq!(count_a, 1, "campaign A count must be 1 (per-campaign, not global)");
-        assert_eq!(count_b, 1, "campaign B count must be 1 (per-campaign, not global)");
+        assert_eq!(
+            count_a, 1,
+            "campaign A count must be 1 (per-campaign, not global)"
+        );
+        assert_eq!(
+            count_b, 1,
+            "campaign B count must be 1 (per-campaign, not global)"
+        );
     });
 }
 
@@ -1574,8 +1578,8 @@ const DELAY_DAYS_852: u64 = 7;
 const CONTRIBUTION_852: i128 = 1000;
 const EXPECTED_RESERVE_852: i128 = 194;
 
-fn find_event_852<'a>(
-    env: &'a Env,
+fn find_event_852(
+    env: &Env,
     name: &str,
 ) -> (
     Address,
@@ -1629,7 +1633,8 @@ fn funded_campaign_852(
 fn test_reserve_withheld_event_carries_campaign_creator_and_amount() {
     let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
 
-    let campaign_id = funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
+    let campaign_id =
+        funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
 
     let now = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
@@ -1660,7 +1665,8 @@ fn test_reserve_withheld_event_carries_campaign_creator_and_amount() {
 fn test_reserve_released_event_carries_campaign_creator_and_amount() {
     let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
 
-    let campaign_id = funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
+    let campaign_id =
+        funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
 
     let now = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
@@ -1700,4 +1706,70 @@ fn test_reserve_released_event_carries_campaign_creator_and_amount() {
     // can trust the payload for accounting without a balance diff.
     assert_eq!(balance_after - balance_before, amount);
     assert_eq!(balance_after, 970);
+}
+
+// ── #1329: rename keeps the per-creator title index in sync ──────────────────
+
+fn create_titled(
+    env: &soroban_sdk::Env,
+    client: &crate::ProofOfHeartClient<'_>,
+    creator: &Address,
+    title: &str,
+) -> u32 {
+    client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(env, title),
+        String::from_str(env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ))
+}
+
+#[test]
+fn test_update_campaign_rejects_rename_to_existing_title() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    create_titled(&env, &client, &creator, "Alpha");
+    let beta = create_titled(&env, &client, &creator, "Beta");
+
+    let res = client.try_update_campaign(
+        &beta,
+        &String::from_str(&env, "Alpha"),
+        &String::from_str(&env, "Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(
+        client.get_campaign(&beta).title,
+        String::from_str(&env, "Beta")
+    );
+}
+
+#[test]
+fn test_update_campaign_rename_releases_old_title_and_reserves_new() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let id = create_titled(&env, &client, &creator, "Alpha");
+    client.update_campaign(
+        &id,
+        &String::from_str(&env, "Gamma"),
+        &String::from_str(&env, "Description"),
+    );
+
+    // The old title is free again...
+    create_titled(&env, &client, &creator, "Alpha");
+    // ...and the new one is taken.
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Gamma"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }

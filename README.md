@@ -35,6 +35,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - **Create Campaign** — Launch a new fundraising campaign via `CreateCampaignParams` (title, description, funding goal, duration in days, category, revenue-sharing settings, and per-user contribution cap).
 - **Update Campaign** — Edit title and/or description before any contributions are received.
 - **Extend Deadline** — Extend a campaign's deadline once (within the 365-day maximum).
+- **Tags** — The creator of an active campaign can add up to 10 discovery tags with `add_campaign_tag` (1–32 bytes each, exact-match and case-sensitive, no duplicates). Tags are append-only and cannot be removed. Each tag emits `campaign_tag_added`.
 - **Cancel Campaign** — Campaign creators can cancel an active campaign, enabling contributor refunds. Cancellation is blocked once the funding goal has been reached and funds have not yet been withdrawn, preventing rug-pull behaviour (#164).
 - **Ownership Transfer** — Two-step creator transfer: `initiate_campaign_transfer` → `accept_campaign_transfer` (or `cancel_campaign_transfer`).
 
@@ -81,6 +82,8 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - `get_campaign` / `get_campaign_optional` — Retrieve campaign details by ID.
 - `get_campaign_count` — Total campaigns ever created.
 - `get_campaigns_by_category` — Paginated list filtered by category.
+- `get_campaigns_by_tag` — Paginated list of campaigns carrying a tag, in tagging order (zero-based `offset`, same cursor semantics as `get_campaigns_by_category`).
+- `get_campaign_tags` — Tags applied to a campaign, in the order they were added.
 - `get_creator_campaigns` — Paginated list of campaigns by a specific creator.
 - `list_campaigns` — Raw paginated list by insertion order.
 - `list_active_campaigns` — Paginated list of currently active campaigns with a cursor for continued scanning.
@@ -180,6 +183,7 @@ ProofOfHeart-stellar/
     ├── queries.rs                    # Paginated listing and platform stats helpers
     ├── revenue.rs                    # Revenue deposit and claim logic
     ├── storage.rs                    # Storage helpers and DataKey definitions
+    ├── tags.rs                       # add_campaign_tag and the tag index
     ├── types.rs                      # Shared types: Campaign, Category, CreateCampaignParams, etc.
     ├── voting.rs                     # Community voting logic and helpers
     ├── campaigns/

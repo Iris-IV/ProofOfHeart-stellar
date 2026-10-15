@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Snapshot testing for contract state serialization and validation.
 //!
 //! These tests capture and validate the contract state against golden snapshot
@@ -7,10 +6,14 @@
 //! output matches the expected snapshot.
 
 use super::helpers::*;
-use crate::{storage, Category, CreateCampaignParams};
+use crate::{Category, CreateCampaignParams};
 use soroban_sdk::String;
 
-fn params(env: &soroban_sdk::Env, creator: &soroban_sdk::Address, title: &str) -> CreateCampaignParams {
+fn params(
+    env: &soroban_sdk::Env,
+    creator: &soroban_sdk::Address,
+    title: &str,
+) -> CreateCampaignParams {
     CreateCampaignParams {
         creator: creator.clone(),
         title: String::from_str(env, title),
@@ -31,7 +34,6 @@ fn params(env: &soroban_sdk::Env, creator: &soroban_sdk::Address, title: &str) -
 fn test_campaign_initial_state_snapshot() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
-    let title = String::from_str(&env, "Snapshot Test Campaign");
     let id = client.create_campaign(&params(&env, &creator, "Snapshot Test"));
 
     let campaign = client.get_campaign(&id);
@@ -108,7 +110,7 @@ fn test_multiple_contributions_state_snapshot() {
 /// and refund tracking correctly.
 #[test]
 fn test_cancelled_campaign_state_snapshot() {
-    let (env, _admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _platform, platform_admin, client) = setup_env();
 
     platform_admin.mint(&contributor1, &10_000);
     let id = client.create_campaign(&params(&env, &creator, "Cancelled"));
@@ -186,7 +188,7 @@ fn test_revenue_sharing_campaign_state_snapshot() {
 /// cancellation validates state consistency.
 #[test]
 fn test_complex_lifecycle_state_snapshot() {
-    let (env, _admin, creator, contributor1, contributor2, platform, platform_admin, client) =
+    let (env, _admin, creator, contributor1, contributor2, _platform, platform_admin, client) =
         setup_env();
 
     platform_admin.mint(&contributor1, &10_000);
@@ -230,7 +232,7 @@ fn test_campaign_counter_state_snapshot() {
 /// contributions and multiple refund transactions.
 #[test]
 fn test_refund_accounting_state_snapshot() {
-    let (env, _admin, creator, contributor1, contributor2, platform, platform_admin, client) =
+    let (env, _admin, creator, contributor1, contributor2, _platform, platform_admin, client) =
         setup_env();
 
     platform_admin.mint(&contributor1, &10_000);

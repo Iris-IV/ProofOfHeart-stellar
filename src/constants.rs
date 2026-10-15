@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Named constants shared across the contract.
 //!
 //! Hoisted here so magic numbers (`9999`, `10000`, `86400`) appear exactly
@@ -17,14 +16,6 @@ pub(crate) const BPS_CEIL_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
 
 /// Number of seconds in one day.
 pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
-
-/// Additional TTL (seconds) to bump storage when finalizing verification.
-///
-/// `verify_with_votes` writes campaign verification state and counters; it
-/// must extend the campaign/voting storage TTL before those writes to avoid a
-/// near-expiry campaign failing mid-finalization. This is the minimum buffer
-/// we add on top of the existing TTL.
-pub(crate) const VERIFICATION_TTD_BUMP_SECS: u64 = SECONDS_PER_DAY;
 
 /// Default delay before a proposed token update can be accepted (7 days).
 ///

@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
 
 use crate::types::{Campaign, CampaignReserve, Category, EmergencyWithdrawal};
@@ -883,22 +882,6 @@ pub fn remove_category_voting_threshold_bps(env: &Env, category: Category) {
     env.storage().instance().remove(&key);
 }
 
-/// Returns all campaign ids for a category in creation order.
-#[allow(dead_code)]
-pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
-    let key = CampaignKey::CategoryCampaigns(category as u32);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(Vec::new(env))
-}
-
-/// Stores all campaign ids for a category and extends entry TTL.
-#[allow(dead_code)]
-pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
-    persistent_set!(env, CampaignKey::CategoryCampaigns(category as u32), ids);
-}
-
 /// Returns the total number of campaigns in a category.
 pub fn get_category_campaign_count(env: &Env, category: Category) -> u32 {
     let key = CampaignKey::CategoryCampaignCount(category as u32);
@@ -974,8 +957,7 @@ pub const CREATOR_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 /// Returns the total number of campaigns owned by a creator.
 ///
 /// Returns `0` both when the creator is unknown and when the creator is known
-/// but has no current campaigns. Use [`creator_exists`] to distinguish these
-/// cases.
+/// but has no current campaigns.
 pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
     get_creator_campaign_count_opt(env, creator).unwrap_or(0)
 }
@@ -996,18 +978,6 @@ pub fn get_creator_campaign_count_opt(env: &Env, creator: &Address) -> Option<u3
     } else {
         None
     }
-}
-
-/// Returns `true` if `creator` has ever been recorded as a campaign creator.
-///
-/// This is the existence indicator for the creator index: it checks for the
-/// `CreatorCampaignCount` key rather than defaulting a missing key to zero, so
-/// consumers can tell an unknown address from a known creator with no active
-/// campaigns.
-pub fn creator_exists(env: &Env, creator: &Address) -> bool {
-    env.storage()
-        .persistent()
-        .has(&CampaignKey::CreatorCampaignCount(creator.clone()))
 }
 
 /// Stores the total number of campaigns owned by a creator.
@@ -1332,7 +1302,6 @@ pub fn set_active_campaign_count(env: &Env, count: u32) {
         .set(&CampaignKey::ActiveCampaignCount, &count);
 }
 
-#[allow(dead_code)]
 pub fn increment_active_campaign_count(env: &Env) {
     set_active_campaign_count(env, get_active_campaign_count(env) + 1);
 }
@@ -1359,16 +1328,6 @@ pub fn set_verified_campaign_count(env: &Env, count: u32) {
 
 pub fn increment_verified_campaign_count(env: &Env) {
     set_verified_campaign_count(env, get_verified_campaign_count(env) + 1);
-}
-
-/// Decrement the verified-campaign counter, saturating at zero (#796).
-///
-/// Saturating rather than wrapping: an underflow here would report billions of
-/// verified campaigns, and the counter is a statistic — it must never be the
-/// thing that bricks a description edit.
-pub fn decrement_verified_campaign_count(env: &Env) {
-    let count = get_verified_campaign_count(env);
-    set_verified_campaign_count(env, count.saturating_sub(1));
 }
 
 pub fn get_cancelled_campaign_count(env: &Env) -> u32 {
