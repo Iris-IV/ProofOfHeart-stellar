@@ -387,3 +387,4 @@ Two themes dominate this codebase:
 1. **Velocity has outpaced rigor.** The PR throughput is impressive (171 commits in one upstream push), but the auto-merge pipeline, the false documentation claims, and the broken build prove that the safety nets are thinner than they appear. The single highest-leverage change is **fixing CI and disabling admin-override merges**. Everything else is downhill from there.
 
 2. **Surface area is doubling.** Each merged contributor PR adds a feature (vesting reserves, category duration caps, batch verification, two-step ownership transfer). The README has not kept pace, the threat model has not kept pace, and the test layout is fragmenting. **Either ship a v0.2.0 cut with a frozen feature surface and harden it, or formally split the codebase into a stable "core" and an experimental "extensions" set.** Right now the project advertises a community-validated launchpad but ships an admin-heavy multi-feature platform.
+---
