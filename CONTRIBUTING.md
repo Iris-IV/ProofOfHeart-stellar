@@ -385,3 +385,4 @@ cargo test test_admin_cancel_campaign_succeeds_after_goal_met -- --nocapture 2>&
 - [Soroban Examples](https://github.com/stellar/soroban-examples) — reference implementations
 
 By contributing, your work falls under the MIT License.
+----
