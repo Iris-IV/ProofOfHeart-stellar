@@ -291,6 +291,35 @@ impl ProofOfHeart {
         milestones::verify_milestone(&env, admin, campaign_id, milestone_id)
     }
 
+    /// Admin: verifies all milestones for `campaign_id` in one call (#1043).
+    ///
+    /// Intended for verified non-profit creator accounts where per-milestone
+    /// review is not required. Already-verified milestones are skipped.
+    /// Returns the count of milestones newly verified.
+    ///
+    /// # Errors
+    /// * `NotAuthorized`     — Caller is not the stored admin.
+    /// * `ContractPaused`    — The contract is paused.
+    /// * `CampaignNotFound`  — No campaign with that id.
+    /// * `CampaignNotActive` — The campaign is cancelled.
+    /// * `MilestoneNotFound` — No milestone plan has been set.
+    pub fn batch_verify_milestones(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<u32, Error> {
+        milestones::batch_verify_milestones(&env, admin, campaign_id)
+    }
+
+    /// Extends the TTL of all core persistent storage keys for a campaign in
+    /// one call (#1062). Useful as a keep-alive for long-running active
+    /// campaigns whose entries might otherwise expire between user activity.
+    /// Instance-storage entries are not touched here; call the standard
+    /// `bump_instance_ttl` for those.
+    pub fn bump_campaign_state(env: Env, campaign_id: u32) {
+        storage::bump_all_campaign_state(&env, campaign_id);
+    }
+
     /// Creator: withdraws the tranche for a verified milestone. Reverts if the
     /// contract is paused, the campaign is inactive or unverified, or the
     /// milestone was already claimed.
