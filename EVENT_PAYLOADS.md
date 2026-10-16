@@ -11,7 +11,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("initialized", admin: Address)` |
-| Data   | `(token: Address, fee_bps: u32, min_quorum: u32, threshold_bps: u32, version: u32)` |
+| Data   | `token: Address` |
 | Source | `src/admin.rs` — `init()` |
 
 ---
@@ -314,7 +314,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("token_update_proposed",)` |
+| Topics | `("token_update_proposed",` |
 | Data   | `(new_token: Address, release_after: u64)` |
 | Source | `src/admin.rs` — `propose_token_update()` |
 
@@ -334,7 +334,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("token_update_cancelled",)` |
+| Topics | `("token_update_cancelled",` |
 | Data   | `()` |
 | Source | `src/admin.rs` — `cancel_token_update()` |
 
@@ -344,7 +344,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("fee_updated",)` |
+| Topics | `("fee_updated",` |
 | Data   | `(old_fee: u32, new_fee: u32)` |
 | Source | `src/admin.rs` — `update_platform_fee()` |
 
@@ -414,7 +414,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("admin_transfer_initiated",)` |
+| Topics | `("admin_transfer_initiated",` |
 | Data   | `(current_admin: Address, new_admin: Address)` |
 | Source | `src/admin.rs` — `initiate_admin_transfer()` |
 
@@ -424,7 +424,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("admin_transfer_cancelled",)` |
+| Topics | `("admin_transfer_cancelled",` |
 | Data   | `admin: Address` |
 | Source | `src/admin.rs` — `cancel_admin_transfer()` |
 
@@ -454,7 +454,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("max_campaign_funding_goal_updated",)` |
+| Topics | `("max_campaign_funding_goal_updated",` |
 | Data   | `(old_max: i128, new_max: i128)` |
 | Source | `src/admin.rs` — `set_max_campaign_funding_goal()` |
 
@@ -495,61 +495,5 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("campaign_transfer_cancelled", campaign_id: u32)` |
-| Data   | `pending_creator: Address` |
+| Data   | `()` |
 | Source | `src/campaigns/transfer.rs` — `cancel_campaign_transfer()` |
-
----
-
-### `campaign_resumed`
-
-| Field  | Value |
-|--------|-------|
-| Topics | `("campaign_resumed", campaign_id: u32, caller: Address)` |
-| Data   | `()` |
-| Source | `src/admin.rs` — `resume_campaign()` |
-
----
-
-### `campaign_vote_cast`
-
-| Field  | Value |
-|--------|-------|
-| Topics | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
-| Data   | `(approve: bool, balance: i128, weight: i128)` |
-| Source | `src/voting.rs` — `cast_vote()` |
-
----
-
-### `campaign_verified (admin)`
-
-| Field  | Value |
-|--------|-------|
-| Topics | `("campaign_verified", campaign_id: u32)` |
-| Data   | `()` |
-| Source | `src/voting.rs` — `admin_verify()` |
-
----
-
-### `campaign_verified (community)`
-
-| Field  | Value |
-|--------|-------|
-| Topics | `("campaign_verified", campaign_id: u32)` |
-| Data   | `approve_votes: u32` |
-| Source | `src/voting.rs` — `verify_with_votes()` |
-
----
-
-### `platform_stats_inconsistent`
-
-| Field  | Value |
-|--------|-------|
-| Topics | `("platform_stats_inconsistent",)` |
-| Data   | `(total_campaigns: u32, active_campaigns: u32, verified_campaigns: u32, cancelled_campaigns: u32)` |
-| Source | `src/queries.rs` — `get_platform_stats()` |
-
-> Published only when the stored platform counters violate the consistency invariants checked by `queries::counters_are_consistent` (e.g. a partial migration or failed legacy write leaves `active_campaigns > total_campaigns`). The raw stored values are reported in the event data so the corruption is auditable; the same query returns `stats_are_partial = true`.
-
----
-
-Total: 52 documented publish() call sites
