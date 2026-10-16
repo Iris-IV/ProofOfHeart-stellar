@@ -153,6 +153,10 @@ pub enum AdminKey {
     AllowedToken(Address),
     /// Maximum amount accepted by a single contribution transaction. `0` disables the cap.
     MaxContributionPerTransaction,
+    /// Admin-configured grace period (seconds) between a failed campaign's
+    /// deadline and the moment refunds unlock, overriding the compiled-in
+    /// `REFUND_GRACE_PERIOD_SECS` default (#1045).
+    RefundGracePeriodSecs,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -1238,6 +1242,23 @@ pub fn set_token_update_delay_secs(env: &Env, delay_secs: u64) {
     env.storage()
         .instance()
         .set(&AdminKey::TokenUpdateDelaySecs, &delay_secs);
+}
+
+/// Returns the refund grace period in seconds, falling back to `default`
+/// (the compiled-in `REFUND_GRACE_PERIOD_SECS`) if the admin never set one
+/// (#1045).
+pub fn get_refund_grace_period_secs(env: &Env, default: u64) -> u64 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::RefundGracePeriodSecs)
+        .unwrap_or(default)
+}
+
+/// Stores the admin-configured refund grace period in seconds.
+pub fn set_refund_grace_period_secs(env: &Env, grace_secs: u64) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::RefundGracePeriodSecs, &grace_secs);
 }
 
 // ── O(1) platform stat counters ───────────────────────────────────────────────

@@ -518,6 +518,26 @@ pub(crate) fn set_token_update_delay_secs_fn(
     Ok(())
 }
 
+/// Sets the grace period between a failed campaign's deadline and the moment
+/// its refunds unlock (#1045). `0` is allowed and restores the old behaviour
+/// of refunds opening as soon as the deadline passes.
+pub(crate) fn set_refund_grace_period_secs_fn(
+    env: &Env,
+    admin: Address,
+    grace_secs: u64,
+) -> Result<(), Error> {
+    ensure_admin!(env, &admin);
+    if grace_secs > crate::MAX_REFUND_GRACE_PERIOD_SECS {
+        return Err(Error::ValidationFailed);
+    }
+    let old = storage::get_refund_grace_period_secs(env, crate::REFUND_GRACE_PERIOD_SECS);
+    bump_instance_ttl(env);
+    storage::set_refund_grace_period_secs(env, grace_secs);
+    env.events()
+        .publish(("refund_grace_period_updated",), (old, grace_secs));
+    Ok(())
+}
+
 pub(crate) fn initiate_admin_transfer(
     env: &Env,
     admin: Address,

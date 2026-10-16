@@ -75,7 +75,7 @@ fn test_lifecycle_campaign_fails_goal_not_reached() {
     let campaign = client.get_campaign(&campaign_id);
     let deadline = campaign.deadline;
     env.ledger().with_mut(|li| {
-        li.timestamp = deadline + 1;
+        li.timestamp = deadline + 1 + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     // Cannot withdraw — goal not reached

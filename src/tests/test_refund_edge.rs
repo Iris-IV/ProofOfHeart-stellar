@@ -96,7 +96,9 @@ fn test_claim_refund_expired_campaign() {
     client.contribute(&campaign_id, &contributor1, &1000);
 
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp() + (duration_days * 86450),
+        timestamp: env.ledger().timestamp()
+            + (duration_days * 86450)
+            + crate::REFUND_GRACE_PERIOD_SECS,
         protocol_version: 22,
         sequence_number: env.ledger().sequence(),
         network_id: [0; 32],
@@ -147,7 +149,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
 
     // Advance past deadline so claim_refund accepts failed_due_to_goal
     env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp() + (2 * 86450),
+        timestamp: env.ledger().timestamp() + (2 * 86450) + crate::REFUND_GRACE_PERIOD_SECS,
         protocol_version: 22,
         sequence_number: env.ledger().sequence(),
         network_id: [0; 32],
@@ -285,7 +287,7 @@ fn test_storage_cleaned_after_claim_refund_on_failed_campaign() {
     client.contribute(&id, &contributor1, &500);
 
     env.ledger().with_mut(|li| {
-        li.timestamp += 31 * SECONDS_PER_DAY;
+        li.timestamp += 31 * SECONDS_PER_DAY + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     client.claim_refund(&id, &contributor1);
@@ -401,7 +403,7 @@ fn test_claim_refund_partially_met_goal_full_refund() {
     assert_eq!(client.get_contribution(&campaign_id, &contributor2), 1500);
 
     env.ledger().with_mut(|li| {
-        li.timestamp += 11 * SECONDS_PER_DAY;
+        li.timestamp += 11 * SECONDS_PER_DAY + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     client.claim_refund(&campaign_id, &contributor1);

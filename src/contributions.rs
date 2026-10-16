@@ -372,10 +372,9 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
-    let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
-        && campaign.amount_raised < campaign.funding_goal;
-
-    if !(campaign.is_cancelled() || failed_due_to_goal) {
+    // Refunds for a failed campaign open only after the grace period that
+    // follows its deadline (#1045); cancelled campaigns are immediate.
+    if !crate::lifecycle::is_refund_unlocked(env, &campaign, env.ledger().timestamp()) {
         return Err(Error::ValidationFailed);
     }
 

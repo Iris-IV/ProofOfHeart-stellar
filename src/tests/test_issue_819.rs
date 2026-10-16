@@ -160,7 +160,7 @@ fn test_failed_funding_deadline_passed_decrements_effective_amount_raised() {
 
     // Advance past deadline without reaching goal.
     env.ledger().with_mut(|li| {
-        li.timestamp += 31 * 24 * 60 * 60 + 1;
+        li.timestamp += 31 * 24 * 60 * 60 + 1 + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     // On failed (non-cancelled) campaign, effective_amount_raised is decremented upon refund claim.

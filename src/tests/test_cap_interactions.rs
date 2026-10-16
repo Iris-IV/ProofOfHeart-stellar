@@ -218,7 +218,7 @@ proptest! {
         client.contribute(&campaign_id, &contributor1, &amount);
 
         env.ledger().with_mut(|l| {
-            l.timestamp += 2 * crate::SECONDS_PER_DAY;
+            l.timestamp += 2 * crate::SECONDS_PER_DAY + crate::REFUND_GRACE_PERIOD_SECS;
         });
 
         client.claim_refund(&campaign_id, &contributor1);

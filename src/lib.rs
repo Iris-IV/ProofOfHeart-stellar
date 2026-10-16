@@ -55,7 +55,8 @@ mod voting;
 
 pub(crate) use constants::{
     BPS_CEIL_OFFSET, BPS_DENOMINATOR, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS, MAX_EXTENSION_DAYS,
-    MAX_TOKEN_UPDATE_DELAY_SECS, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS, TRANSFER_EXPIRY_SECS,
+    MAX_REFUND_GRACE_PERIOD_SECS, MAX_TOKEN_UPDATE_DELAY_SECS, REFUND_GRACE_PERIOD_SECS,
+    SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS, TRANSFER_EXPIRY_SECS,
 };
 pub use errors::Error;
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
@@ -952,6 +953,32 @@ impl ProofOfHeart {
     /// `TOKEN_UPDATE_DELAY_SECS` default (#650, #652).
     pub fn get_token_update_delay_secs(env: Env) -> u64 {
         get_token_update_delay_secs(&env, TOKEN_UPDATE_DELAY_SECS)
+    }
+
+    /// Returns the grace period (seconds) between a failed campaign's deadline
+    /// and the moment its refunds unlock: the admin override if set, otherwise
+    /// `REFUND_GRACE_PERIOD_SECS` (48 hours) (#1045).
+    pub fn get_refund_grace_period_secs(env: Env) -> u64 {
+        get_refund_grace_period_secs(&env, REFUND_GRACE_PERIOD_SECS)
+    }
+
+    /// Admin: sets the refund grace period in seconds, from `0` (refunds
+    /// unlock as soon as the deadline passes) up to
+    /// `MAX_REFUND_GRACE_PERIOD_SECS` (#1045).
+    pub fn set_refund_grace_period_secs(
+        env: Env,
+        admin: Address,
+        grace_secs: u64,
+    ) -> Result<(), Error> {
+        admin::set_refund_grace_period_secs_fn(&env, admin, grace_secs)
+    }
+
+    /// Returns the ledger timestamp after which `claim_refund` opens for
+    /// `campaign_id` if it misses its goal (#1045). A cancelled campaign is
+    /// refundable immediately regardless of this value.
+    pub fn get_refund_unlock_time(env: Env, campaign_id: u32) -> Result<u64, Error> {
+        let campaign = lifecycle::get_campaign_or_error(&env, campaign_id)?;
+        Ok(lifecycle::refund_unlock_time(&env, &campaign))
     }
 
     /// Returns the minimum funding goal for new campaigns (admin override or

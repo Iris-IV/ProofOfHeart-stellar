@@ -1258,7 +1258,7 @@ fn test_claim_refund_double_claim_rejected() {
 
     // Let deadline pass without reaching goal so a refund is valid.
     env.ledger().with_mut(|l| {
-        l.timestamp += 31 * SECONDS_PER_DAY;
+        l.timestamp += 31 * SECONDS_PER_DAY + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     // First refund must succeed.
@@ -1419,7 +1419,7 @@ fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
 
     // Advance past the deadline without reaching the goal.
     env.ledger().with_mut(|li| {
-        li.timestamp += 31 * SECONDS_PER_DAY + 1;
+        li.timestamp += 31 * SECONDS_PER_DAY + 1 + crate::REFUND_GRACE_PERIOD_SECS;
     });
 
     client.claim_refund(&id, &contributor);

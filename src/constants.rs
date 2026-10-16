@@ -43,6 +43,20 @@ pub(crate) const EMERGENCY_WITHDRAWAL_TIMELOCK_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// timelock policy (#650).
 pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
 
+/// Default grace period after a failed campaign's deadline before refunds
+/// unlock (48 hours, #1045).
+///
+/// A campaign that misses its goal is not refundable the instant the deadline
+/// passes: the grace window gives late-settling contributions, admin review
+/// and indexers time to settle before contributors start pulling funds out.
+/// Cancelled campaigns are not subject to it. The admin can change it with
+/// `set_refund_grace_period_secs`.
+pub(crate) const REFUND_GRACE_PERIOD_SECS: u64 = 2 * SECONDS_PER_DAY;
+
+/// Upper bound accepted by `set_refund_grace_period_secs` (30 days), so a
+/// misconfigured admin cannot lock contributor refunds away indefinitely.
+pub(crate) const MAX_REFUND_GRACE_PERIOD_SECS: u64 = 30 * SECONDS_PER_DAY;
+
 /// Maximum days a single `extend_campaign_deadline` call may add (#788).
 ///
 /// This is the innermost of three bounds on how far a deadline can be pushed,
