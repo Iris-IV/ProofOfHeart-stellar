@@ -6,8 +6,8 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_admin,
-    get_campaign_block_contribution_count, get_campaign_token, get_contribution,
-    get_lifetime_contribution, get_max_contribution_per_transaction, get_personal_cap,
+    get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
+    get_max_contribution_per_transaction, get_personal_cap, get_pinned_campaign_token, get_token,
     get_top_contributor, get_total_raised_global, has_personal_cap, increment_contributor_count,
     remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
     set_campaign_block_contribution_count, set_campaign_fee_recipient, set_contribution,
@@ -272,6 +272,11 @@ pub(crate) fn batch_contribute(
     // currency instead of one per contribution.
     let mut owed: soroban_sdk::Map<Address, i128> = soroban_sdk::Map::new(env);
     let mut total: i128 = 0;
+    // Loop invariants hoisted out of the per-item path (#1172): the ledger
+    // timestamp and the platform-token fallback are the same for every item,
+    // so each is resolved at most once per call.
+    let now = env.ledger().timestamp();
+    let mut platform_token: Option<Address> = None;
     let mut seen: soroban_sdk::Map<u32, bool> = soroban_sdk::Map::new(env);
     for (campaign_id, amount) in contributions.iter() {
         if seen.get(campaign_id).is_some() {
@@ -291,7 +296,7 @@ pub(crate) fn batch_contribute(
         if contributor == campaign.creator {
             return Err(Error::NotAuthorized);
         }
-        if env.ledger().timestamp() > campaign.deadline {
+        if now > campaign.deadline {
             return Err(Error::DeadlinePassed);
         }
 
@@ -330,11 +335,16 @@ pub(crate) fn batch_contribute(
         if is_new_top {
             set_top_contributor(env, campaign_id, &contributor);
         }
-        set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+        set_last_contribution_time(env, campaign_id, now);
 
         total = total.checked_add(amount).ok_or(Error::Overflow)?;
 
-        let token = get_campaign_token(env, campaign_id);
+        // Same answer as `get_campaign_token`, but the platform-token
+        // fallback is read once and reused across campaigns that inherit it.
+        let token = match get_pinned_campaign_token(env, campaign_id) {
+            Some(token) => token,
+            None => platform_token.get_or_insert_with(|| get_token(env)).clone(),
+        };
         let running = owed.get(token.clone()).unwrap_or(0);
         owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
     }

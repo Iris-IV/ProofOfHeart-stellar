@@ -1519,6 +1519,15 @@ pub fn get_campaign_token(env: &Env, campaign_id: u32) -> Address {
         .unwrap_or_else(|| get_token(env))
 }
 
+/// The currency pinned to a campaign at creation, or `None` when the campaign
+/// inherits the platform token. Lets batch callers resolve the platform-token
+/// fallback once per call instead of once per campaign (#1172).
+pub fn get_pinned_campaign_token(env: &Env, campaign_id: u32) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignToken(campaign_id))
+}
+
 /// Whether a campaign has its own pinned currency, as opposed to inheriting
 /// the platform token.
 ///
