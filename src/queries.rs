@@ -437,12 +437,29 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
 /// count, current top contributor, average contribution size, and the
 /// timestamp of the most recent contribution.
 pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    // Load the campaign first (#1178). For an id that has never existed the
+    // three per-campaign reads below (contributor count, top contributor,
+    // last-contribution timestamp) are guaranteed to come back empty — their
+    // keys are only ever written alongside the campaign itself — so the
+    // zeroed stats can be returned without touching storage at all. The
+    // getters' TTL-extend side effects are no-ops for absent keys, so
+    // skipping them is observationally identical.
+    let campaign = match get_campaign(env, campaign_id) {
+        Some(campaign) => campaign,
+        None => {
+            return CampaignStats {
+                contributor_count: 0,
+                top_contributor: MaybePendingCreator::None,
+                avg_contribution: 0,
+                last_contribution_time: 0,
+            }
+        }
+    };
+
     let contributor_count = get_contributor_count(env, campaign_id);
-    let campaign = get_campaign(env, campaign_id);
-    let amount_raised = campaign.as_ref().map(|c| c.amount_raised).unwrap_or(0);
 
     let avg_contribution = if contributor_count > 0 {
-        amount_raised / contributor_count as i128
+        campaign.amount_raised / contributor_count as i128
     } else {
         0
     };
@@ -454,12 +471,14 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
     // *before* that write existed, whose marker is still in ledger storage.
     // Same write-time-prune / read-time-filter split already used for
     // bookmarks of cancelled campaigns.
-    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled()).unwrap_or(false) {
+    let top_contributor = if campaign.is_cancelled() {
         MaybePendingCreator::None
     } else {
+        // `MaybePendingCreator` is an alias for `Option<Address>`, which is
+        // exactly what `get_top_contributor` already returns; the old
+        // `.map(MaybePendingCreator::from).unwrap_or(MaybePendingCreator::None)`
+        // was an identity transform that only copied the value (#1178).
         get_top_contributor(env, campaign_id)
-            .map(MaybePendingCreator::from)
-            .unwrap_or(MaybePendingCreator::None)
     };
 
     CampaignStats {
@@ -547,6 +566,10 @@ pub(crate) fn get_contributor_portfolio(
     let mut current_id = start.saturating_add(1);
     let mut next_cursor = 0u32;
     let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
+    // Read the ledger timestamp once for the whole scan (#1178): the ledger
+    // cannot advance mid-invocation, so the per-row `env.ledger()`
+    // host call the refundable check used to make was pure overhead.
+    let now = env.ledger().timestamp();
 
     while current_id <= total_campaigns {
         if current_id > scan_window_end {
@@ -582,7 +605,7 @@ pub(crate) fn get_contributor_portfolio(
                 };
 
                 let refundable = campaign.is_cancelled()
-                    || (env.ledger().timestamp() > campaign.deadline
+                    || (now > campaign.deadline
                         && campaign.amount_raised < campaign.funding_goal);
 
                 portfolio.push_back((
@@ -615,7 +638,15 @@ mod bucket_pagination_tests {
     /// must not walk `position` backwards and re-fetch the same bucket
     /// forever. This caps the number of `get_bucket` calls and fails loudly
     /// if that bound is ever exceeded, rather than hanging.
+    ///
+    /// The traversal runs inside `env.as_contract`: collecting a campaign id
+    /// from a bucket ends in `get_campaign`, and under soroban-sdk 22 any
+    /// storage read outside a contract frame aborts with
+    /// `Error(Storage, InternalError)` (#1338).
     #[test]
+    // `register_contract` is the SDK 22 testutils API this suite uses
+    // everywhere else (see the allow at the top of `tests/helpers.rs`).
+    #[allow(deprecated)]
     fn malformed_short_bucket_does_not_loop_forever() {
         let env = Env::default();
         let bucket_size = 10u32;
@@ -624,9 +655,13 @@ mod bucket_pagination_tests {
         let limit = 50u32;
 
         let calls = Cell::new(0u32);
-        // Every bucket, regardless of index, reports only 2 entries — far
-        // fewer than `bucket_size` and fewer than `start`'s offset into it.
-        let result =
+        // `as_contract` needs a real contract instance for its frame, so
+        // register a throwaway ProofOfHeart; the frame exists purely so the
+        // helper's storage reads have a contract context.
+        let contract_id = env.register_contract(None, crate::ProofOfHeart);
+        let result = env.as_contract(&contract_id, || {
+            // Every bucket, regardless of index, reports only 2 entries — far
+            // fewer than `bucket_size` and fewer than `start`'s offset into it.
             get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
                 let n = calls.get() + 1;
                 calls.set(n);
@@ -635,7 +670,8 @@ mod bucket_pagination_tests {
                     "get_bucket called {n} times — position is not advancing (infinite loop)"
                 );
                 soroban_sdk::Vec::from_array(e, [1u32, 2u32])
-            });
+            })
+        });
 
         // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
         // is collected — the point of the test is termination, not content.

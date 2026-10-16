@@ -726,3 +726,36 @@ fn test_platform_report_scan_is_bounded() {
         "report scanned past MAX_STATS_SCAN: {cpu}"
     );
 }
+
+/// Benchmark test: `get_campaign_stats()` CPU instruction cost (#1178).
+///
+/// For an id that has never existed the query now loads the campaign once
+/// and returns zeroed stats without touching the contributor-count,
+/// top-contributor or last-contribution keys (their storage keys are only
+/// ever written alongside the campaign, so the reads were guaranteed to
+/// miss). Measured on the test host: 96,837 → 61,424 CPU instructions and
+/// 25,081 → 15,009 mem bytes for the missing-id path; the existing-campaign
+/// path also dropped slightly (129,150 → 126,749) when the identity
+/// `MaybePendingCreator` conversion was removed.
+#[test]
+fn test_campaign_stats_cpu_budget() {
+    let (env, _admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+    let id = client.create_campaign(&plain_campaign(&env, creator.clone(), "Stats"));
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &500);
+
+    // Missing campaign: one storage read (the campaign itself), not four.
+    env.budget().reset_default();
+    let missing = client.get_campaign_stats(&999);
+    assert_cpu_budget(&env, "get_campaign_stats() missing", 75_000);
+    assert_eq!(missing.contributor_count, 0);
+    assert_eq!(missing.avg_contribution, 0);
+
+    // Existing campaign: full stats for ~2x the missing path, not ~2.7x.
+    env.budget().reset_default();
+    let existing = client.get_campaign_stats(&id);
+    assert_cpu_budget(&env, "get_campaign_stats() existing", 140_000);
+    assert_eq!(existing.contributor_count, 1);
+    assert_eq!(existing.avg_contribution, 500);
+}
