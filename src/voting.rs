@@ -27,6 +27,7 @@ pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 /// Resolves the approval threshold that actually applies to `category`:
 /// the per-category override if the admin has set one (#536), otherwise the
 /// global configured default.
+#[inline]
 pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types::Category) -> u32 {
     get_category_voting_threshold_bps(env, category)
         .unwrap_or_else(|| get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS))
@@ -35,6 +36,7 @@ pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types
 /// Calculates the approval percentage in basis points from vote counts.
 ///
 /// Returns `0` when there are no total votes to divide by.
+#[inline]
 pub fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
     if total_votes > 0 {
         ((approve_votes as u64)
