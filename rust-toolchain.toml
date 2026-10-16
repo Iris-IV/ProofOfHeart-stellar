@@ -1,3 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Rust toolchain & Soroban SDK compatibility (#1171)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file is read by rustup: entering the repo selects the toolchain below and
+# installs the WASM target the contract is compiled for.
+#
+# Compatibility matrix
+#
+#   Component        Version / pin               Where it is set
+#   ---------------  --------------------------  ---------------------------
+#   Rust channel     stable                      this file
+#   WASM target      wasm32-unknown-unknown      this file
+#   soroban-sdk      =22.0.11 (exact pin)        Cargo.toml [dependencies]
+#   soroban-sdk dev  22.0.11 + `testutils`       Cargo.toml [dev-dependencies]
+#   soroban-env-host vendor/soroban-env-host     Cargo.toml [patch.crates-io]
+#   ethnum           vendor/ethnum (>= 1.5.3 fix) Cargo.toml [patch.crates-io]
+#   Edition          2021                        Cargo.toml [package]
+#
+# Notes
+#   * `stable` is intentional: CI uses `dtolnay/rust-toolchain@stable`, so local
+#     and CI builds track the same channel. Pin an exact version here (e.g.
+#     `channel = "1.85.0"`) only if a stable release breaks the build.
+#   * The SDK is pinned with `=` because Soroban contracts must be reproducible;
+#     bump it deliberately and re-run the benchmarks in
+#     src/tests/test_benchmark.rs and `make check-wasm`.
+#   * Soroban targets `wasm32-unknown-unknown`. The newer `wasm32v1-none` target
+#     is not used by this SDK version.
+#
+# Commands (verified against the Makefile and CI)
+#
+#   rustup show                                   # confirm the active toolchain
+#   cargo test --features testutils               # unit + contract tests
+#   cargo build --target wasm32-unknown-unknown --release
+#   make check-wasm                               # build + size/spec checks
+#   stellar contract build                        # build via the Stellar CLI
+#   stellar contract optimize --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm
+#
+# Build flow
+#
+#   rust-toolchain.toml --> rustup (stable + wasm32 target)
+#           |
+#           v
+#   Cargo.toml [profile.release] --> proof_of_heart.wasm --> scripts/check-wasm.sh
+# ─────────────────────────────────────────────────────────────────────────────
 [toolchain]
 channel = "stable"
 targets = ["wasm32-unknown-unknown"]

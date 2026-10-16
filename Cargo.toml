@@ -33,6 +33,15 @@ ethnum = { path = "vendor/ethnum" }
 # Patch soroban-env-host 22.1.3 testutils to fix ed25519-dalek 3.0.0 CryptoRng incompatibility
 soroban-env-host = { path = "vendor/soroban-env-host" }
 
+# Release profile tuned for the smallest possible Soroban WASM (#1170).
+#   opt-level = "z"     optimise for size over speed (smaller than "s").
+#   codegen-units = 1   one unit lets LLVM inline/dedupe across the whole crate.
+#   lto = true          fat LTO drops unreachable SDK code.
+#   panic = "abort"     no unwinding tables.
+#   strip = "symbols"   no symbol/debug sections in the deployed binary.
+#   overflow-checks     deliberately kept ON: money arithmetic must trap.
+# These mirror the CARGO_PROFILE_RELEASE_* exports in the Makefile and are
+# guarded by scripts/check-wasm.sh (5% budget over .github/wasm-size-baseline.txt).
 [profile.release]
 opt-level = "z"
 overflow-checks = true
