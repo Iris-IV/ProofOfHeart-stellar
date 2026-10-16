@@ -380,6 +380,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `category_enabled_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_enabled_set", category: u32)` |
+| Data   | `enabled: bool` |
+| Source | `src/admin.rs` — `set_category_enabled()` |
+
+---
+
 ### `campaign_deadline_extended`
 
 | Field  | Value |
