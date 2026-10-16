@@ -153,6 +153,9 @@ pub enum AdminKey {
     AllowedToken(Address),
     /// Maximum amount accepted by a single contribution transaction. `0` disables the cap.
     MaxContributionPerTransaction,
+    /// Voluntary-cancellation penalty in basis points (default 0 = disabled).
+    /// Appended last so existing on-chain discriminants remain unchanged.
+    CancellationPenaltyBps,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -263,6 +266,9 @@ pub enum ContributionKey {
     TopContributor(u32),
     /// Unix timestamp of the most recent contribution to a campaign, keyed by campaign ID.
     LastContributionTime(u32),
+    /// Cumulative tokens a donor has ever contributed across campaigns.
+    /// Appended last so existing on-chain discriminants remain unchanged.
+    DonorTotalContributed(Address),
 }
 
 /// Keys for campaign voting state and voting configuration.
@@ -604,6 +610,44 @@ pub fn set_last_contribution_time(env: &Env, campaign_id: u32, time: u64) {
         ContributionKey::LastContributionTime(campaign_id),
         &time
     );
+}
+
+// ── Donor history (for dynamic voting weight, #1054) ─────────────────────────
+
+/// Returns a donor's cumulative contributions across all campaigns.
+pub fn get_donor_total_contributed(env: &Env, donor: &Address) -> i128 {
+    get_persistent_bumped(
+        env,
+        ContributionKey::DonorTotalContributed(donor.clone()).into_val(env),
+    )
+    .unwrap_or(0)
+}
+
+/// Adds `amount` to a donor's cumulative total (saturating).
+pub fn add_donor_total_contributed(env: &Env, donor: &Address, amount: i128) {
+    let total = get_donor_total_contributed(env, donor);
+    persistent_set!(
+        env,
+        ContributionKey::DonorTotalContributed(donor.clone()),
+        &total.saturating_add(amount)
+    );
+}
+
+// ── Cancellation penalty (#1052) ────────────────────────────────────────────
+
+/// Returns the voluntary-cancellation penalty in basis points (default 0).
+pub fn get_cancellation_penalty_bps(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&AdminKey::CancellationPenaltyBps)
+        .unwrap_or(0)
+}
+
+/// Stores the voluntary-cancellation penalty in basis points.
+pub fn set_cancellation_penalty_bps(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::CancellationPenaltyBps, &bps);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
