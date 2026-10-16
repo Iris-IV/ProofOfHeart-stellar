@@ -415,6 +415,12 @@ mod attacker {
             get_u32(&env, &AttackKey::Transfers)
         }
 
+        pub fn reentry_attempts(env: Env) -> u32 {
+            // Every `transfer` callback from the target contract represents one
+            // re-entry attempt; `transfers()` counts exactly those.
+            get_u32(&env, &AttackKey::Transfers)
+        }
+
         pub fn moved(env: Env) -> i128 {
             env.storage().instance().get(&AttackKey::Moved).unwrap_or(0)
         }

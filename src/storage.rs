@@ -1661,3 +1661,73 @@ pub fn append_campaign_to_tag(env: &Env, tag_hash: &BytesN<32>, campaign_id: u32
     set_tag_campaigns_bucket(env, tag_hash, bucket_idx, &bucket);
     set_tag_campaign_count(env, tag_hash, count + 1);
 }
+
+// ── Bulk TTL bump (#1062) ────────────────────────────────────────────────────
+
+/// Extends the TTL of all core persistent storage keys for a campaign in a
+/// single helper call.
+///
+/// Long-lived active campaigns accumulate a dense set of persistent entries
+/// (the campaign record itself, contributor counts, voting state, milestones,
+/// the creator index and the start-time marker). Each `set_*` call already
+/// extends the TTL of the entry it writes, but read-only paths never touch
+/// some of these entries — e.g. `get_campaign_count` reads instance storage
+/// and never refreshes the campaign's own persistent key. Calling this helper
+/// at the start of any state-modifying entrypoint that does **not** already
+/// rewrite every key keeps all related entries alive in lockstep with the
+/// campaign record so none expire while the campaign is still active.
+///
+/// The bump is best-effort: keys that do not exist yet are silently skipped
+/// (via `bump_persistent_if_present`). Instance-storage entries (counters,
+/// admin settings) are managed by `bump_instance_ttl` and are deliberately
+/// excluded here.
+pub fn bump_all_campaign_state(env: &Env, campaign_id: u32) {
+    let keys: [Val; 7] = [
+        CampaignKey::Campaign(campaign_id).into_val(env),
+        CampaignKey::CampaignStartTime(campaign_id).into_val(env),
+        CampaignKey::CampaignCreatorIndex(campaign_id).into_val(env),
+        CampaignKey::CampaignMilestones(campaign_id).into_val(env),
+        CampaignKey::CampaignReserve(campaign_id).into_val(env),
+        CampaignKey::CampaignToken(campaign_id).into_val(env),
+        ContributionKey::ContributorCount(campaign_id).into_val(env),
+    ];
+    for key in keys {
+        bump_persistent_if_present(env, key);
+    }
+    // Voting state has its own grouped helper.
+    extend_voting_state_ttl(env, campaign_id);
+}
+
+#[cfg(test)]
+mod ttl_bump_tests {
+    use crate::tests::helpers::*;
+    use crate::Category;
+
+    /// Smoke-test that `bump_all_campaign_state` runs without error on an
+    /// existing campaign and on a campaign id that has no entries.
+    #[test]
+    fn bump_all_campaign_state_is_idempotent() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "T"),
+            String::from_str(&env, "D"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        // Call once on a populated campaign — must not trap.
+        with_contract(&env, &client.address, || {
+            crate::storage::bump_all_campaign_state(&env, id);
+        });
+
+        // Call on a campaign that does not exist — must not trap either.
+        with_contract(&env, &client.address, || {
+            crate::storage::bump_all_campaign_state(&env, id + 9999);
+        });
+    }
+}
