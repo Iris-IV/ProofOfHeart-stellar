@@ -677,6 +677,22 @@ impl ProofOfHeart {
         admin::remove_category_duration_cap(&env, admin, category)
     }
 
+    /// Admin: opens or closes `category` to new campaigns (#1039). Existing
+    /// campaigns in the category are unaffected.
+    pub fn set_category_enabled(
+        env: Env,
+        admin: Address,
+        category: Category,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        admin::set_category_enabled(&env, admin, category, enabled)
+    }
+
+    /// Whether new campaigns may currently be created in `category` (#1039).
+    pub fn is_category_enabled(env: Env, category: Category) -> bool {
+        storage::is_category_enabled(&env, category)
+    }
+
     /// Admin: sets the minimum funding goal a new campaign may request.
     pub fn set_min_campaign_funding_goal(
         env: Env,
