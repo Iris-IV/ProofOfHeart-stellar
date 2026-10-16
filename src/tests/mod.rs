@@ -18,6 +18,7 @@ mod test_counter_overflow_and_batch;
 mod test_deadline_and_reverification;
 mod test_emergency_withdraw;
 mod test_gas_budget;
+mod test_goal_adjustment;
 mod test_issue_817;
 mod test_issue_819;
 mod test_issue_863;

@@ -6,7 +6,8 @@ use crate::lifecycle::{
     require_not_paused, require_unverified_campaign,
 };
 use crate::storage::{
-    bump_instance_ttl, creator_has_title, get_category_duration_cap, hash_text,
+    bump_instance_ttl, creator_has_title, get_campaign_fee_recipient, get_category_duration_cap,
+    get_max_campaign_funding_goal, get_min_campaign_funding_goal, hash_text,
     remove_creator_title_index, set_campaign, set_creator_title_index,
 };
 
@@ -72,6 +73,75 @@ pub(crate) fn update_campaign(
         ("campaign_metadata_updated", campaign_id),
         (old_title, old_description, title, description),
     );
+
+    Ok(())
+}
+
+/// Changes a campaign's funding goal before it has received its first
+/// contribution (#1056).
+///
+/// A creator who mis-sized their target can fix it while nobody has funded the
+/// campaign yet. Once the first contribution lands the goal is frozen:
+/// contributors chose to fund against that number, and moving it afterwards
+/// would change whether the campaign succeeds or is refunded under them.
+///
+/// The first contribution is detected two ways: `amount_raised` (never
+/// decremented by refunds, so it stays non-zero once anyone has contributed)
+/// and the fee-recipient snapshot written on that first contribution (#800).
+///
+/// The new goal goes through the same bounds as `create_campaign`. Like the
+/// other metadata edits, the goal is frozen once the campaign is verified,
+/// and it cannot change after the deadline or on an inactive campaign.
+/// Setting the goal to its current value is a no-op.
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `ContractPaused` - The contract is paused.
+/// * `CampaignAlreadyVerified` - The campaign has been verified.
+/// * `CampaignNotActive` - The campaign is cancelled, withdrawn or inactive.
+/// * `DeadlinePassed` - The campaign's deadline has passed.
+/// * `ValidationFailed` - The campaign has already received a contribution.
+/// * `FundingGoalMustBePositive` / `FundingGoalTooLow` / `FundingGoalTooHigh` -
+///   The new goal is outside the platform's bounds.
+pub(crate) fn update_campaign_goal(
+    env: &Env,
+    campaign_id: u32,
+    new_goal: i128,
+) -> Result<(), Error> {
+    let mut campaign = get_creator_campaign(env, campaign_id)?;
+    require_not_paused(env)?;
+    require_unverified_campaign(&campaign)?;
+    require_active_campaign(&campaign)?;
+
+    if env.ledger().timestamp() >= campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+    // `ValidationFailed`, matching `update_campaign`'s "already funded" check:
+    // `Error` has no free slot for a dedicated code.
+    if campaign.amount_raised > 0 || get_campaign_fee_recipient(env, campaign_id).is_some() {
+        return Err(Error::ValidationFailed);
+    }
+
+    if new_goal <= 0 {
+        return Err(Error::FundingGoalMustBePositive);
+    }
+    if new_goal < get_min_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MIN) {
+        return Err(Error::FundingGoalTooLow);
+    }
+    if new_goal > get_max_campaign_funding_goal(env, crate::CAMPAIGN_FUNDING_GOAL_MAX) {
+        return Err(Error::FundingGoalTooHigh);
+    }
+
+    if new_goal == campaign.funding_goal {
+        return Ok(());
+    }
+
+    bump_instance_ttl(env);
+    let old_goal = core::mem::replace(&mut campaign.funding_goal, new_goal);
+    set_campaign(env, campaign_id, &campaign);
+
+    env.events()
+        .publish(("campaign_goal_updated", campaign_id), (old_goal, new_goal));
 
     Ok(())
 }

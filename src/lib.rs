@@ -330,6 +330,14 @@ impl ProofOfHeart {
         campaigns::update::update_campaign(&env, campaign_id, title, description)
     }
 
+    /// Creator: changes the funding goal of a campaign that has not received
+    /// any contribution yet (#1056). Reverts once the campaign has been
+    /// funded, verified, cancelled or has passed its deadline, and applies the
+    /// same goal bounds as `create_campaign`.
+    pub fn update_campaign_goal(env: Env, campaign_id: u32, new_goal: i128) -> Result<(), Error> {
+        campaigns::update::update_campaign_goal(&env, campaign_id, new_goal)
+    }
+
     /// Creator: replaces only the description of a campaign. Reverts if paused
     /// or the description fails length validation.
     pub fn update_campaign_description(
