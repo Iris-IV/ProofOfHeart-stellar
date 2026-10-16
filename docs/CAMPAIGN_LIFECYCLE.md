@@ -14,7 +14,7 @@ A campaign progresses through the following states:
 3. **Verified** — (Optional) Admin `verify_campaign()` or community `verify_campaign_with_votes()`.
 4. **Withdrawn** — Creator calls `withdraw_funds()` after `amount_raised >= funding_goal`. Campaign becomes inactive.
 5. **Cancelled** — Creator calls `cancel_campaign()`. Campaign becomes inactive; contributors can `claim_refund()`.
-6. **Expired** — Deadline passes without meeting the goal. Contributors can `claim_refund()`.
+6. **Expired** — Deadline passes without meeting the goal. After the refund grace period (48 hours by default), contributors can `claim_refund()`.
 
 ## State Machine
 
@@ -73,7 +73,8 @@ Additional derived conditions used by the contract:
 
 ### 6) Expired / Failed (derived)
 
-- If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund`.
+- If the deadline passes and the campaign did not reach its goal (`Expired/Failed` derived condition), contributors can claim refunds via `claim_refund` once the refund grace period has elapsed.
+- The grace period defaults to 48 hours (`REFUND_GRACE_PERIOD_SECS`). The admin can change it with `set_refund_grace_period_secs` (0 to 30 days). `get_refund_unlock_time(campaign_id)` returns the timestamp after which refunds open. Cancelled campaigns are refundable immediately.
 - The contract does not currently toggle `is_active` automatically when a deadline passes; "expired" is computed at call time using the ledger timestamp.
 
 ## Pause Mechanism

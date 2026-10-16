@@ -2,7 +2,8 @@ use soroban_sdk::{token, Address, Env};
 
 use crate::errors::Error;
 use crate::storage::{
-    get_admin, get_campaign, get_campaign_start_time, get_campaign_token, get_token, AdminKey,
+    get_admin, get_campaign, get_campaign_start_time, get_campaign_token,
+    get_refund_grace_period_secs, get_token, AdminKey,
 };
 use crate::types::Campaign;
 
@@ -153,6 +154,29 @@ pub(crate) fn calculate_deadline(current_time: u64, duration_days: u64) -> Resul
     current_time
         .checked_add(seconds_in_duration)
         .ok_or(Error::ValidationFailed)
+}
+
+/// The ledger timestamp after which a campaign that missed its goal becomes
+/// refundable: its deadline plus the refund grace period (#1045).
+///
+/// Saturates rather than overflowing, so a deadline near `u64::MAX` simply
+/// never unlocks instead of wrapping into the past.
+pub(crate) fn refund_unlock_time(env: &Env, campaign: &Campaign) -> u64 {
+    let grace = get_refund_grace_period_secs(env, crate::REFUND_GRACE_PERIOD_SECS);
+    campaign.deadline.saturating_add(grace)
+}
+
+/// Whether contributors may claim refunds from `campaign` at `now` (#1045).
+///
+/// A cancelled campaign is refundable immediately. A campaign that missed its
+/// goal is refundable only once the grace period after its deadline has fully
+/// elapsed; until then it is neither withdrawable (goal not met) nor
+/// refundable.
+pub(crate) fn is_refund_unlocked(env: &Env, campaign: &Campaign, now: u64) -> bool {
+    if campaign.is_cancelled() {
+        return true;
+    }
+    campaign.amount_raised < campaign.funding_goal && now > refund_unlock_time(env, campaign)
 }
 
 pub(crate) fn require_not_paused(env: &Env) -> Result<(), Error> {

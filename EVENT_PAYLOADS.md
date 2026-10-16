@@ -380,6 +380,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `refund_grace_period_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("refund_grace_period_updated",)` |
+| Data   | `(old_grace_secs: u64, new_grace_secs: u64)` |
+| Source | `src/admin.rs` — `set_refund_grace_period_secs_fn()` |
+
+---
+
 ### `campaign_deadline_extended`
 
 | Field  | Value |

@@ -66,7 +66,8 @@ the contribution the event reported.
 
 `status` in the portfolio is one of `"cancelled"`, `"withdrawn"`,
 `"inactive"`, `"verified"` or `"active"` (first match wins, in that order).
-`refundable` is `true` when the campaign is cancelled, or its deadline has
+`refundable` is `true` when the campaign is cancelled, or its deadline plus the
+refund grace period (`get_refund_grace_period_secs`, 48 hours by default) has
 passed without reaching the funding goal.
 
 `Campaign.category` is the `Category` enum: `Learner = 0`,

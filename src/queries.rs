@@ -604,9 +604,9 @@ pub(crate) fn get_contributor_portfolio(
                     "active"
                 };
 
-                let refundable = campaign.is_cancelled()
-                    || (now > campaign.deadline
-                        && campaign.amount_raised < campaign.funding_goal);
+                // Same rule `claim_refund` enforces, including the grace
+                // period after a failed deadline (#1045).
+                let refundable = crate::lifecycle::is_refund_unlocked(env, &campaign, now);
 
                 portfolio.push_back((
                     current_id,
