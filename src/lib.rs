@@ -253,6 +253,20 @@ impl ProofOfHeart {
         storage::get_emergency_withdrawal(&env, campaign_id)
     }
 
+    /// Admin: rescues stranded foreign tokens accidentally sent to the
+    /// contract (#1037). Only non-escrow tokens may be rescued: `token` must
+    /// differ from the platform token and must not be on the campaign-currency
+    /// allowlist. Emits `stranded_tokens_rescued`.
+    pub fn rescue_stranded_tokens(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        campaigns::emergency::rescue_stranded_tokens(&env, admin, token, to, amount)
+    }
+
     // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
 
     /// Creator: defines the milestone schedule for `campaign_id`, splitting its
@@ -332,6 +346,32 @@ impl ProofOfHeart {
     /// `admin_cancel_campaign` for fraud response instead.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::cancel::cancel_campaign(&env, campaign_id)
+    }
+
+    /// Admin: sets the voluntary-cancellation penalty in basis points
+    /// (max 500 = 5%, 0 disables, #1052). Charged creator -> admin on
+    /// `cancel_campaign`; contributor refunds are unaffected.
+    pub fn set_cancellation_penalty_bps(
+        env: Env,
+        admin: Address,
+        penalty_bps: u32,
+    ) -> Result<(), Error> {
+        lifecycle::assert_admin(&env, &admin)?;
+        campaigns::cancel::validate_penalty_bps(penalty_bps)?;
+        bump_instance_ttl(&env);
+        let old = storage::get_cancellation_penalty_bps(&env);
+        storage::set_cancellation_penalty_bps(&env, penalty_bps);
+        lifecycle::emit_event!(
+            env,
+            ("cancellation_penalty_updated", admin),
+            (old, penalty_bps)
+        );
+        Ok(())
+    }
+
+    /// Returns the voluntary-cancellation penalty in basis points (#1052).
+    pub fn get_cancellation_penalty_bps(env: Env) -> u32 {
+        storage::get_cancellation_penalty_bps(&env)
     }
 
     /// Admin-only targeted fraud response: cancels a single campaign without
@@ -482,6 +522,18 @@ impl ProofOfHeart {
         lifecycle::require_not_paused(&env)?;
         bump_instance_ttl(&env);
         voting::cast_vote(&env, campaign_id, voter, approve)
+    }
+
+    /// Returns a voter's dynamic voting weight for a campaign: platform-token
+    /// balance plus cumulative donor history (#1054). Informational ranking
+    /// signal; consensus stays 1-address-1-vote (#469).
+    pub fn get_dynamic_voting_weight(env: Env, campaign_id: u32, voter: Address) -> i128 {
+        voting::get_dynamic_voting_weight(&env, campaign_id, &voter)
+    }
+
+    /// Returns a donor's cumulative contributions across all campaigns (#1054).
+    pub fn get_donor_total_contributed(env: Env, donor: Address) -> i128 {
+        storage::get_donor_total_contributed(&env, &donor)
     }
 
     /// Admin: verifies `campaign_id` directly, bypassing community voting.

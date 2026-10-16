@@ -174,6 +174,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);

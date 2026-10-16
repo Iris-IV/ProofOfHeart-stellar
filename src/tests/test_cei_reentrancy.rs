@@ -699,7 +699,7 @@ fn test_revenue_refund_nested_cancel_attempt_refused() {
         &client,
         Some(Attack::CancelCampaign),
     );
-    
+
     // Deposit revenue pool before cancellation
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
@@ -712,9 +712,9 @@ fn test_revenue_refund_nested_cancel_attempt_refused() {
         campaign.set_funds_withdrawn(false);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
-    
+
     let outcome = client.try_cancel_campaign(&campaign_id);
-    
+
     assert_reentry_refused(&outcome, &attacker, 1000);
     // Verify campaign is in consistent terminal state
     if outcome.is_ok() {
@@ -738,13 +738,13 @@ fn test_chained_withdraw_attempts_all_refused() {
         Some(Attack::WithdrawFunds),
     );
     pass_deadline(&env, &client, campaign_id);
-    
+
     let outcome = client.try_withdraw_funds(&campaign_id);
-    
+
     // No matter how many nested attempts, only one payout succeeds
     assert_reentry_refused(&outcome, &attacker, GOAL);
     assert!(
-        attacker.reentry_attempts() >= 1,
+        attacker.transfers() >= 1,
         "attack should have triggered re-entry"
     );
     assert_eq!(
