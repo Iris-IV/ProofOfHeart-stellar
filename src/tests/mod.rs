@@ -21,6 +21,7 @@ mod test_gas_budget;
 mod test_issue_817;
 mod test_issue_819;
 mod test_issue_863;
+mod test_issue_fixes;
 mod test_lifecycle;
 mod test_lifecycle_events;
 mod test_milestones;
