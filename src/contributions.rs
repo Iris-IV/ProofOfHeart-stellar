@@ -157,6 +157,8 @@ fn update_contribution_accounting(
         contributor,
         lifetime.checked_add(amount).ok_or(Error::Overflow)?,
     );
+    // #1054: track cumulative donor history for dynamic voting weight.
+    crate::storage::add_donor_total_contributed(env, contributor, amount);
 
     if lifetime == 0 {
         increment_contributor_count(env, campaign_id);

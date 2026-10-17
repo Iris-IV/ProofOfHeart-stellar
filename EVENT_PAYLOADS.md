@@ -232,7 +232,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("voting_params_updated",)` |
+| Topics | `("voting_params_updated", admin: Address)` |
 | Data   | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
 | Source | `src/admin.rs` — `set_voting_params()` |
 
@@ -252,7 +252,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("min_voting_balance_updated",)` |
+| Topics | `("min_voting_balance_updated", admin: Address)` |
 | Data   | `(old_balance: i128, new_balance: i128)` |
 | Source | `src/admin.rs` — `set_min_voting_balance()` |
 
@@ -515,7 +515,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
-| Data   | `(approve: bool, balance: i128, weight: i128)` |
+| Data   | `(approve: bool, weight: i128)` — unit weight (`1`) under 1-address-1-vote (#469) |
 | Source | `src/voting.rs` — `cast_vote()` |
 
 ---
@@ -552,4 +552,32 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
-Total: 52 documented publish() call sites
+### `cancellation_penalty_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_updated", admin: Address)` |
+| Data   | `(old_penalty_bps: u32, new_penalty_bps: u32)` |
+| Source | `src/lib.rs` — `set_cancellation_penalty_bps()` (#1052) |
+
+---
+
+### `cancellation_penalty_collected`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_collected", campaign_id: u32)` |
+| Data   | `penalty: i128` |
+| Source | `src/campaigns/cancel.rs` — `cancel_campaign()` (#1052) |
+
+---
+
+### `stranded_tokens_rescued`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("stranded_tokens_rescued", token: Address, to: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
+
+Total: 55 documented publish() call sites

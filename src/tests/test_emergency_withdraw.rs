@@ -1,5 +1,8 @@
 //! Tests for the admin last-resort emergency withdrawal (#802).
 
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{Category, EmergencyWithdrawal, Error, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS};
 use soroban_sdk::testutils::{Events, Ledger};
@@ -17,9 +20,13 @@ fn goal_met_campaign(
     let goal: i128 = 1_000;
     token_admin.mint(contributor, &goal);
 
+    // Title must be unique per creator (#801); suffix with the next id.
+    let next_id = client.get_campaign_count() + 1;
+    let title = String::from_str(env, &format!("Misconfigured Campaign {next_id}"));
+
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Misconfigured Campaign"),
+        title,
         String::from_str(env, "Creator key is dead; funds are locked"),
         goal,
         30,
@@ -30,6 +37,10 @@ fn goal_met_campaign(
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, contributor, &goal);
+    // Withdrawals require a closed funding window (#1346); emergency recovery
+    // itself has no deadline check, so moving past it here keeps every
+    // emergency test on the post-deadline path withdrawals expect.
+    advance(env, 31 * 86400);
     (campaign_id, goal)
 }
 
@@ -308,12 +319,14 @@ fn test_execute_clears_stale_proposal_when_creator_withdrew_meanwhile() {
 
     client.emergency_withdraw(&admin, &campaign_id, &recipient);
 
-    // The creator key turns out to be fine after all and withdraws normally.
+    // The creator key turns out to be fine after all and withdraws normally,
+    // which clears the now-stale proposal on the success path.
     client.withdraw_funds(&campaign_id);
+    assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
 
     advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
     let res = client.try_execute_emergency_withdrawal(&admin, &campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::FundsAlreadyWithdrawn);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // Stale proposal is cleared, recipient got nothing.
     assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);

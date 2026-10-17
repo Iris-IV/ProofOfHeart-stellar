@@ -262,9 +262,11 @@ fn test_withdraw_funds_overflow_returns_error_not_panic() {
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
-    // Must not panic — overflow is handled gracefully (saturates).
+    // Must not panic — overflow surfaces as a typed error.
+    // Withdrawals require a closed funding window (#1346).
+    advance_past_deadline(&env, &client, campaign_id);
     let res = client.try_withdraw_funds(&campaign_id);
-    assert!(res.is_ok());
+    assert_eq!(res, Err(Ok(Error::Overflow)));
 }
 
 // ── withdrawal vesting & reserve ────────────────────────────────────────────────
