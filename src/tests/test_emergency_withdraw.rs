@@ -510,3 +510,27 @@ fn test_emergency_withdrawal_zero_contribution_campaign() {
         Error::FundingGoalNotReached
     );
 }
+
+#[test]
+fn test_cancelled_proposal_is_cleared_without_moving_funds() {
+    let (env, admin, creator, contributor, _c2, token, token_admin, client) = setup_env();
+    let (campaign_id, goal) =
+        goal_met_campaign(&env, &client, &creator, &contributor, &token_admin);
+    let recipient = Address::generate(&env);
+
+    client.emergency_withdraw(&admin, &campaign_id, &recipient);
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "cancelled"));
+
+    advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
+    assert_eq!(
+        client
+            .try_execute_emergency_withdrawal(&admin, &campaign_id)
+            .unwrap_err()
+            .unwrap(),
+        Error::CampaignNotActive
+    );
+    assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
+    assert_eq!(token.balance(&recipient), 0);
+    assert_eq!(client.get_campaign(&campaign_id).effective_amount_raised, 0);
+    let _ = goal;
+}
