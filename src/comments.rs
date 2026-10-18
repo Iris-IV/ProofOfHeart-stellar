@@ -154,3 +154,105 @@ pub(crate) fn comment_censure_record(
 pub(crate) fn campaign_censured_comment_count(env: &Env, campaign_id: u32) -> u32 {
     get_campaign_censured_count(env, campaign_id)
 }
+
+/// Validates that a 32-byte comment hash is non-trivial (neither all-zero nor
+/// all-`0xFF`) before anchoring it into a campaign's comment thread root (#1030).
+pub(crate) const fn is_valid_comment_anchor_hash(hash_bytes: &[u8; 32]) -> bool {
+    let mut all_zero = true;
+    let mut all_ff = true;
+    let mut i = 0usize;
+    while i < 32 {
+        if hash_bytes[i] != 0 {
+            all_zero = false;
+        }
+        if hash_bytes[i] != 0xFF {
+            all_ff = false;
+        }
+        i += 1;
+    }
+    !all_zero && !all_ff
+}
+
+const _: () = {
+    assert!(!is_valid_comment_anchor_hash(&[0u8; 32]));
+    assert!(!is_valid_comment_anchor_hash(&[0xFFu8; 32]));
+    assert!(is_valid_comment_anchor_hash(&[0x42u8; 32]));
+};
+
+/// Computes a domain-separated SHA-256 comment-thread anchor root hash binding
+/// `campaign_id`, the previous thread root `parent_anchor`, the new
+/// `comment_hash`, and `timestamp` (#1030).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn compute_comment_thread_anchor_hash(
+    env: &Env,
+    campaign_id: u32,
+    parent_anchor: &BytesN<32>,
+    comment_hash: &BytesN<32>,
+    timestamp: u64,
+) -> Result<BytesN<32>, Error> {
+    if campaign_id == 0 || !is_valid_comment_anchor_hash(&comment_hash.to_array()) {
+        return Err(Error::ValidationFailed);
+    }
+
+    let mut payload = soroban_sdk::Bytes::from_slice(env, b"poh:comment-anchor:v1:");
+    payload.extend_from_array(&campaign_id.to_be_bytes());
+    payload.extend_from_array(&parent_anchor.to_array());
+    payload.extend_from_array(&comment_hash.to_array());
+    payload.extend_from_array(&timestamp.to_be_bytes());
+    Ok(env.crypto().sha256(&payload).into())
+}
+
+/// Verifies that `expected_anchor` matches the deterministic comment-thread
+/// anchor derived from `(campaign_id, parent_anchor, comment_hash, timestamp)` (#1030).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn verify_comment_thread_anchor(
+    env: &Env,
+    campaign_id: u32,
+    parent_anchor: &BytesN<32>,
+    comment_hash: &BytesN<32>,
+    timestamp: u64,
+    expected_anchor: &BytesN<32>,
+) -> Result<bool, Error> {
+    if !is_valid_comment_anchor_hash(&expected_anchor.to_array()) {
+        return Err(Error::ValidationFailed);
+    }
+    let computed = compute_comment_thread_anchor_hash(
+        env,
+        campaign_id,
+        parent_anchor,
+        comment_hash,
+        timestamp,
+    )?;
+    Ok(computed == *expected_anchor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comment_thread_anchor_chains_and_verifies_integrity() {
+        let env = Env::default();
+        let genesis = BytesN::from_array(&env, &[0u8; 32]);
+        let comment_1 = BytesN::from_array(&env, &[0x11u8; 32]);
+        let comment_2 = BytesN::from_array(&env, &[0x22u8; 32]);
+
+        let root_1 =
+            compute_comment_thread_anchor_hash(&env, 5, &genesis, &comment_1, 1_700_000_000)
+                .unwrap();
+        assert_eq!(
+            verify_comment_thread_anchor(&env, 5, &genesis, &comment_1, 1_700_000_000, &root_1),
+            Ok(true)
+        );
+        assert_eq!(
+            verify_comment_thread_anchor(&env, 5, &genesis, &comment_2, 1_700_000_000, &root_1),
+            Ok(false)
+        );
+
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        assert_eq!(
+            compute_comment_thread_anchor_hash(&env, 5, &genesis, &zero_hash, 1_700_000_000),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
