@@ -68,6 +68,47 @@ pub(crate) use lifecycle::{
     assert_admin, get_campaign_or_error, require_active_campaign, require_unverified_campaign,
 };
 
+/// Acquires the temporary-storage reentrancy lock (#1002).
+///
+/// Fails with [`Error::InvariantBroken`] if the guard is already active in the
+/// current contract call stack, blocking cross-contract callback reentrancy.
+pub fn enter_reentrancy_guard(env: &Env) -> Result<(), Error> {
+    let key = soroban_sdk::symbol_short!("REENT_LK");
+    if env
+        .storage()
+        .temporary()
+        .get::<_, bool>(&key)
+        .unwrap_or(false)
+    {
+        return Err(Error::InvariantBroken);
+    }
+    env.storage().temporary().set(&key, &true);
+    Ok(())
+}
+
+/// Releases the temporary-storage reentrancy lock (#1002).
+pub fn exit_reentrancy_guard(env: &Env) {
+    let key = soroban_sdk::symbol_short!("REENT_LK");
+    env.storage().temporary().remove(&key);
+}
+
+/// Wraps a cross-contract token-transfer entrypoint in a temporary-storage
+/// reentrancy lock (#1002).
+#[macro_export]
+macro_rules! non_reentrant {
+    ($env:expr, $body:expr) => {{
+        let env_ref: &soroban_sdk::Env = $env;
+        match $crate::enter_reentrancy_guard(env_ref) {
+            Ok(()) => {
+                let result = $body;
+                $crate::exit_reentrancy_guard(env_ref);
+                result
+            }
+            Err(err) => Err(err),
+        }
+    }};
+}
+
 #[contract]
 pub struct ProofOfHeart;
 
@@ -179,14 +220,17 @@ impl ProofOfHeart {
     /// contract is paused, the campaign is unverified or funds were already
     /// withdrawn.
     pub fn withdraw_funds(env: Env, campaign_id: u32) -> Result<(), Error> {
-        campaigns::withdraw::withdraw_funds(&env, campaign_id)
+        non_reentrant!(&env, campaigns::withdraw::withdraw_funds(&env, campaign_id))
     }
 
     /// Releases a campaign's held-back vesting reserve (see
     /// `set_vesting_params`) once its vesting delay has elapsed. Reverts if the
     /// contract is paused or the reserve was already released.
     pub fn withdraw_reserve(env: Env, campaign_id: u32) -> Result<(), Error> {
-        campaigns::withdraw::withdraw_reserve(&env, campaign_id)
+        non_reentrant!(
+            &env,
+            campaigns::withdraw::withdraw_reserve(&env, campaign_id)
+        )
     }
 
     /// Admin: sets the vesting policy applied at withdrawal — `reserve_bps` of
@@ -244,7 +288,10 @@ impl ProofOfHeart {
         admin: Address,
         campaign_id: u32,
     ) -> Result<(), Error> {
-        campaigns::emergency::execute_emergency_withdrawal(&env, admin, campaign_id)
+        non_reentrant!(
+            &env,
+            campaigns::emergency::execute_emergency_withdrawal(&env, admin, campaign_id)
+        )
     }
 
     /// The pending emergency withdrawal for a campaign (recipient and the
@@ -264,7 +311,10 @@ impl ProofOfHeart {
         to: Address,
         amount: i128,
     ) -> Result<(), Error> {
-        campaigns::emergency::rescue_stranded_tokens(&env, admin, token, to, amount)
+        non_reentrant!(
+            &env,
+            campaigns::emergency::rescue_stranded_tokens(&env, admin, token, to, amount)
+        )
     }
 
     // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
@@ -1297,6 +1347,31 @@ impl ProofOfHeart {
     /// How many comments have been censured on a campaign.
     pub fn get_censured_comment_count(env: Env, campaign_id: u32) -> u32 {
         comments::campaign_censured_comment_count(&env, campaign_id)
+    }
+}
+
+#[cfg(test)]
+mod reentrancy_guard_tests {
+    use crate::tests::helpers::*;
+    use crate::Error;
+
+    #[test]
+    fn test_non_reentrant_macro_blocks_nested_invocation_and_releases_lock() {
+        let (env, _admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+        with_contract(&env, &client.address, || {
+            let outer_res: Result<u32, Error> = crate::non_reentrant!(&env, {
+                // Simulated reentrant callback while lock is held must fail
+                let nested_res: Result<u32, Error> = crate::non_reentrant!(&env, Ok(99));
+                assert_eq!(nested_res, Err(Error::InvariantBroken));
+                Ok(42)
+            });
+            assert_eq!(outer_res, Ok(42));
+
+            // After outer call exits, lock is released and next call succeeds
+            let subsequent_res: Result<u32, Error> = crate::non_reentrant!(&env, Ok(7));
+            assert_eq!(subsequent_res, Ok(7));
+        });
     }
 }
 
