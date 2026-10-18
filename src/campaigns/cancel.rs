@@ -8,10 +8,11 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_cancellation_penalty_bps,
-    get_revenue_pool, get_total_raised_global, increment_cancelled_campaign_count,
-    remove_top_contributor, remove_voting_state, set_campaign, set_revenue_pool,
-    set_total_raised_global,
+    get_revenue_pool, get_total_raised_global, hash_text, increment_cancelled_campaign_count,
+    remove_creator_title_index, remove_emergency_withdrawal, remove_top_contributor,
+    remove_voting_state, set_campaign, set_revenue_pool, set_total_raised_global,
 };
+use crate::types::MaybePendingCreator;
 
 /// Upper bound for the voluntary-cancellation penalty (500 bps = 5%, #1052).
 pub const MAX_CANCELLATION_PENALTY_BPS: u32 = 500;
@@ -91,8 +92,11 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     // #819: Zero effective_amount_raised so indexers and dashboards report 0
     // live contributions on a dead campaign immediately, even before refunds.
     campaign.effective_amount_raised = 0;
+    campaign.pending_creator = MaybePendingCreator::None;
+    campaign.pending_creator_expiry = 0;
     campaign.set_cancelled(true);
     campaign.set_active(false);
+    let title_hash = hash_text(env, &campaign.title);
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     // #863: a cancelled campaign is terminal and every contribution to it is
@@ -101,6 +105,9 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     // so it cannot pin the address in storage or leak into
     // `get_campaign_stats` for a campaign whose refunds are never claimed.
     remove_top_contributor(env, campaign_id);
+    // #989: Clean up obsolete per-campaign persistent keys to reclaim storage rent.
+    remove_emergency_withdrawal(env, campaign_id);
+    remove_creator_title_index(env, &campaign.creator, &title_hash);
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
@@ -190,13 +197,18 @@ pub(crate) fn admin_cancel_campaign(
     }
 
     campaign.effective_amount_raised = 0;
+    campaign.pending_creator = MaybePendingCreator::None;
+    campaign.pending_creator_expiry = 0;
     campaign.set_cancelled(true);
     campaign.set_active(false);
+    let title_hash = hash_text(env, &campaign.title);
     set_campaign(env, campaign_id, &campaign);
     remove_voting_state(env, campaign_id);
     // #863: same terminal-state cleanup as creator cancel — an admin-cancelled
     // campaign has no winner either.
     remove_top_contributor(env, campaign_id);
+    remove_emergency_withdrawal(env, campaign_id);
+    remove_creator_title_index(env, &campaign.creator, &title_hash);
     prune_bookmarks_for_campaign(env, campaign_id);
     decrement_active_campaign_count(env);
     increment_cancelled_campaign_count(env);
@@ -223,4 +235,75 @@ pub(crate) fn admin_cancel_campaign(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::storage::get_emergency_withdrawal;
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::{Address, String};
+
+    #[test]
+    fn test_cancel_campaign_cleans_up_pending_transfer_emergency_and_title_keys() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let nominee = Address::generate(&env);
+        let rescue_recipient = Address::generate(&env);
+
+        token_admin.mint(&c1, &2_000);
+
+        let title = String::from_str(&env, "Cleanup State Keys");
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            title.clone(),
+            String::from_str(&env, "Verify cancelled campaign state cleanup"),
+            1_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        client.contribute(&id, &c1, &200);
+        client.initiate_campaign_transfer(&id, &nominee);
+
+        client.cancel_campaign(&id);
+
+        let cancelled = client.get_campaign(&id);
+        assert!(cancelled.is_cancelled());
+        assert!(cancelled.pending_creator.is_none());
+        assert_eq!(cancelled.pending_creator_expiry, 0);
+
+        // Creator can reuse the cleaned-up title for a fresh campaign after cancellation.
+        let new_id = client.create_campaign(&make_params(
+            creator,
+            title,
+            String::from_str(&env, "Recreated with freed title index"),
+            1_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0,
+        ));
+        assert_eq!(new_id, 2);
+        client.verify_campaign(&new_id);
+        client.contribute(&new_id, &c1, &1_000);
+        let new_campaign = client.get_campaign(&new_id);
+        env.ledger().set_timestamp(new_campaign.deadline + 1);
+        client.emergency_withdraw(&admin, &new_id, &rescue_recipient);
+        env.as_contract(&client.address, || {
+            assert!(get_emergency_withdrawal(&env, new_id).is_some());
+        });
+
+        client.admin_cancel_campaign(
+            &admin,
+            &new_id,
+            &String::from_str(&env, "Cancel after emergency proposal"),
+        );
+        env.as_contract(&client.address, || {
+            assert!(get_emergency_withdrawal(&env, new_id).is_none());
+        });
+    }
 }
