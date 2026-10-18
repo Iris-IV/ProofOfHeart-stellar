@@ -399,9 +399,17 @@ pub fn set_initialized(env: &Env) {
     env.storage().instance().set(&AdminKey::Initialized, &true);
 }
 
+/// Returns the admin address if initialized, or `None` if uninitialized (#983).
+pub fn try_get_admin(env: &Env) -> Option<Address> {
+    if !is_initialized(env) {
+        return None;
+    }
+    env.storage().instance().get(&AdminKey::Admin)
+}
+
 /// Returns the admin address. Panics if not yet initialized.
 pub fn get_admin(env: &Env) -> Address {
-    env.storage().instance().get(&AdminKey::Admin).unwrap()
+    try_get_admin(env).unwrap()
 }
 
 /// Stores the admin address.
@@ -426,9 +434,17 @@ pub fn remove_pending_admin(env: &Env) {
     env.storage().instance().remove(&AdminKey::PendingAdmin);
 }
 
+/// Returns the accepted token address if initialized, or `None` if uninitialized (#983).
+pub fn try_get_token(env: &Env) -> Option<Address> {
+    if !is_initialized(env) {
+        return None;
+    }
+    env.storage().instance().get(&AdminKey::Token)
+}
+
 /// Returns the accepted token address. Panics if not yet initialized.
 pub fn get_token(env: &Env) -> Address {
-    env.storage().instance().get(&AdminKey::Token).unwrap()
+    try_get_token(env).unwrap()
 }
 
 /// Stores the accepted token address.
@@ -1772,6 +1788,32 @@ mod ttl_bump_tests {
         // Call on a campaign that does not exist — must not trap either.
         with_contract(&env, &client.address, || {
             crate::storage::bump_all_campaign_state(&env, id + 9999);
+        });
+    }
+
+    #[test]
+    fn test_storage_helpers_guard_against_uninitialized_state_access() {
+        let env = soroban_sdk::Env::default();
+        let contract_id = env.register(crate::ProofOfHeart, ());
+
+        with_contract(&env, &contract_id, || {
+            assert!(!crate::storage::is_initialized(&env));
+            assert_eq!(crate::storage::try_get_admin(&env), None);
+            assert_eq!(crate::storage::try_get_token(&env), None);
+            assert_eq!(crate::storage::get_pending_admin(&env), None);
+            assert_eq!(crate::storage::get_campaign_count(&env), 0);
+            assert_eq!(crate::storage::get_platform_fee(&env), 300);
+            assert_eq!(crate::storage::get_campaign(&env, 1), None);
+        });
+
+        let (_env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+        with_contract(&_env, &client.address, || {
+            assert!(crate::storage::is_initialized(&_env));
+            assert_eq!(crate::storage::try_get_admin(&_env), Some(admin.clone()));
+            assert_eq!(
+                crate::storage::try_get_token(&_env),
+                Some(token.address.clone())
+            );
         });
     }
 }
