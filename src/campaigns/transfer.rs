@@ -6,10 +6,10 @@ use crate::lifecycle::{
     require_not_paused,
 };
 use crate::storage::{
-    bump_instance_ttl, get_creator_campaign_bucket, get_creator_campaign_count,
-    get_creator_campaign_position, remove_creator_campaign_position, set_campaign,
-    set_campaign_creator_index, set_creator_campaign_bucket, set_creator_campaign_count,
-    set_creator_campaign_position, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    bump_instance_ttl, get_campaign_payout_marker, get_creator_campaign_bucket,
+    get_creator_campaign_count, get_creator_campaign_position, remove_creator_campaign_position,
+    set_campaign, set_campaign_creator_index, set_creator_campaign_bucket,
+    set_creator_campaign_count, set_creator_campaign_position, CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::types::MaybePendingCreator;
 
@@ -78,11 +78,11 @@ pub(crate) fn initiate_campaign_transfer(
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_active_campaign(&campaign)?;
 
-    if campaign.funds_withdrawn() {
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
         return Err(Error::CampaignNotActive);
     }
 
-    if new_creator == campaign.creator {
+    if new_creator == campaign.creator || new_creator == env.current_contract_address() {
         return Err(Error::InvalidNewOwner);
     }
 
@@ -129,6 +129,9 @@ pub(crate) fn initiate_campaign_transfer(
 pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
+        return Err(Error::CampaignNotActive);
+    }
     require_not_paused(env)?;
 
     let pending = match campaign.pending_creator.take() {
@@ -147,7 +150,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     // would leave the count decremented and then incremented around a list
     // that never changed, and any future path that reassigns `creator` would
     // silently corrupt the index rather than fail.
-    if pending == campaign.creator {
+    if pending == campaign.creator || pending == env.current_contract_address() {
         return Err(Error::InvalidNewOwner);
     }
 
@@ -196,7 +199,8 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     old_bucket.pop_back();
     set_creator_campaign_bucket(env, &old_creator, old_bucket_idx, &old_bucket);
     remove_creator_campaign_position(env, &old_creator, campaign_id);
-    set_creator_campaign_count(env, &old_creator, old_count.saturating_sub(1));
+    let updated_old_count = old_count.checked_sub(1).ok_or(Error::ValidationFailed)?;
+    set_creator_campaign_count(env, &old_creator, updated_old_count);
 
     let new_count = get_creator_campaign_count(env, &pending);
     let new_bucket_idx = new_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
@@ -290,4 +294,61 @@ pub(crate) fn admin_cancel_campaign_transfer(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::errors::Error;
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    fn test_campaign_transfer_rejects_contract_self_address() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Self Transfer Guard"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        assert_eq!(
+            client.try_initiate_campaign_transfer(&id, &client.address),
+            Err(Ok(Error::InvalidNewOwner))
+        );
+    }
+
+    #[test]
+    fn test_campaign_transfer_blocked_when_payout_marker_set_during_callback() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let nominee = Address::generate(&env);
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Callback Transfer Guard"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.initiate_campaign_transfer(&id, &nominee);
+
+        with_contract(&env, &client.address, || {
+            crate::storage::set_campaign_payout_marker(&env, id, 1);
+        });
+
+        assert_eq!(
+            client.try_accept_campaign_transfer(&id),
+            Err(Ok(Error::CampaignNotActive))
+        );
+    }
 }
