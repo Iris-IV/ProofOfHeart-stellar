@@ -155,6 +155,35 @@ pub(crate) fn calculate_deadline(current_time: u64, duration_days: u64) -> Resul
         .ok_or(Error::ValidationFailed)
 }
 
+/// Enforces that `current_time` is strictly before `deadline` (`current_time < deadline`)
+/// to prevent front-running state mutations during the exact ledger block a campaign
+/// deadline expires (#987).
+#[inline]
+pub const fn require_before_deadline(current_time: u64, deadline: u64) -> Result<(), Error> {
+    if current_time >= deadline {
+        return Err(Error::DeadlinePassed);
+    }
+    Ok(())
+}
+
+/// Enforces that `current_time` is strictly after `deadline` (`current_time > deadline`),
+/// disallowing premature post-deadline settlements on the exact expiration timestamp (#987).
+#[inline]
+pub const fn require_after_deadline(current_time: u64, deadline: u64) -> Result<(), Error> {
+    if current_time <= deadline {
+        return Err(Error::DeadlineNotPassed);
+    }
+    Ok(())
+}
+
+// Compile-time verification that exact deadline block is mutually excluded from both guards (#987).
+const _: () = {
+    assert!(require_before_deadline(99, 100).is_ok());
+    assert!(require_before_deadline(100, 100).is_err());
+    assert!(require_after_deadline(100, 100).is_err());
+    assert!(require_after_deadline(101, 100).is_ok());
+};
+
 pub(crate) fn require_not_paused(env: &Env) -> Result<(), Error> {
     if env
         .storage()
@@ -328,5 +357,30 @@ mod tests {
         assert!(transition(CampaignState::Verified, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Cancelled, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Withdrawn, CampaignState::Active).is_err());
+    }
+
+    #[test]
+    fn deadline_boundary_disallows_exact_expiration_block_mutations() {
+        use super::{require_after_deadline, require_before_deadline};
+        use crate::Error;
+
+        let deadline = 1_000u64;
+        // Strictly before deadline succeeds for active mutations
+        assert_eq!(require_before_deadline(999, deadline), Ok(()));
+        // Exact deadline block is rejected for both pre-deadline and post-deadline actions
+        assert_eq!(
+            require_before_deadline(deadline, deadline),
+            Err(Error::DeadlinePassed)
+        );
+        assert_eq!(
+            require_after_deadline(deadline, deadline),
+            Err(Error::DeadlineNotPassed)
+        );
+        // Strictly after deadline succeeds for post-deadline settlement
+        assert_eq!(require_after_deadline(1_001, deadline), Ok(()));
+        assert_eq!(
+            require_before_deadline(1_001, deadline),
+            Err(Error::DeadlinePassed)
+        );
     }
 }
