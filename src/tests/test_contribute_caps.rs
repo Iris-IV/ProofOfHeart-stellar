@@ -132,7 +132,7 @@ fn test_anomaly_rejects_burst() {
         creator.clone(),
         String::from_str(&env, "Burst Test"),
         String::from_str(&env, "Testing burst"),
-        20, // Goal low enough that contributions exceed 50% quickly
+        2_000, // 1,100 crosses 50% without triggering the 2x single-tx anomaly guard
         30,
         Category::Educator,
         false,
@@ -146,11 +146,11 @@ fn test_anomaly_rejects_burst() {
     client.contribute(&campaign_id, &contributor1, &1_100);
 
     for _ in 0..10 {
-        client.contribute(&campaign_id, &contributor1, &100);
+        client.contribute(&campaign_id, &contributor1, &10);
     }
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_200);
 
-    // The 11th contribution should push block_count to 11 > AUTO_PAUSE_BURST_THRESHOLD (10).
+    // The 11th contribution in the same ledger after crossing 50% exceeds AUTO_PAUSE_BURST_THRESHOLD (10).
     let res = client.try_contribute(&campaign_id, &contributor1, &10);
     assert_eq!(res.unwrap_err().unwrap(), Error::ContractPaused);
     // Rejected, not paused: no code path sets AutoPaused.
@@ -159,16 +159,9 @@ fn test_anomaly_rejects_burst() {
 
     client.unpause();
 
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp(),
-        protocol_version: 22,
-        sequence_number: env.ledger().sequence() + 1,
-        network_id: [0; 32],
-        base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 10,
-    });
+    let mut info = env.ledger().get();
+    info.sequence_number += 1;
+    env.ledger().set(info);
 
     client.contribute(&campaign_id, &contributor1, &10);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_210);
@@ -329,4 +322,95 @@ fn test_two_contributors_independent_caps() {
     client.remove_personal_cap(&campaign_id, &contributor1);
     assert_eq!(client.get_personal_cap(&campaign_id, &contributor1), 0);
     assert_eq!(client.get_personal_cap(&campaign_id, &contributor2), 400);
+}
+
+#[test]
+fn test_personal_cap_enforced_in_batch_contribute() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let c1 = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Batch Cap 1"),
+        String::from_str(&env, "Testing personal cap in batch"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1_000i128,
+    ));
+    let c2 = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Batch Cap 2"),
+        String::from_str(&env, "Testing personal cap in batch 2"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        1_000i128,
+    ));
+    client.verify_campaign(&c1);
+    client.verify_campaign(&c2);
+
+    client.set_personal_cap(&c1, &contributor1, &300);
+    client.set_personal_cap(&c2, &contributor1, &400);
+
+    let mut invalid_batch = soroban_sdk::Vec::new(&env);
+    invalid_batch.push_back((c1, 250i128));
+    invalid_batch.push_back((c2, 401i128));
+    assert_eq!(
+        client.try_batch_contribute(&contributor1, &invalid_batch),
+        Err(Ok(Error::ContributionCapExceeded))
+    );
+    assert_eq!(client.get_contribution(&c1, &contributor1), 0);
+    assert_eq!(client.get_contribution(&c2, &contributor1), 0);
+
+    let mut valid_batch = soroban_sdk::Vec::new(&env);
+    valid_batch.push_back((c1, 300i128));
+    valid_batch.push_back((c2, 400i128));
+    client.batch_contribute(&contributor1, &valid_batch);
+    assert_eq!(client.get_contribution(&c1, &contributor1), 300);
+    assert_eq!(client.get_contribution(&c2, &contributor1), 400);
+}
+
+#[test]
+fn test_personal_cap_rejects_below_lifetime_and_removal_unlocks_campaign_cap() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Lifetime Cap Floor"),
+        String::from_str(
+            &env,
+            "Personal cap cannot be set below lifetime contributed",
+        ),
+        5_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        1_500i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.set_personal_cap(&campaign_id, &contributor1, &600);
+    client.contribute(&campaign_id, &contributor1, &600);
+
+    // Lowering personal cap below already-contributed lifetime amount must fail.
+    assert_eq!(
+        client.try_set_personal_cap(&campaign_id, &contributor1, &599),
+        Err(Ok(Error::ValidationFailed))
+    );
+
+    // Removing the personal cap restores the campaign-wide cap (1,500).
+    client.remove_personal_cap(&campaign_id, &contributor1);
+    client.contribute(&campaign_id, &contributor1, &900);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1_500);
+    assert_eq!(
+        client.try_contribute(&campaign_id, &contributor1, &1),
+        Err(Ok(Error::ContributionCapExceeded))
+    );
 }
