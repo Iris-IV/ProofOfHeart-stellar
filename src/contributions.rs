@@ -95,7 +95,7 @@ fn check_burst_guard(
     let current_ledger = env.ledger().sequence();
     let (last_ledger, mut block_count) = get_campaign_block_contribution_count(env, campaign_id);
     if current_ledger == last_ledger {
-        block_count += 1;
+        block_count = block_count.checked_add(1).ok_or(Error::Overflow)?;
     } else {
         block_count = 1;
     }
@@ -144,19 +144,20 @@ fn update_contribution_accounting(
         .effective_amount_raised
         .checked_add(amount)
         .ok_or(Error::Overflow)?;
+    let next_current = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let next_lifetime = lifetime.checked_add(amount).ok_or(Error::Overflow)?;
+    let donor_total = crate::storage::get_donor_total_contributed(env, contributor);
+    let _next_donor_total = donor_total.checked_add(amount).ok_or(Error::Overflow)?;
+    let total_raised = get_total_raised_global(env);
+    let next_total_raised = total_raised.checked_add(amount).ok_or(Error::Overflow)?;
+    if lifetime == 0 {
+        let count = crate::storage::get_contributor_count(env, campaign_id);
+        let _next_count = count.checked_add(1).ok_or(Error::Overflow)?;
+    }
+
     set_campaign(env, campaign_id, campaign);
-    set_contribution(
-        env,
-        campaign_id,
-        contributor,
-        current.checked_add(amount).ok_or(Error::Overflow)?,
-    );
-    set_lifetime_contribution(
-        env,
-        campaign_id,
-        contributor,
-        lifetime.checked_add(amount).ok_or(Error::Overflow)?,
-    );
+    set_contribution(env, campaign_id, contributor, next_current);
+    set_lifetime_contribution(env, campaign_id, contributor, next_lifetime);
     // #1054: track cumulative donor history for dynamic voting weight.
     crate::storage::add_donor_total_contributed(env, contributor, amount);
 
@@ -164,11 +165,7 @@ fn update_contribution_accounting(
         increment_contributor_count(env, campaign_id);
     }
 
-    let total_raised = get_total_raised_global(env);
-    set_total_raised_global(
-        env,
-        total_raised.checked_add(amount).ok_or(Error::Overflow)?,
-    );
+    set_total_raised_global(env, next_total_raised);
 
     Ok(())
 }
@@ -496,4 +493,77 @@ pub(crate) fn remove_personal_cap_fn(
         (),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::helpers::*;
+    use crate::{storage, Category, Error};
+    use soroban_sdk::String;
+
+    /// Audit #966: contribution math must return `Error::Overflow` rather than
+    /// panicking when `amount_raised`, `effective_amount_raised`, or
+    /// `total_raised_global` would overflow `i128::MAX`.
+    #[test]
+    fn test_contribution_accounting_overflow_protection() {
+        let (env, _admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        token_admin.mint(&c1, &10_000);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Overflow Audit"),
+            String::from_str(&env, "Testing checked arithmetic in contributions"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        // Seed total_raised_global near i128::MAX so adding 100 overflows cleanly.
+        env.as_contract(&client.address, || {
+            storage::set_total_raised_global(&env, i128::MAX - 50);
+        });
+
+        let res = client.try_contribute(&campaign_id, &c1, &100);
+        assert_eq!(res, Err(Ok(Error::Overflow)));
+        assert_eq!(client.get_contribution(&campaign_id, &c1), 0);
+    }
+
+    /// Audit #966: refund underflow on `effective_amount_raised` or
+    /// `total_raised_global` must return `Error::Overflow` instead of panicking.
+    #[test]
+    fn test_claim_refund_underflow_protection() {
+        let (env, _admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        token_admin.mint(&c1, &10_000);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Underflow Audit"),
+            String::from_str(&env, "Testing checked subtraction in refunds"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&campaign_id);
+        client.contribute(&campaign_id, &c1, &1_000);
+
+        advance_past_deadline(&env, &client, campaign_id);
+
+        // Corrupt effective_amount_raised below the contributor's recorded balance.
+        env.as_contract(&client.address, || {
+            let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+            campaign.effective_amount_raised = 0;
+            storage::set_campaign(&env, campaign_id, &campaign);
+            storage::set_total_raised_global(&env, i128::MIN);
+        });
+
+        let res = client.try_claim_refund(&campaign_id, &c1);
+        assert_eq!(res, Err(Ok(Error::Overflow)));
+    }
 }

@@ -171,7 +171,9 @@ pub(crate) fn claim_revenue(
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
     let already_claimed = get_revenue_claimed(env, campaign_id, &contributor);
-    let mut claimable = total_due - already_claimed;
+    let mut claimable = total_due
+        .checked_sub(already_claimed)
+        .ok_or(Error::Overflow)?;
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -200,14 +202,19 @@ pub(crate) fn claim_revenue(
 
     let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
     if is_last_claimant {
-        let creator_share_bps =
-            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_bps = (crate::BPS_DENOMINATOR as i128)
+            .checked_sub(campaign.revenue_share_percentage as i128)
+            .ok_or(Error::Overflow)?;
         let creator_share_total = total_pool
             .checked_mul(creator_share_bps)
             .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
             .ok_or(Error::Overflow)?;
-        let contributor_pool_total = total_pool - creator_share_total;
-        let pool_remaining = contributor_pool_total - distributed_so_far;
+        let contributor_pool_total = total_pool
+            .checked_sub(creator_share_total)
+            .ok_or(Error::Overflow)?;
+        let pool_remaining = contributor_pool_total
+            .checked_sub(distributed_so_far)
+            .ok_or(Error::Overflow)?;
         if pool_remaining > claimable {
             claimable = pool_remaining;
         }
@@ -274,15 +281,18 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     // Compute creator entitlement directly instead of as a residual from the
     // contributor pool. This avoids biasing creator payouts upward when
     // contributor-side division truncates (#386).
-    let creator_share_bps =
-        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+    let creator_share_bps = (crate::BPS_DENOMINATOR as i128)
+        .checked_sub(campaign.revenue_share_percentage as i128)
+        .ok_or(Error::Overflow)?;
     let creator_share_total = total_pool
         .checked_mul(creator_share_bps)
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-    let claimable = creator_share_total - already_claimed;
+    let claimable = creator_share_total
+        .checked_sub(already_claimed)
+        .ok_or(Error::Overflow)?;
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
