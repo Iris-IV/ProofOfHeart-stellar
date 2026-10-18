@@ -171,7 +171,9 @@ pub(crate) fn claim_revenue(
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
     let already_claimed = get_revenue_claimed(env, campaign_id, &contributor);
-    let mut claimable = total_due - already_claimed;
+    let mut claimable = total_due
+        .checked_sub(already_claimed)
+        .ok_or(Error::Overflow)?;
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -200,14 +202,19 @@ pub(crate) fn claim_revenue(
 
     let distributed_so_far = get_contributor_revenue_distributed(env, campaign_id);
     if is_last_claimant {
-        let creator_share_bps =
-            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_bps = (crate::BPS_DENOMINATOR as i128)
+            .checked_sub(campaign.revenue_share_percentage as i128)
+            .ok_or(Error::Overflow)?;
         let creator_share_total = total_pool
             .checked_mul(creator_share_bps)
             .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
             .ok_or(Error::Overflow)?;
-        let contributor_pool_total = total_pool - creator_share_total;
-        let pool_remaining = contributor_pool_total - distributed_so_far;
+        let contributor_pool_total = total_pool
+            .checked_sub(creator_share_total)
+            .ok_or(Error::Overflow)?;
+        let pool_remaining = contributor_pool_total
+            .checked_sub(distributed_so_far)
+            .ok_or(Error::Overflow)?;
         if pool_remaining > claimable {
             claimable = pool_remaining;
         }
@@ -263,6 +270,12 @@ pub(crate) fn claim_revenue(
 pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
+    if campaign.is_cancelled() {
+        return Err(Error::CampaignNotActive);
+    }
+    if !campaign.funds_withdrawn() {
+        return Err(Error::ValidationFailed);
+    }
 
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
 
@@ -274,15 +287,18 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     // Compute creator entitlement directly instead of as a residual from the
     // contributor pool. This avoids biasing creator payouts upward when
     // contributor-side division truncates (#386).
-    let creator_share_bps =
-        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+    let creator_share_bps = (crate::BPS_DENOMINATOR as i128)
+        .checked_sub(campaign.revenue_share_percentage as i128)
+        .ok_or(Error::Overflow)?;
     let creator_share_total = total_pool
         .checked_mul(creator_share_bps)
         .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
         .ok_or(Error::Overflow)?;
 
     let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-    let claimable = creator_share_total - already_claimed;
+    let claimable = creator_share_total
+        .checked_sub(already_claimed)
+        .ok_or(Error::Overflow)?;
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -314,4 +330,70 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::{Address, String};
+
+    #[test]
+    fn test_revenue_distribution_sums_to_100_percent_without_residual_leakage() {
+        let (env, _admin, creator, c1, c2, token, token_admin, client) = setup_env();
+        let c3 = Address::generate(&env);
+
+        token_admin.mint(&c1, &1_000);
+        token_admin.mint(&c2, &1_000);
+        token_admin.mint(&c3, &1_000);
+        token_admin.mint(&creator, &10_000);
+
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Revenue 100% Audit"),
+            String::from_str(&env, "Zero residual leakage"),
+            900,
+            30,
+            Category::EducationalStartup,
+            true,
+            3_333, // 33.33% to contributors, 66.67% to creator
+            0,
+        ));
+        client.verify_campaign(&id);
+
+        // Three unequal contributions summing to 900.
+        client.contribute(&id, &c1, &300);
+        client.contribute(&id, &c2, &300);
+        client.contribute(&id, &c3, &300);
+
+        let campaign = client.get_campaign(&id);
+        env.ledger().set_timestamp(campaign.deadline + 1);
+        client.withdraw_funds(&id);
+
+        let creator_before_deposit = token.balance(&creator);
+        let c1_before = token.balance(&c1);
+        let c2_before = token.balance(&c2);
+        let c3_before = token.balance(&c3);
+
+        let deposit = 1_001i128;
+        client.deposit_revenue(&id, &deposit);
+
+        client.claim_revenue(&id, &c1);
+        client.claim_revenue(&id, &c2);
+        client.claim_revenue(&id, &c3);
+        client.claim_creator_revenue(&id);
+
+        let c1_claimed = token.balance(&c1) - c1_before;
+        let c2_claimed = token.balance(&c2) - c2_before;
+        let c3_claimed = token.balance(&c3) - c3_before;
+        let creator_claimed = token.balance(&creator) - (creator_before_deposit - deposit);
+
+        assert_eq!(
+            c1_claimed + c2_claimed + c3_claimed + creator_claimed,
+            deposit,
+            "creator and contributor revenue claims must sum to 100% of deposited pool"
+        );
+        assert_eq!(token.balance(&client.address), 0);
+    }
 }
