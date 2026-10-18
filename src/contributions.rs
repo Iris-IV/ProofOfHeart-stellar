@@ -392,6 +392,9 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     require_not_paused(env)?;
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn() {
+        return Err(Error::FundsAlreadyWithdrawn);
+    }
 
     let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
         && campaign.amount_raised < campaign.funding_goal;
@@ -401,7 +404,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     }
 
     let amount = get_contribution(env, campaign_id, &contributor);
-    if amount == 0 {
+    if amount <= 0 {
         return Err(Error::NoFundsToWithdraw);
     }
 
@@ -421,9 +424,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
             .checked_sub(amount)
             .ok_or(Error::Overflow)?;
         set_campaign(env, campaign_id, &campaign);
-    }
 
-    if !campaign.is_cancelled() {
         let total_raised = get_total_raised_global(env);
         set_total_raised_global(
             env,
@@ -496,4 +497,61 @@ pub(crate) fn remove_personal_cap_fn(
         (),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::helpers::*;
+    use crate::{Category, Error};
+    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::String;
+
+    #[test]
+    fn test_claim_refund_prevents_double_refund_on_target_failure_and_cancellation() {
+        let (env, _admin, creator, c1, c2, token, token_admin, client) = setup_env();
+        token_admin.mint(&c1, &1_000);
+        token_admin.mint(&c2, &1_000);
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Target Failure Campaign"),
+            String::from_str(&env, "Audit double refund protection"),
+            2_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        client.contribute(&id, &c1, &400);
+        client.contribute(&id, &c2, &300);
+
+        // Advance past deadline with total raised (700) < funding goal (2_000).
+        let campaign = client.get_campaign(&id);
+        env.ledger().set_timestamp(campaign.deadline + 1);
+
+        client.claim_refund(&id, &c1);
+        assert_eq!(token.balance(&c1), 1_000);
+        assert_eq!(client.get_contribution(&id, &c1), 0);
+        assert_eq!(client.get_campaign(&id).effective_amount_raised, 300);
+        assert_eq!(client.get_total_raised_global(), 300);
+
+        // Second refund attempt by c1 must fail and leave c2's escrowed 300 untouched.
+        assert_eq!(
+            client.try_claim_refund(&id, &c1),
+            Err(Ok(Error::NoFundsToWithdraw))
+        );
+        assert_eq!(token.balance(&client.address), 300);
+
+        // c2 can still claim their exact 300 refund once, then subsequent attempts fail.
+        client.claim_refund(&id, &c2);
+        assert_eq!(token.balance(&c2), 1_000);
+        assert_eq!(client.get_campaign(&id).effective_amount_raised, 0);
+        assert_eq!(client.get_total_raised_global(), 0);
+        assert_eq!(
+            client.try_claim_refund(&id, &c2),
+            Err(Ok(Error::NoFundsToWithdraw))
+        );
+    }
 }
