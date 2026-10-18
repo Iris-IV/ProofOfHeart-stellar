@@ -349,8 +349,10 @@ pub fn set_campaign(env: &Env, campaign_id: u32, campaign: &Campaign) {
 }
 
 pub fn get_campaign_start_time(env: &Env, campaign_id: u32) -> Option<u64> {
-    let key = CampaignKey::CampaignStartTime(campaign_id);
-    env.storage().persistent().get(&key)
+    get_persistent_bumped(
+        env,
+        CampaignKey::CampaignStartTime(campaign_id).into_val(env),
+    )
 }
 
 pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
@@ -362,8 +364,10 @@ pub fn set_campaign_start_time(env: &Env, campaign_id: u32, start_time: u64) {
 }
 
 pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
-    let key = CampaignKey::CampaignPayoutMarker(campaign_id);
-    env.storage().persistent().get(&key)
+    get_persistent_bumped(
+        env,
+        CampaignKey::CampaignPayoutMarker(campaign_id).into_val(env),
+    )
 }
 
 pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
@@ -654,8 +658,7 @@ pub fn set_cancellation_penalty_bps(env: &Env, bps: u32) {
 
 /// Returns the revenue pool balance for a campaign.
 pub fn get_revenue_pool(env: &Env, campaign_id: u32) -> i128 {
-    let key = RevenueKey::RevenuePool(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    get_persistent_bumped(env, RevenueKey::RevenuePool(campaign_id).into_val(env)).unwrap_or(0)
 }
 
 /// Stores the revenue pool balance for a campaign and extends its TTL.
@@ -665,8 +668,11 @@ pub fn set_revenue_pool(env: &Env, campaign_id: u32, amount: i128) {
 
 /// Returns the revenue already claimed by a contributor.
 pub fn get_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
-    let key = RevenueKey::RevenueClaimed(campaign_id, contributor.clone());
-    env.storage().persistent().get(&key).unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        RevenueKey::RevenueClaimed(campaign_id, contributor.clone()).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores the revenue claimed amount for a contributor and extends its TTL.
@@ -686,8 +692,11 @@ pub fn remove_revenue_claimed(env: &Env, campaign_id: u32, contributor: &Address
 
 /// Returns the creator's total claimed revenue for a campaign.
 pub fn get_creator_revenue_claimed(env: &Env, campaign_id: u32) -> i128 {
-    let key = RevenueKey::CreatorRevenueClaimed(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        RevenueKey::CreatorRevenueClaimed(campaign_id).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores the creator's claimed revenue amount for a campaign and extends its TTL.
@@ -698,8 +707,11 @@ pub fn set_creator_revenue_claimed(env: &Env, campaign_id: u32, amount: i128) {
 /// Returns the cumulative amount already paid out to contributors from a
 /// campaign's revenue pool (#526).
 pub fn get_contributor_revenue_distributed(env: &Env, campaign_id: u32) -> i128 {
-    let key = RevenueKey::ContributorRevenueDistributed(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        RevenueKey::ContributorRevenueDistributed(campaign_id).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores the cumulative amount paid out to contributors from a campaign's
@@ -715,8 +727,11 @@ pub fn set_contributor_revenue_distributed(env: &Env, campaign_id: u32, amount: 
 /// Returns the number of distinct contributors who have claimed revenue at
 /// least once for a campaign (#526).
 pub fn get_contributor_revenue_claimants(env: &Env, campaign_id: u32) -> u32 {
-    let key = RevenueKey::ContributorRevenueClaimants(campaign_id);
-    env.storage().persistent().get(&key).unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        RevenueKey::ContributorRevenueClaimants(campaign_id).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores the number of distinct contributors who have claimed revenue at
@@ -1151,8 +1166,7 @@ pub fn set_withdraw_reserve_percentage(env: &Env, bps: u32) {
 }
 
 pub fn get_campaign_reserve(env: &Env, campaign_id: u32) -> Option<CampaignReserve> {
-    let key = CampaignKey::CampaignReserve(campaign_id);
-    env.storage().persistent().get(&key)
+    get_persistent_bumped(env, CampaignKey::CampaignReserve(campaign_id).into_val(env))
 }
 
 pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReserve) {
@@ -1163,9 +1177,10 @@ pub fn set_campaign_reserve(env: &Env, campaign_id: u32, reserve: &CampaignReser
 
 /// Returns the pending emergency withdrawal for a campaign, or `None`.
 pub fn get_emergency_withdrawal(env: &Env, campaign_id: u32) -> Option<EmergencyWithdrawal> {
-    env.storage()
-        .persistent()
-        .get(&CampaignKey::EmergencyWithdrawal(campaign_id))
+    get_persistent_bumped(
+        env,
+        CampaignKey::EmergencyWithdrawal(campaign_id).into_val(env),
+    )
 }
 
 /// Records a pending emergency withdrawal for a campaign.
@@ -1183,8 +1198,7 @@ pub fn remove_emergency_withdrawal(env: &Env, campaign_id: u32) {
 // ── Per-campaign vesting snapshot (#466) ─────────────────────────────────────
 
 pub fn get_campaign_vesting(env: &Env, campaign_id: u32) -> Option<(u64, u32)> {
-    let key = CampaignKey::CampaignVesting(campaign_id);
-    env.storage().persistent().get(&key)
+    get_persistent_bumped(env, CampaignKey::CampaignVesting(campaign_id).into_val(env))
 }
 
 pub fn set_campaign_vesting(env: &Env, campaign_id: u32, delay_days: u64, reserve_bps: u32) {
@@ -1349,11 +1363,8 @@ pub fn increment_cancelled_campaign_count(env: &Env) {
 /// Returns the list of campaign ids a wallet has bookmarked, in the order
 /// they were saved. Defaults to an empty list.
 pub fn get_saved_campaigns(env: &Env, user: &Address) -> Vec<u32> {
-    let key = BookmarkKey::SavedCampaigns(user.clone());
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(Vec::new(env))
+    get_persistent_bumped(env, BookmarkKey::SavedCampaigns(user.clone()).into_val(env))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 /// Stores a wallet's list of bookmarked campaign ids and extends its TTL.
@@ -1367,11 +1378,11 @@ pub fn get_campaign_milestones(
     env: &Env,
     campaign_id: u32,
 ) -> soroban_sdk::Vec<crate::types::Milestone> {
-    let key = CampaignKey::CampaignMilestones(campaign_id);
-    env.storage()
-        .persistent()
-        .get(&key)
-        .unwrap_or(soroban_sdk::Vec::new(env))
+    get_persistent_bumped(
+        env,
+        CampaignKey::CampaignMilestones(campaign_id).into_val(env),
+    )
+    .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 pub fn set_campaign_milestones(
@@ -1387,8 +1398,11 @@ pub fn set_campaign_milestones(
 }
 
 pub fn is_milestone_claimed(env: &Env, campaign_id: u32, milestone_id: u32) -> bool {
-    let key = CampaignKey::MilestoneClaimed(campaign_id, milestone_id);
-    env.storage().persistent().get(&key).unwrap_or(false)
+    get_persistent_bumped(
+        env,
+        CampaignKey::MilestoneClaimed(campaign_id, milestone_id).into_val(env),
+    )
+    .unwrap_or(false)
 }
 
 pub fn set_milestone_claimed(env: &Env, campaign_id: u32, milestone_id: u32) {
@@ -1625,9 +1639,10 @@ pub fn remove_creator_title_index(env: &Env, creator: &Address, title_hash: &Byt
 
 /// The fee recipient captured on this campaign's first contribution, if any.
 pub fn get_campaign_fee_recipient(env: &Env, campaign_id: u32) -> Option<Address> {
-    env.storage()
-        .persistent()
-        .get(&CampaignKey::CampaignFeeRecipient(campaign_id))
+    get_persistent_bumped(
+        env,
+        CampaignKey::CampaignFeeRecipient(campaign_id).into_val(env),
+    )
 }
 
 /// Pins the fee recipient for a campaign. Written once, on the first
@@ -1726,14 +1741,21 @@ pub fn append_campaign_to_tag(env: &Env, tag_hash: &BytesN<32>, campaign_id: u32
 /// admin settings) are managed by `bump_instance_ttl` and are deliberately
 /// excluded here.
 pub fn bump_all_campaign_state(env: &Env, campaign_id: u32) {
-    let keys: [Val; 7] = [
+    let keys: [Val; 14] = [
         CampaignKey::Campaign(campaign_id).into_val(env),
         CampaignKey::CampaignStartTime(campaign_id).into_val(env),
         CampaignKey::CampaignCreatorIndex(campaign_id).into_val(env),
         CampaignKey::CampaignMilestones(campaign_id).into_val(env),
         CampaignKey::CampaignReserve(campaign_id).into_val(env),
         CampaignKey::CampaignToken(campaign_id).into_val(env),
+        CampaignKey::CampaignVesting(campaign_id).into_val(env),
+        CampaignKey::CampaignFeeRecipient(campaign_id).into_val(env),
+        CampaignKey::CampaignPayoutMarker(campaign_id).into_val(env),
+        CampaignKey::CampaignTags(campaign_id).into_val(env),
+        CampaignKey::EmergencyWithdrawal(campaign_id).into_val(env),
         ContributionKey::ContributorCount(campaign_id).into_val(env),
+        ContributionKey::TopContributor(campaign_id).into_val(env),
+        RevenueKey::RevenuePool(campaign_id).into_val(env),
     ];
     for key in keys {
         bump_persistent_if_present(env, key);
@@ -1746,6 +1768,7 @@ pub fn bump_all_campaign_state(env: &Env, campaign_id: u32) {
 mod ttl_bump_tests {
     use crate::tests::helpers::*;
     use crate::Category;
+    use soroban_sdk::testutils::storage::Persistent;
 
     /// Smoke-test that `bump_all_campaign_state` runs without error on an
     /// existing campaign and on a campaign id that has no entries.
@@ -1772,6 +1795,55 @@ mod ttl_bump_tests {
         // Call on a campaign that does not exist — must not trap either.
         with_contract(&env, &client.address, || {
             crate::storage::bump_all_campaign_state(&env, id + 9999);
+        });
+    }
+
+    #[test]
+    fn persistent_getters_and_bulk_bump_extend_ttl_across_campaign_lifecycle() {
+        let (env, _admin, creator, c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "TTL Audit"),
+            String::from_str(&env, "Desc"),
+            1_000,
+            30,
+            Category::EducationalStartup,
+            true,
+            1_000,
+            0,
+        ));
+
+        with_contract(&env, &client.address, || {
+            crate::storage::set_campaign_vesting(&env, id, 7, 1_000);
+            crate::storage::set_campaign_fee_recipient(&env, id, &creator);
+            crate::storage::set_campaign_payout_marker(&env, id, 1);
+            crate::storage::set_revenue_pool(&env, id, 500);
+            crate::storage::set_revenue_claimed(&env, id, &c1, 100);
+            crate::storage::set_creator_revenue_claimed(&env, id, 50);
+
+            assert_eq!(
+                crate::storage::get_campaign_vesting(&env, id),
+                Some((7, 1_000))
+            );
+            assert_eq!(
+                crate::storage::get_campaign_fee_recipient(&env, id),
+                Some(creator.clone())
+            );
+            assert_eq!(
+                crate::storage::get_campaign_payout_marker(&env, id),
+                Some(1)
+            );
+            assert_eq!(crate::storage::get_revenue_pool(&env, id), 500);
+            assert_eq!(crate::storage::get_revenue_claimed(&env, id, &c1), 100);
+            assert_eq!(crate::storage::get_creator_revenue_claimed(&env, id), 50);
+
+            crate::storage::bump_all_campaign_state(&env, id);
+
+            let ttl = env
+                .storage()
+                .persistent()
+                .get_ttl(&crate::storage::RevenueKey::RevenuePool(id));
+            assert!(ttl >= super::BUMP_THRESHOLD);
         });
     }
 }
