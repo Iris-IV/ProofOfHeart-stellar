@@ -497,3 +497,118 @@ pub(crate) fn remove_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Splits an incoming contribution into `(accepted_amount, excess_refund)` when
+/// capping contributions at `funding_goal` (#1010).
+///
+/// Rejects non-positive `incoming_amount` or `funding_goal`, negative `amount_raised`,
+/// or contributions to a campaign that has already reached or exceeded its target cap.
+pub const fn calculate_oversubscribed_contribution_split(
+    amount_raised: i128,
+    funding_goal: i128,
+    incoming_amount: i128,
+) -> Result<(i128, i128), Error> {
+    if incoming_amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    if funding_goal <= 0 {
+        return Err(Error::FundingGoalMustBePositive);
+    }
+    if amount_raised < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if amount_raised >= funding_goal {
+        return Err(Error::ContributionCapExceeded);
+    }
+    let remaining_capacity = match funding_goal.checked_sub(amount_raised) {
+        Some(rem) => rem,
+        None => return Err(Error::Overflow),
+    };
+    if incoming_amount <= remaining_capacity {
+        Ok((incoming_amount, 0))
+    } else {
+        let excess_refund = match incoming_amount.checked_sub(remaining_capacity) {
+            Some(ref_amt) => ref_amt,
+            None => return Err(Error::Overflow),
+        };
+        Ok((remaining_capacity, excess_refund))
+    }
+}
+
+/// Computes a contributor's pro-rata partial refund from the over-subscribed
+/// surplus (`amount_raised - funding_goal`) using checked floor division (#1010).
+pub const fn calculate_pro_rata_oversubscription_refund(
+    contributor_amount: i128,
+    amount_raised: i128,
+    funding_goal: i128,
+) -> Result<i128, Error> {
+    if contributor_amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    if funding_goal <= 0 {
+        return Err(Error::FundingGoalMustBePositive);
+    }
+    if amount_raised <= 0 || contributor_amount > amount_raised {
+        return Err(Error::ValidationFailed);
+    }
+    if amount_raised <= funding_goal {
+        return Ok(0);
+    }
+    let surplus = match amount_raised.checked_sub(funding_goal) {
+        Some(s) => s,
+        None => return Err(Error::Overflow),
+    };
+    let numerator = match surplus.checked_mul(contributor_amount) {
+        Some(n) => n,
+        None => return Err(Error::Overflow),
+    };
+    Ok(numerator / amount_raised)
+}
+
+const _: () = {
+    assert!(calculate_oversubscribed_contribution_split(800, 1_000, 350).is_ok());
+    assert!(calculate_pro_rata_oversubscription_refund(500, 1_500, 1_000).is_ok());
+};
+
+#[cfg(test)]
+mod oversubscription_refund_tests {
+    use super::{
+        calculate_oversubscribed_contribution_split, calculate_pro_rata_oversubscription_refund,
+    };
+    use crate::errors::Error;
+
+    #[test]
+    fn test_oversubscribed_contribution_split_and_pro_rata_refund() {
+        // Within remaining capacity -> full amount accepted, 0 refund
+        assert_eq!(
+            calculate_oversubscribed_contribution_split(600, 1_000, 300),
+            Ok((300, 0))
+        );
+        // Exceeds remaining capacity -> 200 accepted to hit 1_000 goal, 150 refunded
+        assert_eq!(
+            calculate_oversubscribed_contribution_split(800, 1_000, 350),
+            Ok((200, 150))
+        );
+        // Already at goal -> rejected with ContributionCapExceeded
+        assert_eq!(
+            calculate_oversubscribed_contribution_split(1_000, 1_000, 100),
+            Err(Error::ContributionCapExceeded)
+        );
+
+        // Pro-rata surplus refund: raised 1_500 on 1_000 goal (surplus 500), contributor gave 600 (40%) -> 200 refund
+        assert_eq!(
+            calculate_pro_rata_oversubscription_refund(600, 1_500, 1_000),
+            Ok(200)
+        );
+        // Not oversubscribed -> 0 refund
+        assert_eq!(
+            calculate_pro_rata_oversubscription_refund(400, 900, 1_000),
+            Ok(0)
+        );
+        // Contributor amount > amount_raised -> invariant/validation failure
+        assert_eq!(
+            calculate_pro_rata_oversubscription_refund(1_600, 1_500, 1_000),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
