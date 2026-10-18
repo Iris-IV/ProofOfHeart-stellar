@@ -108,14 +108,31 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+/// Maximum number of emergency pause signers permitted to bound storage and
+/// prevent duplicate/replayed signer entries (#977).
+pub const MAX_EMERGENCY_PAUSE_SIGNERS: u32 = 20;
+
 pub(crate) fn set_emergency_pause_signers(
     env: &Env,
     admin: Address,
     signers: Vec<Address>,
 ) -> Result<(), Error> {
     ensure_admin!(env, &admin);
-    if signers.is_empty() {
+    let len = signers.len();
+    if len == 0 || len > MAX_EMERGENCY_PAUSE_SIGNERS {
         return Err(Error::ValidationFailed);
+    }
+    let contract_addr = env.current_contract_address();
+    for i in 0..len {
+        let signer = signers.get(i).ok_or(Error::ValidationFailed)?;
+        if signer == contract_addr {
+            return Err(Error::ValidationFailed);
+        }
+        for j in (i + 1)..len {
+            if Some(signer.clone()) == signers.get(j) {
+                return Err(Error::ValidationFailed);
+            }
+        }
     }
     // No require_not_paused: admin must be able to configure signers even during pause (#785).
     bump_instance_ttl(env);
@@ -693,6 +710,56 @@ mod tests {
         assert!(!client.is_paused());
         // authorized signer succeeds
         client.emergency_pause(&signer);
+        assert!(client.is_paused());
+    }
+
+    #[test]
+    fn test_emergency_pause_signers_rejects_duplicate_and_self_and_revokes_rotated_signer() {
+        let (env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let signer1 = soroban_sdk::Address::generate(&env);
+        let signer2 = soroban_sdk::Address::generate(&env);
+
+        // Reject duplicate signer entries
+        let mut dup_signers = Vec::new(&env);
+        dup_signers.push_back(signer1.clone());
+        dup_signers.push_back(signer1.clone());
+        assert_eq!(
+            client.try_set_emergency_pause_signers(&admin, &dup_signers),
+            Err(Ok(crate::Error::ValidationFailed))
+        );
+
+        // Reject contract self-address as signer
+        let mut self_signers = Vec::new(&env);
+        self_signers.push_back(client.address.clone());
+        assert_eq!(
+            client.try_set_emergency_pause_signers(&admin, &self_signers),
+            Err(Ok(crate::Error::ValidationFailed))
+        );
+
+        // Reject oversized signer list (> MAX_EMERGENCY_PAUSE_SIGNERS)
+        let mut oversized = Vec::new(&env);
+        for _ in 0..=super::MAX_EMERGENCY_PAUSE_SIGNERS {
+            oversized.push_back(soroban_sdk::Address::generate(&env));
+        }
+        assert_eq!(
+            client.try_set_emergency_pause_signers(&admin, &oversized),
+            Err(Ok(crate::Error::ValidationFailed))
+        );
+
+        // Authorize signer1, then rotate to signer2 and verify signer1 cannot replay emergency_pause
+        let mut first_set = Vec::new(&env);
+        first_set.push_back(signer1.clone());
+        client.set_emergency_pause_signers(&admin, &first_set);
+
+        let mut rotated_set = Vec::new(&env);
+        rotated_set.push_back(signer2.clone());
+        client.set_emergency_pause_signers(&admin, &rotated_set);
+
+        assert_eq!(
+            client.try_emergency_pause(&signer1),
+            Err(Ok(crate::Error::NotAuthorized))
+        );
+        client.emergency_pause(&signer2);
         assert!(client.is_paused());
     }
 }
