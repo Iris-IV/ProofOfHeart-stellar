@@ -497,3 +497,106 @@ pub(crate) fn remove_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Non-transferable Soulbound Token (SBT) donor badge tiers issued to supporters
+/// of verified causes (#1036).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DonorBadgeTier {
+    None = 0,
+    Bronze = 1,
+    Silver = 2,
+    Gold = 3,
+    Platinum = 4,
+}
+
+/// Contribution share thresholds (in basis points of `funding_goal`) for
+/// donor SBT badge tiers (#1036).
+pub(crate) const SBT_SILVER_THRESHOLD_BPS: u32 = 100; // 1% of funding goal
+pub(crate) const SBT_GOLD_THRESHOLD_BPS: u32 = 500; // 5% of funding goal
+pub(crate) const SBT_PLATINUM_THRESHOLD_BPS: u32 = 2_000; // 20% of funding goal
+
+/// Resolves the non-transferable Soulbound Token (SBT) badge tier earned by a
+/// donor based on their `lifetime_contribution`, the campaign's `funding_goal`,
+/// and whether the campaign is verified (#1036).
+pub(crate) const fn resolve_donor_sbt_badge_tier(
+    lifetime_contribution: i128,
+    funding_goal: i128,
+    campaign_verified: bool,
+) -> Result<DonorBadgeTier, Error> {
+    if lifetime_contribution < 0 || funding_goal <= 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if !campaign_verified || lifetime_contribution == 0 {
+        return Ok(DonorBadgeTier::None);
+    }
+    let scaled = match lifetime_contribution.checked_mul(crate::BPS_DENOMINATOR as i128) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let share_bps = scaled / funding_goal;
+    if share_bps >= SBT_PLATINUM_THRESHOLD_BPS as i128 {
+        Ok(DonorBadgeTier::Platinum)
+    } else if share_bps >= SBT_GOLD_THRESHOLD_BPS as i128 {
+        Ok(DonorBadgeTier::Gold)
+    } else if share_bps >= SBT_SILVER_THRESHOLD_BPS as i128 {
+        Ok(DonorBadgeTier::Silver)
+    } else {
+        Ok(DonorBadgeTier::Bronze)
+    }
+}
+
+/// Enforces the Soulbound (non-transferable) invariant on donor badges: any
+/// attempt to transfer a badge to a different wallet is rejected (#1036).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn assert_sbt_badge_non_transferable(
+    holder: &Address,
+    recipient: &Address,
+) -> Result<(), Error> {
+    if holder != recipient {
+        return Err(Error::NotAuthorized);
+    }
+    Ok(())
+}
+
+const _: () = {
+    assert!(resolve_donor_sbt_badge_tier(500, 10_000, true).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn sbt_donor_badge_tier_resolution_and_non_transferability() {
+        assert_eq!(
+            resolve_donor_sbt_badge_tier(1_000, 10_000, false),
+            Ok(DonorBadgeTier::None)
+        );
+        assert_eq!(
+            resolve_donor_sbt_badge_tier(50, 10_000, true),
+            Ok(DonorBadgeTier::Bronze)
+        );
+        assert_eq!(
+            resolve_donor_sbt_badge_tier(100, 10_000, true),
+            Ok(DonorBadgeTier::Silver)
+        );
+        assert_eq!(
+            resolve_donor_sbt_badge_tier(500, 10_000, true),
+            Ok(DonorBadgeTier::Gold)
+        );
+        assert_eq!(
+            resolve_donor_sbt_badge_tier(2_500, 10_000, true),
+            Ok(DonorBadgeTier::Platinum)
+        );
+
+        let env = Env::default();
+        let holder = Address::generate(&env);
+        let other = Address::generate(&env);
+        assert_eq!(assert_sbt_badge_non_transferable(&holder, &holder), Ok(()));
+        assert_eq!(
+            assert_sbt_badge_non_transferable(&holder, &other),
+            Err(Error::NotAuthorized)
+        );
+    }
+}
