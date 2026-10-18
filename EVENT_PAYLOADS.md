@@ -61,7 +61,27 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("withdrawal", campaign_id: u32, creator: Address)` |
-| Data   | `(fee_bps: u32, creator_amount: i128, reserve_amount: i128)` |
+| Data   | `(effective_amount_raised: i128, fee_amount: i128, reserve_amount: i128, creator_amount: i128)` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |
+
+---
+
+### `withdrawal_fee_paid`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("withdrawal_fee_paid", campaign_id: u32)` |
+| Data   | `(fee_recipient: Address, fee_amount: i128)` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |
+
+---
+
+### `payout_marker`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("payout_marker", campaign_id: u32)` |
+| Data   | `ledger_sequence: u32` |
 | Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |
 
 ---
@@ -93,7 +113,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("vesting_params_updated", admin: Address)` |
-| Data   | `(delay_days: u64, reserve_bps: u32)` |
+| Data   | `(old_delay_days: u64, delay_days: u64, old_reserve_bps: u32, reserve_bps: u32)` |
 | Source | `src/campaigns/withdraw.rs` — `set_vesting_params()` |
 
 ---
@@ -103,7 +123,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("vesting_disabled", admin: Address)` |
-| Data   | `()` |
+| Data   | `(old_delay_days: u64, delay_days: u64, old_reserve_bps: u32, reserve_bps: u32)` |
 | Source | `src/campaigns/withdraw.rs` — `set_vesting_params()` |
 
 ---
@@ -465,7 +485,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("campaign_transfer_initiated", campaign_id: u32, current_creator: Address)` |
-| Data   | `new_creator: Address` |
+| Data   | `(new_creator: Address, expiry: u64)` |
 | Source | `src/campaigns/transfer.rs` — `initiate_campaign_transfer()` |
 
 ---
@@ -494,9 +514,19 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("campaign_transfer_cancelled", campaign_id: u32)` |
+| Topics | `("campaign_transfer_cancelled", campaign_id: u32, creator: Address)` |
 | Data   | `pending_creator: Address` |
 | Source | `src/campaigns/transfer.rs` — `cancel_campaign_transfer()` |
+
+---
+
+### `campaign_transfer_admin_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_transfer_admin_cancelled", campaign_id: u32, admin: Address)` |
+| Data   | `pending_creator: Address` |
+| Source | `src/campaigns/transfer.rs` — `admin_cancel_campaign_transfer()` |
 
 ---
 
@@ -580,4 +610,84 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Data   | `amount: i128` |
 | Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
 
-Total: 55 documented publish() call sites
+---
+
+### `emergency_withdrawal_proposed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_proposed", campaign_id: u32, admin: Address)` |
+| Data   | `(recipient: Address, execute_after: u64, effective_amount_raised: i128)` |
+| Source | `src/campaigns/emergency.rs` — `emergency_withdraw()` (#802) |
+
+---
+
+### `emergency_withdrawal_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_cancelled", campaign_id: u32, admin: Address)` |
+| Data   | `recipient: Address` |
+| Source | `src/campaigns/emergency.rs` — `cancel_emergency_withdrawal()` (#802) |
+
+---
+
+### `emergency_withdrawal_executed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_executed", campaign_id: u32, admin: Address)` |
+| Data   | `(recipient: Address, amount: i128)` |
+| Source | `src/campaigns/emergency.rs` — `execute_emergency_withdrawal()` (#802) |
+
+---
+
+### `milestones_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestones_set", campaign_id: u32)` |
+| Data   | `milestone_count: u32` |
+| Source | `src/milestones.rs` — `set_milestones()` (#783) |
+
+---
+
+### `milestone_verified`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestone_verified", campaign_id: u32, milestone_id: u32)` |
+| Data   | `()` |
+| Source | `src/milestones.rs` — `verify_milestone()` (#783) |
+
+---
+
+### `milestone_claimed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestone_claimed", campaign_id: u32, milestone_id: u32)` |
+| Data   | `(claimable: i128, fee_claim: i128)` |
+| Source | `src/milestones.rs` — `claim_milestone()` (#783) |
+
+---
+
+### `comment_censured`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("comment_censured", campaign_id: u32, comment_hash: BytesN<32>)` |
+| Data   | `(admin: Address, reason: String, censured_at: u64)` |
+| Source | `src/comments.rs` — `censure_comment()` |
+
+---
+
+### `comment_uncensured`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("comment_uncensured", campaign_id: u32, comment_hash: BytesN<32>)` |
+| Data   | `(admin: Address, timestamp: u64)` |
+| Source | `src/comments.rs` — `uncensure_comment()` |
+
+Total: 66 documented publish() call sites
