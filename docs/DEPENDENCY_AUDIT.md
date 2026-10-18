@@ -92,26 +92,21 @@ keep this table honest as advisories change.
    PR as the bump, so the ignore list never outlives the vulnerability it was
    guarding against.
 
-## The vendored `ethnum` patch
+## The vendored `ethnum` and `soroban-env-host` patches
 
-`Cargo.toml` pins `soroban-sdk = "=22.0.11"`, which in turn pins `ethnum
-1.5.0`. That version fails to compile on Rust 1.80+ (a `transmute` size
-mismatch with `TryFromIntError`), so it's patched via:
+`Cargo.toml` pins `soroban-sdk = "=22.0.11"`, which pulls in two transitive
+crates that require local `[patch.crates-io]` overrides on modern toolchains:
 
 ```toml
 [patch.crates-io]
 ethnum = { path = "vendor/ethnum" }
+soroban-env-host = { path = "vendor/soroban-env-host" }
 ```
 
-`vendor/ethnum/` is a vendored copy of the crate with the upstream `1.5.3` fix
-backported. This is intentionally **not** a place to make unrelated changes —
-it exists solely to unblock the compiler version mismatch. Once the project
-upgrades to a `soroban-sdk` release that depends on `ethnum >= 1.5.3` (or one
-that drops the exact `1.5.0` pin), remove both the `[patch.crates-io]` block
-and the `vendor/ethnum/` directory in the same PR as that upgrade — leaving a
-stale vendored patch around after it's no longer needed is exactly the kind
-of drift `cargo audit`/`cargo tree` won't catch for you, since a `[patch]` is
-invisible to the advisory database.
+- **`vendor/ethnum/`**: `soroban-sdk 22.0.11` transitive dependencies pin `ethnum 1.5.0`, which fails to compile on Rust 1.80+ (a `transmute` size mismatch with `TryFromIntError`). `vendor/ethnum/` is a vendored copy with the upstream `1.5.3` fix backported.
+- **`vendor/soroban-env-host/`**: `soroban-env-host 22.1.3` with the `testutils` feature fails to compile against `ed25519-dalek` / `rand_core` `CryptoRng` trait bounds resolved in `Cargo.lock`. `vendor/soroban-env-host/` patches the testutils signing helper so `cargo test --features testutils` and `fuzz/` compile cleanly against `soroban-sdk 22.0.11`.
+
+Neither directory is a place for unrelated changes. Once the project upgrades to a `soroban-sdk` release that resolves these upstream constraints, remove the corresponding `[patch.crates-io]` entry and `vendor/` directory in the same PR.
 
 ## `Cargo.lock` policy
 

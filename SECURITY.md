@@ -128,7 +128,7 @@ Severities use the [definitions above](#severity-definitions). Findings from bef
 
 1. **SEC-25 (single admin key).** Mitigations in place: two-step admin transfer (`initiate_admin_transfer` / `accept_admin_transfer`), a configurable timelock on token migration (`propose_token_update` → `accept_token_update`, `get_token_update_delay_secs`), a 7-day timelock on `emergency_withdraw`, and a separate emergency-pause signer set (`set_emergency_pause_signers` / `emergency_pause`). The admin is still one address, so deployers should set it to a multisig account or a contract.
 2. **SEC-33 (reproducible builds).** `make build-docker` builds inside a pinned container, but the image is `stellar/rs-soroban-sdk:20.1.0` while `Cargo.toml` pins `soroban-sdk = "=22.0.11"`. The image tag should be brought in line with the SDK before the build is relied on for verification. The finding stays open until then.
-3. **SEC-34 (accepted advisory).** The CI `audit` job ignores `RUSTSEC-2025-0001`. Its justification says the vulnerable version is pinned by soroban-sdk 20.1.0. The contract now uses soroban-sdk 22.0.11, so the ignore should be re-checked and removed if it no longer applies.
+3. **SEC-34 (accepted advisories).** The CI `audit` job and `Makefile` `audit` target ignore five transitive advisories (`RUSTSEC-2026-0009`, `RUSTSEC-2025-0001`, `RUSTSEC-2025-0056`, `RUSTSEC-2024-0436`, `RUSTSEC-2026-0097`) under `soroban-sdk 22.0.11`. Each advisory is individually justified in `docs/DEPENDENCY_AUDIT.md` and affects only build-time tooling, unmaintained proc-macro/compression helpers, or unreachable feature combinations outside the compiled WASM contract.
 
 ### Adding a finding
 

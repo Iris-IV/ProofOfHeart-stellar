@@ -1,8 +1,6 @@
 default: build
 
-.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help
-.PHONY: all build build-docker test wasm wasm-opt check-wasm clippy fmt fmt-check lint audit ci clean
-.PHONY: all build build-docker test wasm wasm-opt check-wasm clippy clippy-fix fmt fmt-check lint ci clean
+.PHONY: all build build-docker test wasm wasm-opt check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help
 
 CLIPPY_FLAGS ?= -D warnings
 
