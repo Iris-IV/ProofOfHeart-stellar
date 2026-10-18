@@ -34,9 +34,9 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{assert_admin, campaign_token_client, get_campaign_or_error};
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_emergency_withdrawal,
-    get_total_raised_global, remove_emergency_withdrawal, set_campaign, set_emergency_withdrawal,
-    set_total_raised_global,
+    bump_instance_ttl, decrement_active_campaign_count, get_campaign_payout_marker,
+    get_emergency_withdrawal, get_total_raised_global, remove_emergency_withdrawal, set_campaign,
+    set_campaign_payout_marker, set_emergency_withdrawal, set_total_raised_global,
 };
 use crate::types::EmergencyWithdrawal;
 
@@ -64,12 +64,15 @@ pub(crate) fn emergency_withdraw(
     recipient: Address,
 ) -> Result<(), Error> {
     assert_admin(env, &admin)?;
+    if recipient == env.current_contract_address() {
+        return Err(Error::ValidationFailed);
+    }
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
     if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if campaign.funds_withdrawn() {
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
         return Err(Error::FundsAlreadyWithdrawn);
     }
     // Only funds that reached the goal are truly locked: a failed campaign is
@@ -168,6 +171,10 @@ pub(crate) fn execute_emergency_withdrawal(
     if env.ledger().timestamp() < pending.execute_after {
         return Err(Error::ValidationFailed);
     }
+    if pending.recipient == env.current_contract_address() {
+        remove_emergency_withdrawal(env, campaign_id);
+        return Err(Error::ValidationFailed);
+    }
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
@@ -178,7 +185,7 @@ pub(crate) fn execute_emergency_withdrawal(
         remove_emergency_withdrawal(env, campaign_id);
         return Err(Error::CampaignNotActive);
     }
-    if campaign.funds_withdrawn() {
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
         remove_emergency_withdrawal(env, campaign_id);
         return Err(Error::FundsAlreadyWithdrawn);
     }
@@ -198,6 +205,7 @@ pub(crate) fn execute_emergency_withdrawal(
     campaign.set_active(false);
     campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
+    set_campaign_payout_marker(env, campaign_id, 1);
     decrement_active_campaign_count(env);
     remove_emergency_withdrawal(env, campaign_id);
 
@@ -234,7 +242,7 @@ pub(crate) fn rescue_stranded_tokens(
     amount: i128,
 ) -> Result<(), Error> {
     assert_admin(env, &admin)?;
-    if amount <= 0 {
+    if amount <= 0 || to == env.current_contract_address() {
         return Err(Error::ValidationFailed);
     }
     if token == crate::storage::get_token(env) {
@@ -252,4 +260,98 @@ pub(crate) fn rescue_stranded_tokens(
     env.events()
         .publish(("stranded_tokens_rescued", token, to), amount);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::errors::Error;
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger, Vec};
+
+    #[test]
+    fn test_emergency_pause_signer_cannot_bypass_admin_on_emergency_or_unpause_flows() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let pause_signer = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Emergency Auth Audit"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &1_000);
+        client.contribute(&id, &c1, &1_000);
+
+        let mut signers = Vec::new(&env);
+        signers.push_back(pause_signer.clone());
+        client.set_emergency_pause_signers(&admin, &signers);
+
+        // Emergency pause signer is authorized to pause the contract.
+        client.emergency_pause(&pause_signer);
+        assert!(client.is_paused());
+
+        // Emergency pause signer must NOT be able to propose, cancel, or execute emergency withdrawals,
+        // nor rescue stranded tokens.
+        assert_eq!(
+            client.try_emergency_withdraw(&pause_signer, &id, &recipient),
+            Err(Ok(Error::NotAuthorized))
+        );
+        client.emergency_withdraw(&admin, &id, &recipient);
+        assert_eq!(
+            client.try_cancel_emergency_withdrawal(&pause_signer, &id),
+            Err(Ok(Error::NotAuthorized))
+        );
+
+        let now = env.ledger().timestamp();
+        env.ledger()
+            .set_timestamp(now + crate::EMERGENCY_WITHDRAWAL_TIMELOCK_SECS + 1);
+        assert_eq!(
+            client.try_execute_emergency_withdrawal(&pause_signer, &id),
+            Err(Ok(Error::NotAuthorized))
+        );
+
+        let foreign_token = Address::generate(&env);
+        assert_eq!(
+            client.try_rescue_stranded_tokens(&pause_signer, &foreign_token, &recipient, &100),
+            Err(Ok(Error::NotAuthorized))
+        );
+    }
+
+    #[test]
+    fn test_emergency_withdraw_and_rescue_reject_contract_self_recipient() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Self Recipient Guard"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &1_000);
+        client.contribute(&id, &c1, &1_000);
+
+        assert_eq!(
+            client.try_emergency_withdraw(&admin, &id, &client.address),
+            Err(Ok(Error::ValidationFailed))
+        );
+
+        let foreign_token = Address::generate(&env);
+        assert_eq!(
+            client.try_rescue_stranded_tokens(&admin, &foreign_token, &client.address, &100),
+            Err(Ok(Error::ValidationFailed))
+        );
+    }
 }
