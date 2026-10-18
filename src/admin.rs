@@ -642,10 +642,87 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
     Ok(())
 }
 
+/// Maximum number of signers allowed in an administrative multi-signature council (#1017).
+pub(crate) const MAX_MULTISIG_ADMIN_SIGNERS: u32 = 20;
+
+/// Validates an M-of-N administrative multi-signature threshold configuration (#1017).
+///
+/// Rejects empty signer sets, signer sets exceeding `MAX_MULTISIG_ADMIN_SIGNERS`,
+/// zero thresholds, or thresholds exceeding the total number of signers.
+pub(crate) const fn validate_multisig_threshold_config(
+    signer_count: u32,
+    threshold: u32,
+) -> Result<(), Error> {
+    if signer_count == 0
+        || signer_count > MAX_MULTISIG_ADMIN_SIGNERS
+        || threshold == 0
+        || threshold > signer_count
+    {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+const _: () = {
+    assert!(validate_multisig_threshold_config(3, 2).is_ok());
+    assert!(validate_multisig_threshold_config(0, 1).is_err());
+    assert!(validate_multisig_threshold_config(3, 0).is_err());
+    assert!(validate_multisig_threshold_config(3, 4).is_err());
+    assert!(validate_multisig_threshold_config(MAX_MULTISIG_ADMIN_SIGNERS + 1, 2).is_err());
+};
+
+/// Verifies that an administrative action has been authorized by at least
+/// `threshold` distinct members of `authorized_signers` (#1017).
+///
+/// Duplicate addresses in `approvers` are counted only once so a single signer
+/// cannot satisfy an M-of-N threshold by repeating their own address, and any
+/// approver not present in `authorized_signers` is rejected with `Error::NotAuthorized`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn verify_multisig_admin_threshold(
+    env: &Env,
+    authorized_signers: &Vec<Address>,
+    approvers: &Vec<Address>,
+    threshold: u32,
+) -> Result<u32, Error> {
+    validate_multisig_threshold_config(authorized_signers.len(), threshold)?;
+
+    let mut unique_signers = Vec::new(env);
+    for signer in authorized_signers.iter() {
+        if unique_signers.contains(&signer) {
+            return Err(Error::ValidationFailed);
+        }
+        unique_signers.push_back(signer);
+    }
+
+    let mut verified_approvers = Vec::new(env);
+    for approver in approvers.iter() {
+        if !unique_signers.contains(&approver) {
+            return Err(Error::NotAuthorized);
+        }
+        if !verified_approvers.contains(&approver) {
+            verified_approvers.push_back(approver);
+        }
+    }
+
+    if verified_approvers.len() < threshold {
+        return Err(Error::NotAuthorized);
+    }
+
+    for approver in verified_approvers.iter() {
+        approver.require_auth();
+    }
+
+    Ok(verified_approvers.len())
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{
+        validate_multisig_threshold_config, verify_multisig_admin_threshold,
+        MAX_MULTISIG_ADMIN_SIGNERS,
+    };
     use crate::tests::helpers::*;
-    use soroban_sdk::Vec;
+    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
     #[test]
     fn test_emergency_pause_any_signer_can_pause_but_only_admin_can_unpause() {
@@ -694,5 +771,61 @@ mod tests {
         // authorized signer succeeds
         client.emergency_pause(&signer);
         assert!(client.is_paused());
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_multisig_admin_threshold_governance_verification() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, crate::ProofOfHeart);
+
+        let s1 = Address::generate(&env);
+        let s2 = Address::generate(&env);
+        let s3 = Address::generate(&env);
+        let outsider = Address::generate(&env);
+
+        let council = Vec::from_array(&env, [s1.clone(), s2.clone(), s3.clone()]);
+
+        // Valid 2-of-3 approval succeeds
+        let two_approvers = Vec::from_array(&env, [s1.clone(), s3.clone()]);
+        env.as_contract(&contract_id, || {
+            assert_eq!(
+                verify_multisig_admin_threshold(&env, &council, &two_approvers, 2),
+                Ok(2)
+            );
+        });
+
+        // Duplicate approver is deduplicated and fails 2-of-3 threshold
+        let duplicate_approver = Vec::from_array(&env, [s1.clone(), s1.clone()]);
+        env.as_contract(&contract_id, || {
+            assert_eq!(
+                verify_multisig_admin_threshold(&env, &council, &duplicate_approver, 2),
+                Err(crate::Error::NotAuthorized)
+            );
+        });
+
+        // Outsider approver is rejected
+        let with_outsider = Vec::from_array(&env, [s1.clone(), outsider]);
+        env.as_contract(&contract_id, || {
+            assert_eq!(
+                verify_multisig_admin_threshold(&env, &council, &with_outsider, 2),
+                Err(crate::Error::NotAuthorized)
+            );
+        });
+
+        // Duplicate entries in council config are rejected
+        let malformed_council = Vec::from_array(&env, [s1.clone(), s1, s2]);
+        env.as_contract(&contract_id, || {
+            assert_eq!(
+                verify_multisig_admin_threshold(&env, &malformed_council, &two_approvers, 2),
+                Err(crate::Error::ValidationFailed)
+            );
+        });
+
+        assert_eq!(
+            validate_multisig_threshold_config(MAX_MULTISIG_ADMIN_SIGNERS + 1, 2),
+            Err(crate::Error::ValidationFailed)
+        );
     }
 }
