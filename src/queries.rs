@@ -126,6 +126,9 @@ pub(crate) fn list_active_campaigns(
     (campaigns, next_cursor)
 }
 
+/// Maximum number of storage bucket reads permitted in a single paginated query (#995).
+pub const MAX_BUCKET_READS_PER_QUERY: u32 = 8;
+
 /// Shared bucket-pagination helper used by `get_campaigns_by_category`,
 /// `get_campaigns_by_tag`, and `get_creator_campaigns`. The query functions
 /// differ only in how they derive the total count and how they load a
@@ -164,21 +167,23 @@ where
     let mut campaigns = soroban_sdk::Vec::new(env);
     let capped_limit = limit.min(crate::LIST_MAX_LIMIT);
 
-    if start >= total || capped_limit == 0 {
+    if bucket_size == 0 || start >= total || capped_limit == 0 {
         return (campaigns, start);
     }
 
     let end = start.saturating_add(capped_limit).min(total);
     let mut position = start;
     let mut next_cursor = start;
+    let mut buckets_read = 0u32;
 
-    while position < end {
+    while position < end && buckets_read < MAX_BUCKET_READS_PER_QUERY {
         let bucket_idx = position / bucket_size;
         let bucket = get_bucket(env, bucket_idx);
-        let bucket_start = bucket_idx * bucket_size;
-        let mut idx_in_bucket = position - bucket_start;
+        buckets_read += 1;
+        let bucket_start = bucket_idx.saturating_mul(bucket_size);
+        let mut idx_in_bucket = position.saturating_sub(bucket_start);
 
-        let bucket_len = bucket.len();
+        let bucket_len = bucket.len().min(bucket_size);
         while idx_in_bucket < bucket_len && position < end {
             // `if let Some` rather than `unwrap()` is intentional: a sparse
             // bucket entry is skipped (not a panic), mirroring the
@@ -186,11 +191,11 @@ where
             if let Some(campaign_id) = bucket.get(idx_in_bucket) {
                 if let Some(campaign) = get_campaign(env, campaign_id) {
                     campaigns.push_back(campaign);
-                    next_cursor = position + 1;
+                    next_cursor = position.saturating_add(1);
                 }
             }
             idx_in_bucket += 1;
-            position += 1;
+            position = position.saturating_add(1);
         }
 
         if idx_in_bucket >= bucket_len {
@@ -203,7 +208,7 @@ where
             // backwards into the same bucket on the next iteration forever.
             // Clamp to `position + 1` so `position` is always strictly
             // monotonically increasing regardless of what the bucket reports.
-            let next_bucket_start = bucket_start + bucket_size;
+            let next_bucket_start = bucket_start.saturating_add(bucket_size);
             position = next_bucket_start.max(position);
         }
     }
@@ -331,11 +336,12 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
             if let Some(campaign) = get_campaign(env, campaign_id) {
                 if !campaign.is_cancelled() {
                     if campaign.is_active() {
-                        active_campaigns += 1;
+                        active_campaigns = active_campaigns.saturating_add(1);
                     }
-                    total_raised += campaign.amount_raised;
+                    total_raised = total_raised.saturating_add(campaign.amount_raised);
                 }
-                total_contributors += get_contributor_count(env, campaign_id);
+                total_contributors =
+                    total_contributors.saturating_add(get_contributor_count(env, campaign_id));
             }
         }
     }
@@ -515,7 +521,7 @@ pub(crate) fn get_platform_report(env: &Env) -> PlatformReport {
 
     let mut total_contributors: u32 = 0;
     for id in 1..=total_campaigns.min(MAX_STATS_SCAN) {
-        total_contributors += get_contributor_count(env, id);
+        total_contributors = total_contributors.saturating_add(get_contributor_count(env, id));
     }
 
     PlatformReport {
@@ -605,8 +611,7 @@ pub(crate) fn get_contributor_portfolio(
                 };
 
                 let refundable = campaign.is_cancelled()
-                    || (now > campaign.deadline
-                        && campaign.amount_raised < campaign.funding_goal);
+                    || (now > campaign.deadline && campaign.amount_raised < campaign.funding_goal);
 
                 portfolio.push_back((
                     current_id,
@@ -616,10 +621,13 @@ pub(crate) fn get_contributor_portfolio(
                 ));
                 collected += 1;
                 if collected >= capped_limit {
-                    next_cursor = current_id + 1;
+                    next_cursor = current_id.saturating_add(1);
                     break;
                 }
             }
+        }
+        if current_id == u32::MAX {
+            break;
         }
         current_id += 1;
     }
@@ -629,7 +637,7 @@ pub(crate) fn get_contributor_portfolio(
 
 #[cfg(test)]
 mod bucket_pagination_tests {
-    use super::get_campaigns_from_buckets;
+    use super::{get_campaigns_from_buckets, MAX_BUCKET_READS_PER_QUERY};
     use core::cell::Cell;
     use soroban_sdk::Env;
 
@@ -701,5 +709,28 @@ mod bucket_pagination_tests {
 
         assert_eq!(result.0.len(), 0);
         assert!(calls.get() > 0);
+        assert!(calls.get() <= MAX_BUCKET_READS_PER_QUERY);
+    }
+
+    #[test]
+    fn zero_bucket_size_and_sparse_bucket_reads_are_bounded() {
+        let env = Env::default();
+        let calls = Cell::new(0u32);
+
+        // Zero bucket_size must return immediately without dividing by zero
+        let zero_res = get_campaigns_from_buckets(&env, 0, 50, 100, 0, |e, _idx| {
+            calls.set(calls.get() + 1);
+            soroban_sdk::Vec::new(e)
+        });
+        assert_eq!(zero_res.0.len(), 0);
+        assert_eq!(zero_res.1, 0);
+        assert_eq!(calls.get(), 0);
+
+        // Large limit with small bucket_size must cap bucket reads at MAX_BUCKET_READS_PER_QUERY
+        let _ = get_campaigns_from_buckets(&env, 0, 50, 500, 1, |e, _idx| {
+            calls.set(calls.get() + 1);
+            soroban_sdk::Vec::new(e)
+        });
+        assert_eq!(calls.get(), MAX_BUCKET_READS_PER_QUERY);
     }
 }
