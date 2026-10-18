@@ -497,3 +497,109 @@ pub(crate) fn remove_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Fixed-point scaling factor (10^7 = 1.0x) for SEP-40 / Soroban exchange rate quotes (#1004).
+pub const ORACLE_RATE_SCALE: i128 = 10_000_000;
+
+/// Maximum age in seconds (1 hour) for an exchange rate oracle quote (#1004).
+pub const MAX_ORACLE_STALENESS_SECS: u64 = 3_600;
+
+/// Converts a custom SEP-41 token contribution amount into the campaign's
+/// accounting denomination using a scaled oracle exchange rate and slippage floor (#1004).
+///
+/// Enforces:
+/// 1. Positive `token_amount` and `exchange_rate_scaled`, and non-negative `min_campaign_amount`.
+/// 2. Oracle quote freshness (`quote_timestamp <= current_timestamp` and age `<= MAX_ORACLE_STALENESS_SECS`).
+/// 3. Checked 128-bit multiplication and floor division by [`ORACLE_RATE_SCALE`].
+/// 4. Slippage protection (`converted >= min_campaign_amount` and `converted > 0`).
+pub const fn convert_token_amount_with_oracle_rate(
+    token_amount: i128,
+    exchange_rate_scaled: i128,
+    quote_timestamp: u64,
+    current_timestamp: u64,
+    min_campaign_amount: i128,
+) -> Result<i128, Error> {
+    if token_amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    if exchange_rate_scaled <= 0 || min_campaign_amount < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if quote_timestamp > current_timestamp
+        || current_timestamp.saturating_sub(quote_timestamp) > MAX_ORACLE_STALENESS_SECS
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let scaled = match token_amount.checked_mul(exchange_rate_scaled) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let converted = scaled / ORACLE_RATE_SCALE;
+    if converted <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    if converted < min_campaign_amount {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(converted)
+}
+
+const _: () = {
+    assert!(
+        convert_token_amount_with_oracle_rate(1_000, ORACLE_RATE_SCALE, 1_000, 1_100, 1_000)
+            .is_ok()
+    );
+};
+
+#[cfg(test)]
+mod oracle_conversion_tests {
+    use super::{
+        convert_token_amount_with_oracle_rate, MAX_ORACLE_STALENESS_SECS, ORACLE_RATE_SCALE,
+    };
+    use crate::errors::Error;
+
+    #[test]
+    fn test_convert_token_amount_with_oracle_rate_and_slippage_guards() {
+        // 1:1 exchange rate
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(500, ORACLE_RATE_SCALE, 1_000, 1_200, 500),
+            Ok(500)
+        );
+
+        // 2.5x exchange rate (25_000_000)
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(400, 25_000_000, 1_000, 1_200, 990),
+            Ok(1_000)
+        );
+
+        // Slippage floor violation rejected
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(400, 25_000_000, 1_000, 1_200, 1_001),
+            Err(Error::ValidationFailed)
+        );
+
+        // Stale oracle quote rejected
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(
+                500,
+                ORACLE_RATE_SCALE,
+                1_000,
+                1_000 + MAX_ORACLE_STALENESS_SECS + 1,
+                500
+            ),
+            Err(Error::ValidationFailed)
+        );
+
+        // Future oracle quote timestamp rejected
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(500, ORACLE_RATE_SCALE, 1_201, 1_200, 500),
+            Err(Error::ValidationFailed)
+        );
+
+        // Overflow rejected
+        assert_eq!(
+            convert_token_amount_with_oracle_rate(i128::MAX, 2, 1_000, 1_100, 1),
+            Err(Error::Overflow)
+        );
+    }
+}
