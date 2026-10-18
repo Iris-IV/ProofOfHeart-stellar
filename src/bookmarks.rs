@@ -34,6 +34,23 @@ use crate::storage::{get_campaign, get_saved_campaigns, set_saved_campaigns};
 /// persistent storage entry and keeps read/write costs predictable (#782).
 pub const MAX_BOOKMARKS_PER_WALLET: u32 = 10;
 
+/// Validates that adding `additional` bookmarks to a list of `current_len`
+/// stays within [`MAX_BOOKMARKS_PER_WALLET`] (#1021).
+pub(crate) const fn validate_bookmark_capacity(
+    current_len: u32,
+    additional: u32,
+) -> Result<(), Error> {
+    match current_len.checked_add(additional) {
+        Some(total) if total <= MAX_BOOKMARKS_PER_WALLET => Ok(()),
+        _ => Err(Error::BookmarkLimitReached),
+    }
+}
+
+const _: () = {
+    assert!(validate_bookmark_capacity(0, MAX_BOOKMARKS_PER_WALLET).is_ok());
+    assert!(validate_bookmark_capacity(MAX_BOOKMARKS_PER_WALLET, 1).is_err());
+};
+
 /// Adds `campaign_id` to `user`'s saved-campaigns list.
 ///
 /// Requires the wallet's authorization. Fails if the campaign doesn't exist
@@ -48,9 +65,7 @@ pub fn save_campaign(env: &Env, user: Address, campaign_id: u32) -> Result<(), E
     if saved.iter().any(|id| id == campaign_id) {
         return Err(Error::CampaignAlreadyBookmarked);
     }
-    if saved.len() >= MAX_BOOKMARKS_PER_WALLET {
-        return Err(Error::BookmarkLimitReached);
-    }
+    validate_bookmark_capacity(saved.len(), 1)?;
 
     saved.push_back(campaign_id);
     set_saved_campaigns(env, &user, &saved);
@@ -102,6 +117,7 @@ pub fn batch_save_campaigns(env: &Env, user: Address, campaign_ids: Vec<u32>) ->
     user.require_auth();
 
     let mut saved = get_saved_campaigns(env, &user);
+    validate_bookmark_capacity(saved.len(), campaign_ids.len())?;
     for campaign_id in campaign_ids.iter() {
         // Ensure the campaign actually exists before letting it be bookmarked.
         get_campaign_or_error(env, campaign_id)?;
@@ -136,6 +152,29 @@ pub fn get_saved(env: &Env, user: Address) -> Vec<u32> {
         }
     }
     live
+}
+
+/// Returns the subset of `user`'s live bookmarked campaign IDs matching
+/// `preferred_category` in saved order (#1021).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn filter_saved_by_category(
+    env: &Env,
+    user: Address,
+    preferred_category: crate::types::Category,
+) -> Vec<u32> {
+    let saved = get_saved_campaigns(env, &user);
+    let mut matched = Vec::new(env);
+    for campaign_id in saved.iter() {
+        match get_campaign(env, campaign_id) {
+            Some(campaign)
+                if !campaign.is_cancelled() && campaign.category == preferred_category =>
+            {
+                matched.push_back(campaign_id);
+            }
+            _ => {}
+        }
+    }
+    matched
 }
 
 /// Returns the number of `user`'s live (non-cancelled) bookmarks. This is a
@@ -353,5 +392,52 @@ mod tests {
         let saved = client.get_saved_campaigns(&user);
         assert_eq!(saved.len(), 1);
         assert_eq!(saved.get(0).unwrap(), id);
+    }
+
+    #[test]
+    fn test_batch_save_enforces_limit_and_filters_by_category_preference() {
+        let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+
+        let id_learner = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Learner Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0i128,
+        ));
+        let id_educator = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Educator Campaign"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+
+        client.batch_save_campaigns(&user, &soroban_sdk::vec![&env, id_learner, id_educator]);
+
+        env.as_contract(&client.address, || {
+            let learner_only =
+                super::filter_saved_by_category(&env, user.clone(), Category::Learner);
+            assert_eq!(learner_only.len(), 1);
+            assert_eq!(learner_only.get(0).unwrap(), id_learner);
+
+            let educator_only =
+                super::filter_saved_by_category(&env, user.clone(), Category::Educator);
+            assert_eq!(educator_only.len(), 1);
+            assert_eq!(educator_only.get(0).unwrap(), id_educator);
+        });
+
+        assert_eq!(
+            super::validate_bookmark_capacity(MAX_BOOKMARKS_PER_WALLET - 1, 2),
+            Err(crate::errors::Error::BookmarkLimitReached)
+        );
     }
 }
