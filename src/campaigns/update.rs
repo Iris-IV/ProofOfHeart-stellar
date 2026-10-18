@@ -190,3 +190,92 @@ pub(crate) fn extend_campaign_deadline(
     );
     Ok(())
 }
+
+/// Bitmask flags identifying which campaign fields changed in an update revision (#1025).
+pub(crate) const CHANGE_KIND_TITLE: u32 = 1 << 0;
+pub(crate) const CHANGE_KIND_DESCRIPTION: u32 = 1 << 1;
+pub(crate) const CHANGE_KIND_DEADLINE: u32 = 1 << 2;
+
+/// Computes the bitmask of changed campaign fields for on-chain update tracking (#1025).
+pub(crate) const fn classify_metadata_change_mask(
+    title_changed: bool,
+    description_changed: bool,
+    deadline_changed: bool,
+) -> u32 {
+    let mut mask = 0u32;
+    if title_changed {
+        mask |= CHANGE_KIND_TITLE;
+    }
+    if description_changed {
+        mask |= CHANGE_KIND_DESCRIPTION;
+    }
+    if deadline_changed {
+        mask |= CHANGE_KIND_DEADLINE;
+    }
+    mask
+}
+
+/// Increments a campaign's monotonic change-log revision counter with overflow protection (#1025).
+pub(crate) const fn next_change_revision(current_revision: u32) -> Result<u32, Error> {
+    match current_revision.checked_add(1) {
+        Some(next) => Ok(next),
+        None => Err(Error::Overflow),
+    }
+}
+
+const _: () = {
+    assert!(
+        classify_metadata_change_mask(true, false, true)
+            == (CHANGE_KIND_TITLE | CHANGE_KIND_DEADLINE)
+    );
+    assert!(next_change_revision(0).is_ok());
+};
+
+/// Computes a deterministic SHA-256 audit digest binding `campaign_id`,
+/// `revision`, `change_mask`, `title` hash, `description` hash, and `deadline`
+/// for verifiable campaign update history logs (#1025).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn build_campaign_change_digest(
+    env: &Env,
+    campaign_id: u32,
+    revision: u32,
+    change_mask: u32,
+    title: &String,
+    description: &String,
+    deadline: u64,
+) -> soroban_sdk::BytesN<32> {
+    let mut payload = soroban_sdk::Bytes::from_slice(env, b"poh:campaign-change:v1:");
+    payload.extend_from_array(&campaign_id.to_be_bytes());
+    payload.extend_from_array(&revision.to_be_bytes());
+    payload.extend_from_array(&change_mask.to_be_bytes());
+    payload.extend_from_array(&hash_text(env, title).to_array());
+    payload.extend_from_array(&hash_text(env, description).to_array());
+    payload.extend_from_array(&deadline.to_be_bytes());
+    env.crypto().sha256(&payload).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn campaign_update_change_tracking_mask_and_digest_are_deterministic() {
+        let env = Env::default();
+        let mask = classify_metadata_change_mask(true, true, false);
+        assert_eq!(mask, CHANGE_KIND_TITLE | CHANGE_KIND_DESCRIPTION);
+        assert_eq!(next_change_revision(4), Ok(5));
+        assert_eq!(next_change_revision(u32::MAX), Err(Error::Overflow));
+
+        let title_v1 = String::from_str(&env, "Initial Title");
+        let title_v2 = String::from_str(&env, "Updated Title");
+        let desc = String::from_str(&env, "Campaign Description");
+
+        let d1 = build_campaign_change_digest(&env, 1, 1, mask, &title_v1, &desc, 1_800_000_000);
+        let d1_repeat =
+            build_campaign_change_digest(&env, 1, 1, mask, &title_v1, &desc, 1_800_000_000);
+        let d2 = build_campaign_change_digest(&env, 1, 2, mask, &title_v2, &desc, 1_800_000_000);
+
+        assert_eq!(d1, d1_repeat);
+        assert_ne!(d1, d2);
+    }
+}
