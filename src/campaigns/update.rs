@@ -190,3 +190,104 @@ pub(crate) fn extend_campaign_deadline(
     );
     Ok(())
 }
+
+/// Validates whether a campaign's funding goal can be adjusted to `new_funding_goal`
+/// prior to receiving its first contribution (#1056).
+#[allow(dead_code)]
+pub fn validate_pre_contribution_target_adjustment(
+    campaign: &crate::types::Campaign,
+    new_funding_goal: i128,
+    min_goal: i128,
+    max_goal: i128,
+) -> Result<(), Error> {
+    require_active_campaign(campaign)?;
+    require_unverified_campaign(campaign)?;
+
+    if campaign.amount_raised > 0 || campaign.effective_amount_raised > 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if new_funding_goal <= 0 {
+        return Err(Error::FundingGoalMustBePositive);
+    }
+    if new_funding_goal < min_goal {
+        return Err(Error::FundingGoalTooLow);
+    }
+    if new_funding_goal > max_goal {
+        return Err(Error::FundingGoalTooHigh);
+    }
+    Ok(())
+}
+
+/// Applies a validated funding-goal adjustment to an active, unverified campaign
+/// that has not yet received any contributions, returning `(old_goal, new_goal)` (#1056).
+#[allow(dead_code)]
+pub fn apply_flexible_target_adjustment(
+    campaign: &mut crate::types::Campaign,
+    new_funding_goal: i128,
+    min_goal: i128,
+    max_goal: i128,
+) -> Result<(i128, i128), Error> {
+    validate_pre_contribution_target_adjustment(campaign, new_funding_goal, min_goal, max_goal)?;
+    let old_goal = campaign.funding_goal;
+    campaign.funding_goal = new_funding_goal;
+    Ok((old_goal, new_funding_goal))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Campaign, Category, MaybePendingCreator, CAMPAIGN_ACTIVE};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env};
+
+    fn sample_campaign(env: &Env) -> Campaign {
+        let creator = Address::generate(env);
+        Campaign {
+            id: 1,
+            creator: creator.clone(),
+            first_creator: creator,
+            pending_creator: MaybePendingCreator::None,
+            pending_creator_expiry: 0,
+            title: String::from_str(env, "Clean Water Well"),
+            description: String::from_str(env, "Solar-powered filtration unit for primary school."),
+            funding_goal: 5_000,
+            deadline: 100_000,
+            amount_raised: 0,
+            status: CAMPAIGN_ACTIVE,
+            category: Category::Learner,
+            has_revenue_sharing: false,
+            revenue_share_percentage: 0,
+            max_contribution_per_user: 0,
+            fee_override: None,
+            deadline_extended: false,
+            effective_amount_raised: 0,
+        }
+    }
+
+    #[test]
+    fn flexible_target_adjustment_allows_pre_contribution_updates_and_blocks_post_contribution() {
+        let env = Env::default();
+        let mut campaign = sample_campaign(&env);
+
+        let (old_goal, new_goal) =
+            apply_flexible_target_adjustment(&mut campaign, 8_000, 1_000, 100_000).unwrap();
+        assert_eq!(old_goal, 5_000);
+        assert_eq!(new_goal, 8_000);
+        assert_eq!(campaign.funding_goal, 8_000);
+
+        assert_eq!(
+            apply_flexible_target_adjustment(&mut campaign, 500, 1_000, 100_000),
+            Err(Error::FundingGoalTooLow)
+        );
+        assert_eq!(
+            apply_flexible_target_adjustment(&mut campaign, 200_000, 1_000, 100_000),
+            Err(Error::FundingGoalTooHigh)
+        );
+
+        campaign.amount_raised = 100;
+        assert_eq!(
+            apply_flexible_target_adjustment(&mut campaign, 10_000, 1_000, 100_000),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
