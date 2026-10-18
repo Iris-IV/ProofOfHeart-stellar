@@ -325,3 +325,234 @@ impl Campaign {
         }
     }
 }
+
+/// Maximum decimal precision permitted for an approved Stellar/Soroban asset (#991).
+pub const MAX_APPROVED_ASSET_DECIMALS: u32 = 18;
+
+/// Maximum number of entries allowed in an approved asset registry scan (#991).
+pub const MAX_APPROVED_ASSETS: u32 = 32;
+
+/// Metadata for a vetted token in the approved asset registry (#991).
+///
+/// Guards multi-token contributions against counterfeit Stellar anchor scam tokens
+/// that mimic ticker symbols or decimal scales without anchor verification.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovedAssetEntry {
+    /// Soroban SAC / token contract address.
+    pub token: Address,
+    /// Verified anchor/issuer address backing the asset.
+    pub issuer: Address,
+    /// Token decimal places (must not exceed `MAX_APPROVED_ASSET_DECIMALS`).
+    pub decimals: u32,
+    /// Whether the anchor issuer has passed platform verification.
+    pub verified_anchor: bool,
+    /// Whether the asset is currently enabled for contributions.
+    pub active: bool,
+}
+
+/// Validates an [`ApprovedAssetEntry`] before registration or use (#991).
+///
+/// Rejects self-referential contract addresses, token-equals-issuer spoofing,
+/// unverified anchors, inactive entries, and excessive decimal precision.
+pub fn validate_approved_asset_entry(
+    entry: &ApprovedAssetEntry,
+    contract_address: &Address,
+) -> Result<(), crate::errors::Error> {
+    if entry.token == *contract_address || entry.issuer == *contract_address {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if entry.token == entry.issuer {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if entry.decimals > MAX_APPROVED_ASSET_DECIMALS {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if !entry.verified_anchor || !entry.active {
+        return Err(crate::errors::Error::InvalidTokenContract);
+    }
+    Ok(())
+}
+
+/// Validates a candidate contribution token against the platform's primary token
+/// and the approved asset registry (#991).
+///
+/// Prevents Stellar anchor scam tokens from being used in multi-token flows by
+/// enforcing:
+/// 1. The candidate token cannot be the ProofOfHeart contract itself.
+/// 2. If the candidate matches `primary_token`, it is accepted immediately.
+/// 3. Otherwise, the registry size must not exceed `MAX_APPROVED_ASSETS`, must not
+///    contain duplicate entries for the candidate, and the matching entry must pass
+///    [`validate_approved_asset_entry`].
+pub fn validate_token_against_registry(
+    candidate_token: &Address,
+    contract_address: &Address,
+    primary_token: &Address,
+    registry: &soroban_sdk::Vec<ApprovedAssetEntry>,
+) -> Result<(), crate::errors::Error> {
+    if *candidate_token == *contract_address || *primary_token == *contract_address {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if registry.len() > MAX_APPROVED_ASSETS {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if *candidate_token == *primary_token {
+        return Ok(());
+    }
+
+    let mut matched: Option<ApprovedAssetEntry> = None;
+    for entry in registry.iter() {
+        if entry.token == *candidate_token {
+            if matched.is_some() {
+                return Err(crate::errors::Error::InvariantBroken);
+            }
+            matched = Some(entry);
+        }
+    }
+
+    match matched {
+        Some(ref entry) => validate_approved_asset_entry(entry, contract_address),
+        None => Err(crate::errors::Error::InvalidTokenContract),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::Error;
+    use soroban_sdk::{testutils::Address as _, Env, Vec};
+
+    #[test]
+    fn test_validate_token_against_registry_accepts_primary_and_verified_anchor() {
+        let env = Env::default();
+        let contract_addr = Address::generate(&env);
+        let primary_token = Address::generate(&env);
+        let usdc_token = Address::generate(&env);
+        let usdc_issuer = Address::generate(&env);
+
+        let mut registry = Vec::new(&env);
+        registry.push_back(ApprovedAssetEntry {
+            token: usdc_token.clone(),
+            issuer: usdc_issuer,
+            decimals: 7,
+            verified_anchor: true,
+            active: true,
+        });
+
+        assert_eq!(
+            validate_token_against_registry(
+                &primary_token,
+                &contract_addr,
+                &primary_token,
+                &registry
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_token_against_registry(&usdc_token, &contract_addr, &primary_token, &registry),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_validate_token_against_registry_rejects_scam_and_unverified_tokens() {
+        let env = Env::default();
+        let contract_addr = Address::generate(&env);
+        let primary_token = Address::generate(&env);
+        let scam_token = Address::generate(&env);
+        let unverified_token = Address::generate(&env);
+        let inactive_token = Address::generate(&env);
+        let bad_decimals_token = Address::generate(&env);
+        let anchor_issuer = Address::generate(&env);
+
+        let mut registry = Vec::new(&env);
+        registry.push_back(ApprovedAssetEntry {
+            token: unverified_token.clone(),
+            issuer: anchor_issuer.clone(),
+            decimals: 7,
+            verified_anchor: false,
+            active: true,
+        });
+        registry.push_back(ApprovedAssetEntry {
+            token: inactive_token.clone(),
+            issuer: anchor_issuer.clone(),
+            decimals: 7,
+            verified_anchor: true,
+            active: false,
+        });
+        registry.push_back(ApprovedAssetEntry {
+            token: bad_decimals_token.clone(),
+            issuer: anchor_issuer.clone(),
+            decimals: 19,
+            verified_anchor: true,
+            active: true,
+        });
+
+        // Unlisted scam token rejected
+        assert_eq!(
+            validate_token_against_registry(&scam_token, &contract_addr, &primary_token, &registry),
+            Err(Error::InvalidTokenContract)
+        );
+        // Unverified anchor rejected
+        assert_eq!(
+            validate_token_against_registry(
+                &unverified_token,
+                &contract_addr,
+                &primary_token,
+                &registry
+            ),
+            Err(Error::InvalidTokenContract)
+        );
+        // Suspended/inactive asset rejected
+        assert_eq!(
+            validate_token_against_registry(
+                &inactive_token,
+                &contract_addr,
+                &primary_token,
+                &registry
+            ),
+            Err(Error::InvalidTokenContract)
+        );
+        // Excessive decimal scale rejected
+        assert_eq!(
+            validate_token_against_registry(
+                &bad_decimals_token,
+                &contract_addr,
+                &primary_token,
+                &registry
+            ),
+            Err(Error::ValidationFailed)
+        );
+        // Self-spoofing contract address rejected
+        assert_eq!(
+            validate_token_against_registry(
+                &contract_addr,
+                &contract_addr,
+                &primary_token,
+                &registry
+            ),
+            Err(Error::ValidationFailed)
+        );
+
+        // Duplicate registry entries for the same token rejected
+        let dup_token = Address::generate(&env);
+        registry.push_back(ApprovedAssetEntry {
+            token: dup_token.clone(),
+            issuer: anchor_issuer.clone(),
+            decimals: 7,
+            verified_anchor: true,
+            active: true,
+        });
+        registry.push_back(ApprovedAssetEntry {
+            token: dup_token.clone(),
+            issuer: anchor_issuer,
+            decimals: 7,
+            verified_anchor: true,
+            active: true,
+        });
+        assert_eq!(
+            validate_token_against_registry(&dup_token, &contract_addr, &primary_token, &registry),
+            Err(Error::InvariantBroken)
+        );
+    }
+}
