@@ -268,3 +268,148 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Minimum voting duration for a platform governance proposal (1 day) (#1032).
+pub const MIN_GOVERNANCE_PROPOSAL_DURATION_SECS: u64 = crate::SECONDS_PER_DAY;
+
+/// Maximum voting duration for a platform governance proposal (30 days) (#1032).
+pub const MAX_GOVERNANCE_PROPOSAL_DURATION_SECS: u64 = 30 * crate::SECONDS_PER_DAY;
+
+/// Outcome of evaluating a community governance proposal tally (#1032).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GovernanceProposalOutcome {
+    /// Voting window is still open.
+    Active,
+    /// Voting window closed and both quorum and approval threshold were met.
+    Approved,
+    /// Voting window closed with fewer total votes than `min_quorum`.
+    RejectedQuorumNotMet,
+    /// Voting window closed with quorum met, but approval percentage below `approval_threshold_bps`.
+    RejectedThresholdNotMet,
+}
+
+/// Validates parameters when creating a community governance proposal (#1032).
+pub(crate) const fn validate_governance_proposal_window(
+    now: u64,
+    voting_deadline: u64,
+    min_quorum: u32,
+    approval_threshold_bps: u32,
+) -> Result<(), Error> {
+    if min_quorum == 0
+        || min_quorum > MAX_VOTES_QUORUM
+        || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS
+        || approval_threshold_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let duration = match voting_deadline.checked_sub(now) {
+        Some(d) => d,
+        None => return Err(Error::InvalidDuration),
+    };
+    if duration < MIN_GOVERNANCE_PROPOSAL_DURATION_SECS
+        || duration > MAX_GOVERNANCE_PROPOSAL_DURATION_SECS
+    {
+        return Err(Error::InvalidDuration);
+    }
+    Ok(())
+}
+
+/// Evaluates the tally of a community governance proposal at ledger timestamp `now` (#1032).
+pub(crate) const fn evaluate_governance_proposal_tally(
+    now: u64,
+    voting_deadline: u64,
+    approve_votes: u32,
+    reject_votes: u32,
+    min_quorum: u32,
+    approval_threshold_bps: u32,
+) -> Result<GovernanceProposalOutcome, Error> {
+    if min_quorum == 0
+        || min_quorum > MAX_VOTES_QUORUM
+        || approval_threshold_bps < MIN_APPROVAL_THRESHOLD_BPS
+        || approval_threshold_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let total_votes = match approve_votes.checked_add(reject_votes) {
+        Some(total) => total,
+        None => return Err(Error::Overflow),
+    };
+    if now <= voting_deadline {
+        return Ok(GovernanceProposalOutcome::Active);
+    }
+    if total_votes < min_quorum {
+        return Ok(GovernanceProposalOutcome::RejectedQuorumNotMet);
+    }
+    let approval_bps =
+        ((approve_votes as u64 * crate::BPS_DENOMINATOR as u64) / (total_votes as u64)) as u32;
+    if approval_bps < approval_threshold_bps {
+        Ok(GovernanceProposalOutcome::RejectedThresholdNotMet)
+    } else {
+        Ok(GovernanceProposalOutcome::Approved)
+    }
+}
+
+const _: () = {
+    assert!(validate_governance_proposal_window(
+        1_000,
+        1_000 + MIN_GOVERNANCE_PROPOSAL_DURATION_SECS,
+        DEFAULT_MIN_VOTES_QUORUM,
+        DEFAULT_APPROVAL_THRESHOLD_BPS
+    )
+    .is_ok());
+    assert!(evaluate_governance_proposal_tally(
+        200_000,
+        100_000,
+        4,
+        1,
+        DEFAULT_MIN_VOTES_QUORUM,
+        DEFAULT_APPROVAL_THRESHOLD_BPS
+    )
+    .is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn governance_proposal_window_and_tally_evaluation() {
+        let now = 1_700_000_000u64;
+        let valid_deadline = now + 7 * crate::SECONDS_PER_DAY;
+        assert_eq!(
+            validate_governance_proposal_window(
+                now,
+                valid_deadline,
+                DEFAULT_MIN_VOTES_QUORUM,
+                DEFAULT_APPROVAL_THRESHOLD_BPS
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate_governance_proposal_window(
+                now,
+                now + 60,
+                DEFAULT_MIN_VOTES_QUORUM,
+                DEFAULT_APPROVAL_THRESHOLD_BPS
+            ),
+            Err(Error::InvalidDuration)
+        );
+
+        assert_eq!(
+            evaluate_governance_proposal_tally(now, valid_deadline, 5, 0, 3, 6_000),
+            Ok(GovernanceProposalOutcome::Active)
+        );
+        assert_eq!(
+            evaluate_governance_proposal_tally(valid_deadline + 1, valid_deadline, 2, 0, 3, 6_000),
+            Ok(GovernanceProposalOutcome::RejectedQuorumNotMet)
+        );
+        assert_eq!(
+            evaluate_governance_proposal_tally(valid_deadline + 1, valid_deadline, 2, 3, 3, 6_000),
+            Ok(GovernanceProposalOutcome::RejectedThresholdNotMet)
+        );
+        assert_eq!(
+            evaluate_governance_proposal_tally(valid_deadline + 1, valid_deadline, 4, 1, 3, 6_000),
+            Ok(GovernanceProposalOutcome::Approved)
+        );
+    }
+}
