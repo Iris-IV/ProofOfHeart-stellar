@@ -315,3 +315,118 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     Ok(())
 }
+
+/// Splits `total_pool` into `(contributor_pool_total, creator_pool_total)` based on
+/// `revenue_share_bps` using checked 128-bit arithmetic (#1012).
+pub const fn calculate_revenue_pool_split(
+    total_pool: i128,
+    revenue_share_bps: u32,
+) -> Result<(i128, i128), Error> {
+    if total_pool < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if revenue_share_bps == 0 || revenue_share_bps > crate::REVENUE_SHARE_MAX_BPS {
+        return Err(Error::InvalidRevenueShare);
+    }
+    let creator_share_bps = (crate::BPS_DENOMINATOR - revenue_share_bps) as i128;
+    let creator_pool = match total_pool.checked_mul(creator_share_bps) {
+        Some(n) => n / (crate::BPS_DENOMINATOR as i128),
+        None => return Err(Error::Overflow),
+    };
+    let contributor_pool = match total_pool.checked_sub(creator_pool) {
+        Some(rem) => rem,
+        None => return Err(Error::Overflow),
+    };
+    Ok((contributor_pool, creator_pool))
+}
+
+/// Computes a contributor's incremental claimable revenue share from `total_pool`
+/// using deferred division to preserve precision (#1012).
+pub const fn calculate_contributor_revenue_entitlement(
+    contribution: i128,
+    effective_amount_raised: i128,
+    total_pool: i128,
+    revenue_share_bps: u32,
+    already_claimed: i128,
+) -> Result<i128, Error> {
+    if effective_amount_raised == 0 {
+        return Err(Error::AmountRaisedIsZero);
+    }
+    if contribution <= 0
+        || effective_amount_raised < 0
+        || contribution > effective_amount_raised
+        || total_pool < 0
+        || already_claimed < 0
+    {
+        return Err(Error::ValidationFailed);
+    }
+    if revenue_share_bps == 0 || revenue_share_bps > crate::REVENUE_SHARE_MAX_BPS {
+        return Err(Error::InvalidRevenueShare);
+    }
+    let step1 = match contribution.checked_mul(total_pool) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let step2 = match step1.checked_mul(revenue_share_bps as i128) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let total_due = (step2 / effective_amount_raised) / (crate::BPS_DENOMINATOR as i128);
+    let claimable = match total_due.checked_sub(already_claimed) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    if claimable <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+    Ok(claimable)
+}
+
+const _: () = {
+    assert!(calculate_revenue_pool_split(5_000, 2_000).is_ok());
+    assert!(calculate_contributor_revenue_entitlement(300, 1_000, 5_000, 2_000, 0).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{calculate_contributor_revenue_entitlement, calculate_revenue_pool_split};
+    use crate::errors::Error;
+
+    #[test]
+    fn test_revenue_pool_split_and_contributor_entitlement_helpers() {
+        // 5000 pool at 2000 bps (20%): contributor pool = 1000, creator pool = 4000
+        assert_eq!(
+            calculate_revenue_pool_split(5_000, 2_000),
+            Ok((1_000, 4_000))
+        );
+        assert_eq!(
+            calculate_revenue_pool_split(5_000, 0),
+            Err(Error::InvalidRevenueShare)
+        );
+        assert_eq!(
+            calculate_revenue_pool_split(5_000, crate::REVENUE_SHARE_MAX_BPS + 1),
+            Err(Error::InvalidRevenueShare)
+        );
+
+        // Contributor A: 300 / 1000 of 1000 contributor pool = 300
+        assert_eq!(
+            calculate_contributor_revenue_entitlement(300, 1_000, 5_000, 2_000, 0),
+            Ok(300)
+        );
+        // Incremental claim after 100 already claimed = 200
+        assert_eq!(
+            calculate_contributor_revenue_entitlement(300, 1_000, 5_000, 2_000, 100),
+            Ok(200)
+        );
+        // Fully claimed -> NoFundsToWithdraw
+        assert_eq!(
+            calculate_contributor_revenue_entitlement(300, 1_000, 5_000, 2_000, 300),
+            Err(Error::NoFundsToWithdraw)
+        );
+        // Zero effective_amount_raised -> AmountRaisedIsZero
+        assert_eq!(
+            calculate_contributor_revenue_entitlement(300, 0, 5_000, 2_000, 0),
+            Err(Error::AmountRaisedIsZero)
+        );
+    }
+}
