@@ -108,14 +108,67 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+/// Maximum number of emergency pause / community censure signers (#993).
+pub const MAX_EMERGENCY_PAUSE_SIGNERS: u32 = 20;
+
+/// Verifies that a community censure / suspension vote meets both the minimum
+/// governance quorum and the required approval threshold in basis points (#993).
+///
+/// Uses checked 64-bit arithmetic to prevent overflow when scaling vote counts
+/// by `BPS_DENOMINATOR`.
+pub const fn verify_censure_quorum_rules(
+    censure_votes: u32,
+    total_votes: u32,
+    min_quorum: u32,
+    threshold_bps: u32,
+) -> Result<(), Error> {
+    if min_quorum == 0
+        || threshold_bps < voting::MIN_APPROVAL_THRESHOLD_BPS
+        || threshold_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    if censure_votes > total_votes {
+        return Err(Error::InvariantBroken);
+    }
+    if total_votes < min_quorum {
+        return Err(Error::VotingQuorumNotMet);
+    }
+    let scaled_censure = (censure_votes as u64) * (crate::BPS_DENOMINATOR as u64);
+    let required_scaled = (total_votes as u64) * (threshold_bps as u64);
+    if scaled_censure < required_scaled {
+        return Err(Error::VotingThresholdNotMet);
+    }
+    Ok(())
+}
+
+const _: () = {
+    assert!(verify_censure_quorum_rules(8, 10, 5, 6_000).is_ok());
+};
+
 pub(crate) fn set_emergency_pause_signers(
     env: &Env,
     admin: Address,
     signers: Vec<Address>,
 ) -> Result<(), Error> {
     ensure_admin!(env, &admin);
-    if signers.is_empty() {
+    if signers.is_empty() || signers.len() > MAX_EMERGENCY_PAUSE_SIGNERS {
         return Err(Error::ValidationFailed);
+    }
+    // #993: Reject duplicate signer addresses so a single key cannot spoof
+    // multi-signer censure/suspension quorum.
+    let len = signers.len();
+    let mut i = 0;
+    while i < len {
+        let candidate = signers.get(i).ok_or(Error::ValidationFailed)?;
+        let mut j = i + 1;
+        while j < len {
+            if candidate == signers.get(j).ok_or(Error::ValidationFailed)? {
+                return Err(Error::ValidationFailed);
+            }
+            j += 1;
+        }
+        i += 1;
     }
     // No require_not_paused: admin must be able to configure signers even during pause (#785).
     bump_instance_ttl(env);
@@ -694,5 +747,35 @@ mod tests {
         // authorized signer succeeds
         client.emergency_pause(&signer);
         assert!(client.is_paused());
+    }
+
+    #[test]
+    fn test_censure_quorum_and_duplicate_signer_rejection() {
+        let (env, admin, _creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let signer = soroban_sdk::Address::generate(&env);
+
+        // Duplicate signers in emergency/censure signer list must be rejected
+        let mut dup_signers = Vec::new(&env);
+        dup_signers.push_back(signer.clone());
+        dup_signers.push_back(signer);
+        assert_eq!(
+            client.try_set_emergency_pause_signers(&admin, &dup_signers),
+            Err(Ok(crate::Error::ValidationFailed))
+        );
+
+        // Quorum & threshold checks
+        assert_eq!(
+            super::verify_censure_quorum_rules(4, 4, 5, 6_000),
+            Err(crate::Error::VotingQuorumNotMet)
+        );
+        assert_eq!(
+            super::verify_censure_quorum_rules(5, 10, 5, 6_000),
+            Err(crate::Error::VotingThresholdNotMet)
+        );
+        assert_eq!(
+            super::verify_censure_quorum_rules(11, 10, 5, 6_000),
+            Err(crate::Error::InvariantBroken)
+        );
+        assert_eq!(super::verify_censure_quorum_rules(6, 10, 5, 6_000), Ok(()));
     }
 }
