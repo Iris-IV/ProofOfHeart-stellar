@@ -324,4 +324,67 @@ impl Campaign {
             self.status &= !CAMPAIGN_SUCCEEDED;
         }
     }
+
+    /// Returns the combined UTF-8 byte length of the campaign's `title` and `description`
+    /// without cloning or copying the underlying `soroban_sdk::String` buffers (#1066).
+    #[allow(dead_code)]
+    pub fn text_byte_len(&self) -> u32 {
+        self.title.len().saturating_add(self.description.len())
+    }
+
+    /// Checks whether the campaign's `title` and `description` satisfy the protocol's
+    /// gas-optimized length bounds (`CAMPAIGN_TITLE_MIN_LEN..=CAMPAIGN_TITLE_MAX_LEN` and
+    /// `CAMPAIGN_DESCRIPTION_MIN_LEN..=CAMPAIGN_DESCRIPTION_MAX_LEN`) in O(1) host calls (#1066).
+    #[allow(dead_code)]
+    pub fn has_valid_text_bounds(&self) -> bool {
+        validate_campaign_text_bounds(&self.title, &self.description)
+    }
+}
+
+/// Validates campaign `title` and `description` byte lengths against protocol bounds
+/// using zero-allocation `String::len()` host inspections (#1066).
+#[allow(dead_code)]
+pub fn validate_campaign_text_bounds(title: &String, description: &String) -> bool {
+    let title_len = title.len();
+    let desc_len = description.len();
+    (crate::CAMPAIGN_TITLE_MIN_LEN..=crate::CAMPAIGN_TITLE_MAX_LEN).contains(&title_len)
+        && (crate::CAMPAIGN_DESCRIPTION_MIN_LEN..=crate::CAMPAIGN_DESCRIPTION_MAX_LEN)
+            .contains(&desc_len)
+}
+
+/// Computes the 4-byte XDR-aligned storage footprint (in bytes) for a campaign's
+/// `title` and `description` strings, including the 8-byte XDR length prefixes (#1066).
+#[allow(dead_code)]
+pub fn estimate_campaign_text_xdr_bytes(title: &String, description: &String) -> u32 {
+    let align4 = |len: u32| (len.saturating_add(3)) & !3;
+    8u32.saturating_add(align4(title.len()))
+        .saturating_add(align4(description.len()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::Env;
+
+    #[test]
+    fn gas_optimized_string_helpers_validate_bounds_and_xdr_alignment() {
+        let env = Env::default();
+        let valid_title = String::from_str(&env, "Solar Classroom Lab");
+        let valid_desc = String::from_str(
+            &env,
+            "Equipping rural students with solar-powered laptops and offline STEM curriculum.",
+        );
+        let empty_title = String::from_str(&env, "");
+
+        assert!(validate_campaign_text_bounds(&valid_title, &valid_desc));
+        assert!(!validate_campaign_text_bounds(&empty_title, &valid_desc));
+
+        // "Solar Classroom Lab" = 19 bytes -> aligned to 20 bytes
+        // valid_desc = 80 bytes -> aligned to 80 bytes
+        // Total XDR bytes = 8 + 20 + 80 = 108
+        assert_eq!(
+            estimate_campaign_text_xdr_bytes(&valid_title, &valid_desc),
+            108
+        );
+    }
 }
