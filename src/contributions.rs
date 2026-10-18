@@ -497,3 +497,97 @@ pub(crate) fn remove_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Funding progress cutoffs and bonus multipliers (in basis points out of
+/// `BPS_DENOMINATOR = 10_000`) for early campaign supporters (#1034).
+pub(crate) const EARLY_SUPPORTER_TIER_1_CUTOFF_BPS: u32 = 1_000; // First 10% of goal
+pub(crate) const EARLY_SUPPORTER_TIER_2_CUTOFF_BPS: u32 = 2_500; // First 25% of goal
+pub(crate) const EARLY_SUPPORTER_TIER_1_BONUS_BPS: u32 = 15_000; // 1.50x reward multiplier
+pub(crate) const EARLY_SUPPORTER_TIER_2_BONUS_BPS: u32 = 12_500; // 1.25x reward multiplier
+pub(crate) const EARLY_SUPPORTER_STANDARD_BPS: u32 = 10_000; // 1.00x base multiplier
+
+/// Resolves the early-supporter reward bonus multiplier in basis points based
+/// on the campaign's `amount_raised_before` relative to `funding_goal` (#1034).
+pub(crate) const fn resolve_early_supporter_multiplier_bps(
+    amount_raised_before: i128,
+    funding_goal: i128,
+) -> Result<u32, Error> {
+    if amount_raised_before < 0 || funding_goal <= 0 {
+        return Err(Error::ValidationFailed);
+    }
+    let progress_scaled = match amount_raised_before.checked_mul(crate::BPS_DENOMINATOR as i128) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let progress_bps = progress_scaled / funding_goal;
+    if progress_bps < EARLY_SUPPORTER_TIER_1_CUTOFF_BPS as i128 {
+        Ok(EARLY_SUPPORTER_TIER_1_BONUS_BPS)
+    } else if progress_bps < EARLY_SUPPORTER_TIER_2_CUTOFF_BPS as i128 {
+        Ok(EARLY_SUPPORTER_TIER_2_BONUS_BPS)
+    } else {
+        Ok(EARLY_SUPPORTER_STANDARD_BPS)
+    }
+}
+
+/// Calculates the governance reward token allocation to mint/distribute for a
+/// contributor's `contribution_amount` given the campaign's prior progress and
+/// `base_reward_rate_bps` (#1034).
+pub(crate) const fn calculate_early_supporter_reward_tokens(
+    contribution_amount: i128,
+    amount_raised_before: i128,
+    funding_goal: i128,
+    base_reward_rate_bps: u32,
+) -> Result<i128, Error> {
+    if contribution_amount <= 0
+        || base_reward_rate_bps == 0
+        || base_reward_rate_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let multiplier_bps =
+        match resolve_early_supporter_multiplier_bps(amount_raised_before, funding_goal) {
+            Ok(m) => m,
+            Err(e) => return Err(e),
+        };
+    let base_reward = match contribution_amount.checked_mul(base_reward_rate_bps as i128) {
+        Some(v) => v / (crate::BPS_DENOMINATOR as i128),
+        None => return Err(Error::Overflow),
+    };
+    match base_reward.checked_mul(multiplier_bps as i128) {
+        Some(boosted) => Ok(boosted / (crate::BPS_DENOMINATOR as i128)),
+        None => Err(Error::Overflow),
+    }
+}
+
+const _: () = {
+    assert!(resolve_early_supporter_multiplier_bps(0, 10_000).is_ok());
+    assert!(calculate_early_supporter_reward_tokens(1_000, 0, 10_000, 1_000).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn early_supporter_reward_tokens_apply_tiered_bonus_multipliers() {
+        // Tier 1 (<10% of goal): 1.50x bonus on 10% base rate -> 150 tokens for 1_000 contribution
+        assert_eq!(
+            calculate_early_supporter_reward_tokens(1_000, 500, 10_000, 1_000),
+            Ok(150)
+        );
+        // Tier 2 (10%..25% of goal): 1.25x bonus -> 125 tokens
+        assert_eq!(
+            calculate_early_supporter_reward_tokens(1_000, 1_500, 10_000, 1_000),
+            Ok(125)
+        );
+        // Standard (>=25% of goal): 1.00x -> 100 tokens
+        assert_eq!(
+            calculate_early_supporter_reward_tokens(1_000, 3_000, 10_000, 1_000),
+            Ok(100)
+        );
+        assert_eq!(
+            calculate_early_supporter_reward_tokens(0, 0, 10_000, 1_000),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
