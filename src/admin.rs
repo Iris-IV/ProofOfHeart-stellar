@@ -408,6 +408,7 @@ pub(crate) fn migrate(env: &Env, admin: Address, expected_old_version: u32) -> R
     if current != expected_old_version {
         return Err(Error::ValidationFailed);
     }
+    bump_instance_ttl(env);
     set_version(env, crate::CONTRACT_VERSION);
     env.events().publish(
         ("migrated",),
@@ -596,6 +597,8 @@ pub(crate) fn purge_voting_state(
         return Err(Error::ValidationFailed);
     }
 
+    bump_instance_ttl(env);
+
     for voter in voters.iter() {
         remove_has_voted(env, campaign_id, &voter);
     }
@@ -645,7 +648,8 @@ pub(crate) fn resume_campaign(env: &Env, campaign_id: u32, caller: Address) -> R
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::*;
-    use soroban_sdk::Vec;
+    use crate::{Category, Error};
+    use soroban_sdk::{Address, String, Vec};
 
     #[test]
     fn test_emergency_pause_any_signer_can_pause_but_only_admin_can_unpause() {
@@ -694,5 +698,154 @@ mod tests {
         // authorized signer succeeds
         client.emergency_pause(&signer);
         assert!(client.is_paused());
+    }
+
+    /// Audit #965: every admin governance entrypoint taking an explicit caller
+    /// address must reject non-admin callers with `Error::NotAuthorized`.
+    #[test]
+    fn test_admin_governance_entrypoints_reject_non_admin_caller() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let impostor = Address::generate(&env);
+        let other = Address::generate(&env);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Gov Audit"),
+            String::from_str(&env, "Testing admin governance auth"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        let mut signers = Vec::new(&env);
+        signers.push_back(other.clone());
+        assert_eq!(
+            client.try_set_emergency_pause_signers(&impostor, &signers),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_voting_params(&impostor, &5, &6000),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_min_voting_balance(&impostor, &100),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_max_contribution_per_tx(&impostor, &1000),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_campaign_fee_override(&campaign_id, &impostor, &200),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_category_duration_cap(&impostor, &Category::Learner, &60),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_remove_category_duration_cap(&impostor, &Category::Learner),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_category_voting_threshold(&impostor, &Category::Learner, &5000),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_remove_category_voting_threshold(&impostor, &Category::Learner),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_min_campaign_funding_goal(&impostor, &200_000),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_max_campaign_funding_goal(&impostor, &5_000_000),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_migrate(&impostor, &1),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_propose_token_update(&impostor, &other),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_accept_token_update(&impostor),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_cancel_token_update(&impostor),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_set_token_update_delay_secs(&impostor, &86_400),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_initiate_admin_transfer(&impostor, &other),
+            Err(Ok(Error::NotAuthorized))
+        );
+        assert_eq!(
+            client.try_cancel_admin_transfer(&impostor),
+            Err(Ok(Error::NotAuthorized))
+        );
+    }
+
+    /// Audit #965: parameterless admin governance functions must require the
+    /// stored admin's cryptographic signature via `require_auth()`.
+    #[test]
+    fn test_parameterless_admin_governance_entrypoints_require_admin_signature() {
+        let (env, admin, creator, c1, _c2, _token, _token_admin, client) = setup_env();
+        let candidate_token = Address::generate(&env);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Sig Audit"),
+            String::from_str(&env, "Testing admin signature requirement"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.cancel_campaign(&campaign_id);
+
+        client.pause();
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+
+        client.unpause();
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+
+        client.set_creation_disabled(&true);
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+        client.set_creation_disabled(&false);
+
+        client.set_token_allowed(&candidate_token, &true);
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+
+        client.update_platform_fee(&250);
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+
+        let mut voters = Vec::new(&env);
+        voters.push_back(c1);
+        client.purge_voting_state(&campaign_id, &voters, &true);
+        assert!(env.auths().iter().any(|(addr, _)| *addr == admin));
+
+        // Without mocked auths, all parameterless admin calls must fail at the host auth boundary.
+        env.mock_auths(&[]);
+        assert!(client.try_pause().is_err());
+        assert!(client.try_unpause().is_err());
+        assert!(client.try_set_creation_disabled(&true).is_err());
+        assert!(client
+            .try_set_token_allowed(&candidate_token, &false)
+            .is_err());
+        assert!(client.try_update_platform_fee(&100).is_err());
+        assert!(client.try_verify_campaign(&campaign_id).is_err());
     }
 }
