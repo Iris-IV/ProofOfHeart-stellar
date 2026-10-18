@@ -41,11 +41,11 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     if campaign.funds_withdrawn() {
         return Err(Error::FundsAlreadyWithdrawn);
     }
-    if campaign.amount_raised == 0 {
+    if campaign.effective_amount_raised <= 0 {
         return Err(Error::NoFundsToWithdraw);
     }
 
-    if campaign.amount_raised < campaign.funding_goal {
+    if campaign.effective_amount_raised < campaign.funding_goal {
         return Err(Error::FundingGoalNotReached);
     }
 
@@ -64,7 +64,10 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.effective_amount_raised - fee_amount;
+    let total_after_fee = campaign
+        .effective_amount_raised
+        .checked_sub(fee_amount)
+        .ok_or(Error::Overflow)?;
 
     // Use per-campaign vesting params snapshotted at creation, falling back
     // to the global defaults for campaigns created before the snapshot was
@@ -80,7 +83,24 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let creator_amount = total_after_fee - reserve_amount;
+    let creator_amount = total_after_fee
+        .checked_sub(reserve_amount)
+        .ok_or(Error::Overflow)?;
+
+    // Formal escrow conservation invariant (#980):
+    // fee_amount + reserve_amount + creator_amount == effective_amount_raised,
+    // and each component must be non-negative.
+    let distributed_sum = fee_amount
+        .checked_add(reserve_amount)
+        .and_then(|s| s.checked_add(creator_amount))
+        .ok_or(Error::Overflow)?;
+    if fee_amount < 0
+        || reserve_amount < 0
+        || creator_amount < 0
+        || distributed_sum != campaign.effective_amount_raised
+    {
+        return Err(Error::InvariantBroken);
+    }
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
@@ -109,11 +129,15 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         set_campaign_reserve(env, campaign_id, &reserve);
     }
 
+    let immediate_payout = campaign
+        .effective_amount_raised
+        .checked_sub(reserve_amount)
+        .ok_or(Error::Overflow)?;
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.effective_amount_raised - reserve_amount)
+            .checked_sub(immediate_payout)
             .ok_or(Error::Overflow)?,
     );
 
@@ -269,4 +293,73 @@ pub(crate) fn set_vesting_params(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::testutils::Ledger;
+    use soroban_sdk::String;
+
+    #[test]
+    fn test_escrow_state_transition_conservation_across_withdraw_and_reserve() {
+        let (env, admin, creator, c1, _c2, token, token_admin, client) = setup_env();
+        // Configure 10-day vesting delay with 2_000 bps (20%) reserve.
+        client.set_vesting_params(&admin, &10, &2_000);
+
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Escrow Conservation"),
+            String::from_str(&env, "Verify token escrow state transitions"),
+            1_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &1_000);
+        client.contribute(&id, &c1, &1_000);
+
+        assert_eq!(token.balance(&client.address), 1_000);
+        assert_eq!(client.get_total_raised_global(), 1_000);
+
+        // Advance past campaign deadline (30 days).
+        let campaign = client.get_campaign(&id);
+        env.ledger().set_timestamp(campaign.deadline + 1);
+
+        client.withdraw_funds(&id);
+
+        // 1_000 raised, 3% fee = 30, remaining 970, 20% reserve = ceil(970 * 2000 / 10000) = 194, creator = 776.
+        // Sum conservation: 30 + 194 + 776 == 1_000.
+        assert_eq!(token.balance(&admin), 30);
+        assert_eq!(token.balance(&creator), 776);
+        assert_eq!(token.balance(&client.address), 194);
+        assert_eq!(client.get_total_raised_global(), 194);
+
+        let updated = client.get_campaign(&id);
+        assert!(updated.funds_withdrawn());
+        assert!(!updated.is_active());
+
+        // Double withdrawal is rejected by state transition.
+        assert_eq!(
+            client.try_withdraw_funds(&id),
+            Err(Ok(crate::Error::FundsAlreadyWithdrawn))
+        );
+
+        // Advance past reserve release delay (10 days) and release reserve.
+        env.ledger()
+            .set_timestamp(campaign.deadline + 1 + 10 * 86_400);
+        client.withdraw_reserve(&id);
+
+        assert_eq!(token.balance(&creator), 970);
+        assert_eq!(token.balance(&client.address), 0);
+        assert_eq!(client.get_total_raised_global(), 0);
+        assert_eq!(
+            client.try_withdraw_reserve(&id),
+            Err(Ok(crate::Error::FundsAlreadyWithdrawn))
+        );
+    }
 }
