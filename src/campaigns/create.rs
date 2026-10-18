@@ -245,3 +245,66 @@ fn create_campaign_inner(
 
     Ok(count)
 }
+
+/// Bitmask covering all four supported `Category` discriminants (`0..=3`:
+/// `Learner`, `EducationalStartup`, `Educator`, `Publisher`) (#1039).
+#[allow(dead_code)]
+pub const ALL_CATEGORIES_MASK: u32 = 0b1111;
+
+/// Checks whether a given `Category` is enabled in the active taxonomy bitmask (#1039).
+#[allow(dead_code)]
+pub fn is_category_enabled_in_mask(category: Category, enabled_mask: u32) -> bool {
+    let bit = 1u32 << (category as u32);
+    (enabled_mask & bit) != 0
+}
+
+/// Validates a campaign's `Category` and revenue-sharing eligibility against the
+/// configured platform category taxonomy mask (#1039).
+#[allow(dead_code)]
+pub fn validate_category_taxonomy(
+    category: Category,
+    enabled_mask: u32,
+    has_revenue_sharing: bool,
+) -> Result<(), Error> {
+    if enabled_mask == 0 || (enabled_mask & !ALL_CATEGORIES_MASK) != 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if !is_category_enabled_in_mask(category, enabled_mask) {
+        return Err(Error::ValidationFailed);
+    }
+    if has_revenue_sharing && category != Category::EducationalStartup {
+        return Err(Error::RevenueShareOnlyForStartup);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_taxonomy_enforces_enabled_mask_and_revenue_sharing_rules() {
+        assert_eq!(
+            validate_category_taxonomy(Category::Learner, ALL_CATEGORIES_MASK, false),
+            Ok(())
+        );
+        assert_eq!(
+            validate_category_taxonomy(Category::EducationalStartup, ALL_CATEGORIES_MASK, true),
+            Ok(())
+        );
+        assert_eq!(
+            validate_category_taxonomy(Category::Educator, ALL_CATEGORIES_MASK, true),
+            Err(Error::RevenueShareOnlyForStartup)
+        );
+        // Disable Educator (bit 2)
+        let mask_without_educator = ALL_CATEGORIES_MASK & !(1 << (Category::Educator as u32));
+        assert_eq!(
+            validate_category_taxonomy(Category::Educator, mask_without_educator, false),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            validate_category_taxonomy(Category::Learner, 0, false),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
