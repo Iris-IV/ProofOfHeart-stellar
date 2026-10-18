@@ -7,10 +7,10 @@ use crate::lifecycle::{
     require_active_campaign, require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_cancellation_penalty_bps,
-    get_revenue_pool, get_total_raised_global, increment_cancelled_campaign_count,
-    remove_top_contributor, remove_voting_state, set_campaign, set_revenue_pool,
-    set_total_raised_global,
+    bump_instance_ttl, decrement_active_campaign_count, get_campaign_payout_marker,
+    get_cancellation_penalty_bps, get_revenue_pool, get_total_raised_global,
+    increment_cancelled_campaign_count, remove_emergency_withdrawal, remove_top_contributor,
+    remove_voting_state, set_campaign, set_revenue_pool, set_total_raised_global,
 };
 
 /// Upper bound for the voluntary-cancellation penalty (500 bps = 5%, #1052).
@@ -43,7 +43,7 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     require_not_paused(env)?;
 
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn() {
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
         return Err(Error::CancellationNotAllowed);
     }
     // Prevent rug-pull: reject cancellation after the funding goal has been met but
@@ -91,9 +91,12 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     // #819: Zero effective_amount_raised so indexers and dashboards report 0
     // live contributions on a dead campaign immediately, even before refunds.
     campaign.effective_amount_raised = 0;
+    campaign.pending_creator = None;
+    campaign.pending_creator_expiry = 0;
     campaign.set_cancelled(true);
     campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
+    remove_emergency_withdrawal(env, campaign_id);
     remove_voting_state(env, campaign_id);
     // #863: a cancelled campaign is terminal and every contribution to it is
     // refundable, so there is no winner to report. Clear the marker here —
@@ -160,7 +163,7 @@ pub(crate) fn admin_cancel_campaign(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn() {
+    if campaign.funds_withdrawn() || get_campaign_payout_marker(env, campaign_id) == Some(1) {
         return Err(Error::CancellationNotAllowed);
     }
 
@@ -190,9 +193,12 @@ pub(crate) fn admin_cancel_campaign(
     }
 
     campaign.effective_amount_raised = 0;
+    campaign.pending_creator = None;
+    campaign.pending_creator_expiry = 0;
     campaign.set_cancelled(true);
     campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
+    remove_emergency_withdrawal(env, campaign_id);
     remove_voting_state(env, campaign_id);
     // #863: same terminal-state cleanup as creator cancel — an admin-cancelled
     // campaign has no winner either.
@@ -223,4 +229,83 @@ pub(crate) fn admin_cancel_campaign(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::errors::Error;
+    use crate::tests::helpers::*;
+    use crate::Category;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    fn test_cancel_campaign_clears_pending_transfer_and_blocks_post_cancel_accept() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let new_creator = Address::generate(&env);
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Cancel Pending Transfer"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.initiate_campaign_transfer(&id, &new_creator);
+        client.cancel_campaign(&id);
+
+        let campaign = client.get_campaign(&id);
+        assert!(campaign.is_cancelled());
+        assert!(campaign.pending_creator.is_none());
+        assert_eq!(campaign.pending_creator_expiry, 0);
+        assert_eq!(
+            client.try_accept_campaign_transfer(&id),
+            Err(Ok(Error::CampaignNotActive))
+        );
+    }
+
+    #[test]
+    fn test_admin_cancel_campaign_rejects_non_admin_and_blocks_revenue_sharing() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let attacker = Address::generate(&env);
+
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Admin Cancel Revenue Guard"),
+            String::from_str(&env, "Description"),
+            1_000,
+            10,
+            Category::EducationalStartup,
+            true,
+            1_000,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &1_000);
+        token_admin.mint(&creator, &500);
+        client.contribute(&id, &c1, &500);
+
+        assert_eq!(
+            client.try_admin_cancel_campaign(
+                &attacker,
+                &id,
+                &String::from_str(&env, "Unauthorized attempt")
+            ),
+            Err(Ok(Error::NotAuthorized))
+        );
+
+        client.admin_cancel_campaign(&admin, &id, &String::from_str(&env, "Fraudulent campaign"));
+
+        assert_eq!(
+            client.try_deposit_revenue(&id, &500),
+            Err(Ok(Error::CampaignNotActive))
+        );
+        assert_eq!(
+            client.try_claim_revenue(&id, &c1),
+            Err(Ok(Error::CampaignNotActive))
+        );
+    }
 }
