@@ -605,8 +605,7 @@ pub(crate) fn get_contributor_portfolio(
                 };
 
                 let refundable = campaign.is_cancelled()
-                    || (now > campaign.deadline
-                        && campaign.amount_raised < campaign.funding_goal);
+                    || (now > campaign.deadline && campaign.amount_raised < campaign.funding_goal);
 
                 portfolio.push_back((
                     current_id,
@@ -627,11 +626,56 @@ pub(crate) fn get_contributor_portfolio(
     (portfolio, next_cursor)
 }
 
+/// Clamps a requested batch size or pagination limit to `LIST_MAX_LIMIT` (#1015).
+pub(crate) const fn clamp_batch_query_count(requested: u32) -> u32 {
+    if requested > crate::LIST_MAX_LIMIT {
+        crate::LIST_MAX_LIMIT
+    } else {
+        requested
+    }
+}
+
+const _: () = {
+    assert!(clamp_batch_query_count(0) == 0);
+    assert!(clamp_batch_query_count(crate::LIST_MAX_LIMIT) == crate::LIST_MAX_LIMIT);
+    assert!(clamp_batch_query_count(crate::LIST_MAX_LIMIT + 50) == crate::LIST_MAX_LIMIT);
+};
+
+/// Batch query helper that fetches multiple `Campaign` states in a single
+/// invocation while bounding total reads to `LIST_MAX_LIMIT` and skipping
+/// duplicate or missing campaign IDs (#1015).
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn get_campaigns_batch(
+    env: &Env,
+    campaign_ids: &soroban_sdk::Vec<u32>,
+) -> soroban_sdk::Vec<Campaign> {
+    let mut results = soroban_sdk::Vec::new(env);
+    let mut seen_ids = soroban_sdk::Vec::new(env);
+    let max_items = clamp_batch_query_count(campaign_ids.len());
+
+    let mut idx = 0u32;
+    while idx < campaign_ids.len() && seen_ids.len() < max_items {
+        if let Some(id) = campaign_ids.get(idx) {
+            if id > 0 && !seen_ids.contains(id) {
+                seen_ids.push_back(id);
+                if let Some(campaign) = get_campaign(env, id) {
+                    results.push_back(campaign);
+                }
+            }
+        }
+        idx += 1;
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod bucket_pagination_tests {
-    use super::get_campaigns_from_buckets;
+    use super::{clamp_batch_query_count, get_campaigns_batch, get_campaigns_from_buckets};
+    use crate::storage::set_campaign;
+    use crate::types::{Campaign, Category, CAMPAIGN_ACTIVE};
     use core::cell::Cell;
-    use soroban_sdk::Env;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
     /// Guards against #844: a bucket that reports fewer entries than the
     /// current position implies (malformed/inconsistent bucket metadata)
@@ -701,5 +745,50 @@ mod bucket_pagination_tests {
 
         assert_eq!(result.0.len(), 0);
         assert!(calls.get() > 0);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn get_campaigns_batch_deduplicates_and_skips_missing_ids() {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, crate::ProofOfHeart);
+        let creator = Address::generate(&env);
+
+        env.as_contract(&contract_id, || {
+            for id in [1u32, 3u32] {
+                let campaign = Campaign {
+                    id,
+                    creator: creator.clone(),
+                    first_creator: creator.clone(),
+                    pending_creator: None,
+                    pending_creator_expiry: 0,
+                    title: String::from_str(&env, "Batch Campaign"),
+                    description: String::from_str(&env, "Batch query test"),
+                    funding_goal: 10_000,
+                    deadline: 1_900_000_000,
+                    amount_raised: 1_000 * id as i128,
+                    status: CAMPAIGN_ACTIVE,
+                    category: Category::Learner,
+                    has_revenue_sharing: false,
+                    revenue_share_percentage: 0,
+                    max_contribution_per_user: 0,
+                    fee_override: None,
+                    deadline_extended: false,
+                    effective_amount_raised: 1_000 * id as i128,
+                };
+                set_campaign(&env, id, &campaign);
+            }
+
+            let requested = soroban_sdk::Vec::from_array(&env, [0u32, 3u32, 2u32, 3u32, 1u32]);
+            let fetched = get_campaigns_batch(&env, &requested);
+            assert_eq!(fetched.len(), 2);
+            assert_eq!(fetched.get(0).unwrap().id, 3);
+            assert_eq!(fetched.get(1).unwrap().id, 1);
+        });
+
+        assert_eq!(
+            clamp_batch_query_count(crate::LIST_MAX_LIMIT + 25),
+            crate::LIST_MAX_LIMIT
+        );
     }
 }
