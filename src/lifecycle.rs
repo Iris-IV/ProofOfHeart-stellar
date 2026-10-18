@@ -191,9 +191,83 @@ pub(crate) fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Resul
     get_campaign_start_time(env, campaign_id).ok_or(Error::InvalidDuration)
 }
 
+/// Outcome of evaluating a campaign at or after its deadline for automated
+/// expiration settlement (#1027).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExpirationSettlementOutcome {
+    /// Deadline has not yet passed; campaign remains open for contributions.
+    StillOpen,
+    /// Deadline has passed without meeting `funding_goal`; campaign settles
+    /// as expired and eligible for contributor refunds.
+    ExpiredRefundable,
+    /// Deadline has passed and `amount_raised >= funding_goal`; campaign
+    /// succeeded and awaits creator withdrawal.
+    SucceededReadyForWithdrawal,
+    /// Campaign is already terminal (cancelled or funds withdrawn).
+    AlreadyTerminal,
+}
+
+/// Evaluates whether a campaign has reached its deadline and determines its
+/// auto-settlement outcome (#1027).
+pub(crate) const fn evaluate_expiration_settlement(
+    now: u64,
+    deadline: u64,
+    amount_raised: i128,
+    funding_goal: i128,
+    is_cancelled: bool,
+    funds_withdrawn: bool,
+) -> Result<ExpirationSettlementOutcome, Error> {
+    if funding_goal <= 0 || amount_raised < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if is_cancelled || funds_withdrawn {
+        return Ok(ExpirationSettlementOutcome::AlreadyTerminal);
+    }
+    if now <= deadline {
+        return Ok(ExpirationSettlementOutcome::StillOpen);
+    }
+    if amount_raised >= funding_goal {
+        Ok(ExpirationSettlementOutcome::SucceededReadyForWithdrawal)
+    } else {
+        Ok(ExpirationSettlementOutcome::ExpiredRefundable)
+    }
+}
+
+const _: () = {
+    assert!(evaluate_expiration_settlement(200, 100, 500, 1_000, false, false).is_ok());
+};
+
+/// Applies automated expiration settlement to `campaign` at ledger timestamp `now` (#1027).
+///
+/// If the campaign has passed its deadline without reaching `funding_goal`,
+/// deactivates the campaign (`set_active(false)`) so no further active-only
+/// mutations can occur while preserving contributor refund eligibility.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn apply_expiration_auto_settlement(
+    campaign: &mut Campaign,
+    now: u64,
+) -> Result<ExpirationSettlementOutcome, Error> {
+    let outcome = evaluate_expiration_settlement(
+        now,
+        campaign.deadline,
+        campaign.amount_raised,
+        campaign.funding_goal,
+        campaign.is_cancelled(),
+        campaign.funds_withdrawn(),
+    )?;
+    if outcome == ExpirationSettlementOutcome::ExpiredRefundable && campaign.is_active() {
+        campaign.set_active(false);
+    }
+    Ok(outcome)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{transition, CampaignState};
+    use super::{
+        apply_expiration_auto_settlement, evaluate_expiration_settlement, transition,
+        CampaignState, ExpirationSettlementOutcome,
+    };
+    use crate::errors::Error;
     use crate::types::{Campaign, Category, MaybePendingCreator};
     use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
@@ -328,5 +402,43 @@ mod tests {
         assert!(transition(CampaignState::Verified, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Cancelled, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Withdrawn, CampaignState::Active).is_err());
+    }
+
+    #[test]
+    fn expiration_auto_settlement_deactivates_expired_unfunded_campaign() {
+        let env = Env::default();
+        let mut campaign = make_campaign(&env, true, false, false, false);
+        campaign.deadline = 1_000;
+        campaign.funding_goal = 5_000;
+        campaign.amount_raised = 2_000;
+
+        // Before deadline: remains active
+        assert_eq!(
+            apply_expiration_auto_settlement(&mut campaign, 1_000),
+            Ok(ExpirationSettlementOutcome::StillOpen)
+        );
+        assert!(campaign.is_active());
+
+        // Past deadline and under-funded: auto-settles to ExpiredRefundable and clears active flag
+        assert_eq!(
+            apply_expiration_auto_settlement(&mut campaign, 1_001),
+            Ok(ExpirationSettlementOutcome::ExpiredRefundable)
+        );
+        assert!(!campaign.is_active());
+
+        // Funded campaign past deadline reports SucceededReadyForWithdrawal
+        let mut funded = make_campaign(&env, true, false, false, true);
+        funded.deadline = 1_000;
+        funded.funding_goal = 5_000;
+        funded.amount_raised = 5_000;
+        assert_eq!(
+            apply_expiration_auto_settlement(&mut funded, 1_001),
+            Ok(ExpirationSettlementOutcome::SucceededReadyForWithdrawal)
+        );
+
+        assert_eq!(
+            evaluate_expiration_settlement(1_001, 1_000, -1, 5_000, false, false),
+            Err(Error::ValidationFailed)
+        );
     }
 }
