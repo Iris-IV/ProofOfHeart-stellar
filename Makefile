@@ -36,7 +36,7 @@ build: wasm-opt
 	stellar contract build
 
 build-docker:
-	docker run --rm -v $(PWD):/workspace -w /workspace stellar/rs-soroban-sdk:20.1.0 stellar contract build
+	docker run --rm -v $(PWD):/workspace -w /workspace stellar/rs-soroban-sdk:22.0.11 stellar contract build
 
 test:
 	cargo test --features testutils

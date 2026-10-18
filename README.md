@@ -21,12 +21,12 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ## Tech Stack
 
-| Layer                   | Technology                                                 |
-| ----------------------- | ---------------------------------------------------------- |
-| Blockchain              | [Stellar](https://stellar.org/)                            |
-| Smart Contract Platform | [Soroban](https://soroban.stellar.org/)                    |
-| Language                | Rust                                                       |
-| SDK                     | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
+| Layer                   | Technology                                                  |
+| ----------------------- | ----------------------------------------------------------- |
+| Blockchain              | [Stellar](https://stellar.org/)                             |
+| Smart Contract Platform | [Soroban](https://soroban.stellar.org/)                     |
+| Language                | Rust                                                        |
+| SDK                     | [soroban-sdk 22.0.11](https://crates.io/crates/soroban-sdk) |
 
 ## Smart Contract Features
 
@@ -169,17 +169,33 @@ For detailed instructions on deploying the contract to Stellar testnet and mainn
 - Token setup for the platform
 - Verification and troubleshooting
 
+### Verify a Deployed Build
+
+To verify that a deployed on-chain WASM binary matches this repository's source:
+
+```bash
+# Build the reproducible WASM inside the pinned soroban-sdk 22.0.11 container
+make build-docker
+
+# Compute the local SHA-256 WASM hash and compare against the on-chain contract hash
+sha256sum target/wasm32-unknown-unknown/release/proof_of_heart.wasm
+```
+
 ## Project Structure
 
 ```
 ProofOfHeart-stellar/
-├── Cargo.toml                        # Project manifest & dependencies
+├── Cargo.toml                        # Project manifest & dependencies (soroban-sdk 22.0.11)
 └── src/
     ├── lib.rs                        # Contract entry-points and top-level dispatch
     ├── admin.rs                      # Admin functions: pause, fees, voting params, migration
+    ├── bookmarks.rs                  # On-chain campaign bookmarking (save/remove/clear/list)
+    ├── comments.rs                   # Community comment hash anchoring and moderation
+    ├── constants.rs                  # Protocol-wide limits, time bounds, and basis-point constants
     ├── contributions.rs              # Contribute, claim_refund, personal cap
     ├── errors.rs                     # Contract error enum (Error)
     ├── lifecycle.rs                  # Shared guards: require_not_paused, assert_admin, etc.
+    ├── milestones.rs                 # Milestone-based phased fund release and verification
     ├── queries.rs                    # Paginated listing and platform stats helpers
     ├── revenue.rs                    # Revenue deposit and claim logic
     ├── storage.rs                    # Storage helpers and DataKey definitions
@@ -187,41 +203,54 @@ ProofOfHeart-stellar/
     ├── types.rs                      # Shared types: Campaign, Category, CreateCampaignParams, etc.
     ├── voting.rs                     # Community voting logic and helpers
     ├── campaigns/
+    │   ├── mod.rs                    # Campaign submodule declarations
     │   ├── cancel.rs                 # cancel_campaign
     │   ├── create.rs                 # create_campaign
+    │   ├── emergency.rs              # Emergency withdrawal and recovery guards
     │   ├── transfer.rs               # Campaign ownership transfer (two-step)
     │   ├── update.rs                 # update_campaign, update_campaign_description, extend_deadline
     │   └── withdraw.rs               # withdraw_funds, withdraw_reserve, set_vesting_params
     └── tests/                        # Integration, unit, and property-based tests
+        ├── mod.rs
         ├── helpers.rs
         ├── test_admin.rs
+        ├── test_admin_cancel.rs
         ├── test_benchmark.rs
-        ├── test_campaign_create.rs
+        ├── test_bookmarks.rs
+        ├── test_campaigns.rs
         ├── test_campaign_update.rs
+        ├── test_cancel_after_goal_met.rs
         ├── test_cancel_revenue_orphan.rs
-        ├── test_contribute.rs
+        ├── test_caps_fees_and_copies.rs
+        ├── test_cap_interactions.rs
+        ├── test_cei_reentrancy.rs
         ├── test_contribute_caps.rs
-        ├── test_create_campaign_proptest.rs
+        ├── test_contributions.rs
+        ├── test_counter_overflow_and_batch.rs
         ├── test_creator_buckets.rs
-        ├── test_deadline_ext.rs
-        ├── test_duration_cap.rs
-        ├── test_fee_override.rs
-        ├── test_init.rs
-        ├── test_issues.rs
+        ├── test_deadline_and_reverification.rs
+        ├── test_emergency_withdraw.rs
+        ├── test_gas_budget.rs
+        ├── test_issue_817.rs
+        ├── test_issue_819.rs
+        ├── test_issue_863.rs
+        ├── test_issue_fixes.rs
+        ├── test_lifecycle.rs
         ├── test_lifecycle_events.rs
-        ├── test_listing.rs
-        ├── test_purge_voting.rs
-        ├── test_refund.rs
+        ├── test_milestones.rs
+        ├── test_multi_step.rs
+        ├── test_multi_token.rs
+        ├── test_queries.rs
         ├── test_refund_edge.rs
+        ├── test_regressions.rs
         ├── test_revenue.rs
         ├── test_revenue_deposit.rs
-        ├── test_revenue_share_proptest.rs
-        ├── test_storage_ttl.rs
-        ├── test_vesting.rs
+        ├── test_snapshots.rs
+        ├── test_tags.rs
+        ├── test_transfer_verification_censure.rs
         ├── test_voting.rs
-        ├── test_voting_proptest.rs
         ├── test_voting_verify.rs
-        └── test_withdraw.rs
+        └── test_withdrawals.rs
 ```
 
 ## Related Repositories
