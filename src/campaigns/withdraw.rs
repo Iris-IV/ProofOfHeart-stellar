@@ -9,8 +9,8 @@ use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_fee_recipient,
     get_campaign_milestones, get_campaign_reserve, get_campaign_vesting, get_platform_fee,
     get_total_raised_global, get_withdraw_release_delay_days, get_withdraw_reserve_percentage,
-    set_campaign, set_campaign_reserve, set_total_raised_global, set_withdraw_release_delay_days,
-    set_withdraw_reserve_percentage,
+    remove_emergency_withdrawal, set_campaign, set_campaign_reserve, set_total_raised_global,
+    set_withdraw_release_delay_days, set_withdraw_reserve_percentage,
 };
 use crate::types::CampaignReserve;
 
@@ -88,6 +88,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
     decrement_active_campaign_count(env);
+    // A normal withdrawal supersedes any pending emergency proposal for the
+    // same campaign: the escrow is gone, so the proposal is stale. Cleared
+    // here on the success path (writes persist) rather than in
+    // `execute_emergency_withdrawal`'s error branches, where a returned Err
+    // rolls back the removal along with everything else in that invocation.
+    remove_emergency_withdrawal(env, campaign_id);
 
     if reserve_amount > 0 {
         let release_timestamp = delay_days

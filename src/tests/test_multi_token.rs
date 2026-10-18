@@ -299,6 +299,34 @@ fn test_batch_contribute_groups_by_currency() {
     assert_eq!(client.get_contribution(&c, &contributor1), 300);
 }
 
+#[test]
+fn test_batch_contribute_is_atomic_when_a_later_currency_item_fails() {
+    let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    platform_admin.mint(&contributor1, &5000);
+    usdc_admin.mint(&contributor1, &5000);
+
+    let native_id = client.create_campaign(&params(&env, &creator, "Native atomic"));
+    let usdc_id = client.create_campaign_with_token(&params(&env, &creator, "USDC atomic"), &usdc);
+    client.verify_campaign(&native_id);
+    client.verify_campaign(&usdc_id);
+    client.cancel_campaign(&usdc_id);
+
+    let batch = soroban_sdk::Vec::from_array(&env, [(native_id, 700i128), (usdc_id, 300i128)]);
+    assert_eq!(
+        client
+            .try_batch_contribute(&contributor1, &batch)
+            .unwrap_err()
+            .unwrap(),
+        Error::CampaignNotActive
+    );
+    assert_eq!(client.get_contribution(&native_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&native_id).effective_amount_raised, 0);
+    assert_eq!(platform.balance(&client.address), 0);
+    assert_eq!(usdc_token.balance(&client.address), 0);
+}
+
 /// A withdrawal pays the creator in the campaign's currency.
 #[test]
 fn test_withdrawal_pays_in_the_campaign_currency() {

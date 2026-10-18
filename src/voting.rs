@@ -4,8 +4,9 @@ use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
     bump_campaign, bump_votes, extend_ttl, get_approval_threshold_bps, get_approve_votes,
-    get_approve_weight, get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum,
-    get_min_voting_balance, get_reject_votes, get_reject_weight, increment_verified_campaign_count,
+    get_approve_weight, get_category_voting_threshold_bps, get_donor_total_contributed,
+    get_has_voted, get_lifetime_contribution, get_min_votes_quorum, get_min_voting_balance,
+    get_reject_votes, get_reject_weight, increment_verified_campaign_count,
     set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
     set_min_votes_quorum, set_reject_votes, set_reject_weight,
 };
@@ -46,6 +47,32 @@ pub fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
     } else {
         0
     }
+}
+
+/// Computes a donor's dynamic voting weight from token balance plus
+/// cumulative historical contributions (#1054).
+///
+/// Weight = `token_balance + history` (saturating, negatives clamped).
+/// Donors with no history keep exactly their token balance.
+///
+/// Note: consensus stays 1-address-1-vote (#469) to prevent flash-loan
+/// inflation; this weight is an informational ranking/signal exposed via
+/// `get_dynamic_voting_weight`, not a replacement for vote counts.
+#[inline]
+pub fn calculate_dynamic_weight(token_balance: i128, history: i128) -> i128 {
+    token_balance.max(0).saturating_add(history.max(0))
+}
+
+/// Returns a voter's dynamic weight for a campaign (#1054).
+///
+/// Combines current platform-token balance with the voter's lifetime
+/// contributions to that campaign plus their cumulative total across all
+/// campaigns (using `max` to avoid double-counting). Pure reader, never traps.
+pub fn get_dynamic_voting_weight(env: &Env, campaign_id: u32, voter: &Address) -> i128 {
+    let balance = crate::lifecycle::token_client(env).balance(voter);
+    let lifetime = get_lifetime_contribution(env, campaign_id, voter);
+    let donor_total = get_donor_total_contributed(env, voter);
+    calculate_dynamic_weight(balance, lifetime.max(donor_total))
 }
 
 /// Updates the community voting parameters.

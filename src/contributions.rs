@@ -157,6 +157,8 @@ fn update_contribution_accounting(
         contributor,
         lifetime.checked_add(amount).ok_or(Error::Overflow)?,
     );
+    // #1054: track cumulative donor history for dynamic voting weight.
+    crate::storage::add_donor_total_contributed(env, contributor, amount);
 
     if lifetime == 0 {
         increment_contributor_count(env, campaign_id);
@@ -278,65 +280,20 @@ pub(crate) fn batch_contribute(
             return Err(Error::ValidationFailed);
         }
         seen.set(campaign_id, true);
+        let (token, contribution_total) =
+            apply_batch_contribution(env, campaign_id, contributor.clone(), amount)?;
 
-        if amount <= 0 {
-            return Err(Error::ContributionMustBePositive);
-        }
+        total = total
+            .checked_add(contribution_total)
+            .ok_or(Error::Overflow)?;
 
-        let mut campaign = get_campaign_or_error(env, campaign_id)?;
-        if !campaign.is_verified() {
-            return Err(Error::CampaignNotVerified);
-        }
-        require_active_campaign(&campaign)?;
-        if contributor == campaign.creator {
-            return Err(Error::NotAuthorized);
-        }
-        if env.ledger().timestamp() > campaign.deadline {
-            return Err(Error::DeadlinePassed);
-        }
-
-        let current = get_contribution(env, campaign_id, &contributor);
-        let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
-
-        check_transaction_contribution_cap(env, amount)?;
-        check_contribution_caps(&campaign, lifetime, amount)?;
-
-        if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-            if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
-                return Err(Error::ContributionCapExceeded);
-            }
-        }
-
-        check_burst_guard(env, campaign_id, &campaign, amount)?;
-
-        crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
-        update_contribution_accounting(
-            env,
-            campaign_id,
-            &contributor,
-            &mut campaign,
-            current,
-            lifetime,
-            amount,
-        )?;
-
-        let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
-        let is_new_top = match get_top_contributor(env, campaign_id) {
-            Some(top_addr) if top_addr != contributor => {
-                new_total > get_contribution(env, campaign_id, &top_addr)
-            }
-            _ => true,
-        };
-        if is_new_top {
-            set_top_contributor(env, campaign_id, &contributor);
-        }
-        set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
-
-        total = total.checked_add(amount).ok_or(Error::Overflow)?;
-
-        let token = get_campaign_token(env, campaign_id);
         let running = owed.get(token.clone()).unwrap_or(0);
-        owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
+        owed.set(
+            token,
+            running
+                .checked_add(contribution_total)
+                .ok_or(Error::Overflow)?,
+        );
     }
 
     // Transfers happen here, after accounting and before any events are
@@ -364,6 +321,70 @@ pub(crate) fn batch_contribute(
     );
 
     Ok(())
+}
+
+/// Applies one batch item in its own call frame. Keeping the campaign
+/// validation and accounting locals out of `batch_contribute` reduces the
+/// peak Wasm stack frame for multi-step batches without changing their atomic
+/// semantics (#1187).
+fn apply_batch_contribution(
+    env: &Env,
+    campaign_id: u32,
+    contributor: Address,
+    amount: i128,
+) -> Result<(Address, i128), Error> {
+    if amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if !campaign.is_verified() {
+        return Err(Error::CampaignNotVerified);
+    }
+    require_active_campaign(&campaign)?;
+    if contributor == campaign.creator {
+        return Err(Error::NotAuthorized);
+    }
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+
+    let current = get_contribution(env, campaign_id, &contributor);
+    let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+    check_transaction_contribution_cap(env, amount)?;
+    check_contribution_caps(&campaign, lifetime, amount)?;
+
+    if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
+        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
+            return Err(Error::ContributionCapExceeded);
+        }
+    }
+
+    check_burst_guard(env, campaign_id, &campaign, amount)?;
+    crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
+    update_contribution_accounting(
+        env,
+        campaign_id,
+        &contributor,
+        &mut campaign,
+        current,
+        lifetime,
+        amount,
+    )?;
+
+    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let is_new_top = match get_top_contributor(env, campaign_id) {
+        Some(top_addr) if top_addr != contributor => {
+            new_total > get_contribution(env, campaign_id, &top_addr)
+        }
+        _ => true,
+    };
+    if is_new_top {
+        set_top_contributor(env, campaign_id, &contributor);
+    }
+    set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
+
+    Ok((get_campaign_token(env, campaign_id), amount))
 }
 
 pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {

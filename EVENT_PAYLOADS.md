@@ -232,7 +232,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("voting_params_updated",)` |
+| Topics | `("voting_params_updated", admin: Address)` |
 | Data   | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
 | Source | `src/admin.rs` — `set_voting_params()` |
 
@@ -252,7 +252,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("min_voting_balance_updated",)` |
+| Topics | `("min_voting_balance_updated", admin: Address)` |
 | Data   | `(old_balance: i128, new_balance: i128)` |
 | Source | `src/admin.rs` — `set_min_voting_balance()` |
 
@@ -497,3 +497,87 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Topics | `("campaign_transfer_cancelled", campaign_id: u32)` |
 | Data   | `()` |
 | Source | `src/campaigns/transfer.rs` — `cancel_campaign_transfer()` |
+
+---
+
+### `campaign_resumed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_resumed", campaign_id: u32, caller: Address)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `resume_campaign()` |
+
+---
+
+### `campaign_vote_cast`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
+| Data   | `(approve: bool, weight: i128)` — unit weight (`1`) under 1-address-1-vote (#469) |
+| Source | `src/voting.rs` — `cast_vote()` |
+
+---
+
+### `campaign_verified (admin)`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_verified", campaign_id: u32)` |
+| Data   | `()` |
+| Source | `src/voting.rs` — `admin_verify()` |
+
+---
+
+### `campaign_verified (community)`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_verified", campaign_id: u32)` |
+| Data   | `approve_votes: u32` |
+| Source | `src/voting.rs` — `verify_with_votes()` |
+
+---
+
+### `platform_stats_inconsistent`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("platform_stats_inconsistent",)` |
+| Data   | `(total_campaigns: u32, active_campaigns: u32, verified_campaigns: u32, cancelled_campaigns: u32)` |
+| Source | `src/queries.rs` — `get_platform_stats()` |
+
+> Published only when the stored platform counters violate the consistency invariants checked by `queries::counters_are_consistent` (e.g. a partial migration or failed legacy write leaves `active_campaigns > total_campaigns`). The raw stored values are reported in the event data so the corruption is auditable; the same query returns `stats_are_partial = true`.
+
+---
+
+### `cancellation_penalty_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_updated", admin: Address)` |
+| Data   | `(old_penalty_bps: u32, new_penalty_bps: u32)` |
+| Source | `src/lib.rs` — `set_cancellation_penalty_bps()` (#1052) |
+
+---
+
+### `cancellation_penalty_collected`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_collected", campaign_id: u32)` |
+| Data   | `penalty: i128` |
+| Source | `src/campaigns/cancel.rs` — `cancel_campaign()` (#1052) |
+
+---
+
+### `stranded_tokens_rescued`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("stranded_tokens_rescued", token: Address, to: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
+
+Total: 55 documented publish() call sites

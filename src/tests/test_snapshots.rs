@@ -155,9 +155,9 @@ fn test_voting_state_snapshot() {
 
     token_admin.mint(&contributor1, &10_000);
     let id = client.create_campaign(&params(&env, &creator, "Voting"));
-    client.verify_campaign(&id);
 
     client.vote_on_campaign(&id, &contributor1, &true);
+    client.verify_campaign(&id);
 
     let approvals = client.get_approve_votes(&id);
     let rejections = client.get_reject_votes(&id);
