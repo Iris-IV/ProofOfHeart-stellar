@@ -700,17 +700,16 @@ fn test_revenue_refund_nested_cancel_attempt_refused() {
         Some(Attack::CancelCampaign),
     );
 
-    // Deposit revenue pool before cancellation
+    // Seed revenue pool and keep amount_raised below funding_goal so creator
+    // cancellation triggers the revenue pool refund transfer.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.set_funds_withdrawn(true);
+        campaign.has_revenue_sharing = true;
+        campaign.revenue_share_percentage = 2000;
+        campaign.amount_raised = GOAL / 2;
+        campaign.effective_amount_raised = GOAL / 2;
         storage::set_campaign(&env, campaign_id, &campaign);
-    });
-    client.deposit_revenue(&campaign_id, &1000);
-    env.as_contract(&client.address, || {
-        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.set_funds_withdrawn(false);
-        storage::set_campaign(&env, campaign_id, &campaign);
+        storage::set_revenue_pool(&env, campaign_id, 1000);
     });
 
     let outcome = client.try_cancel_campaign(&campaign_id);
@@ -752,4 +751,77 @@ fn test_chained_withdraw_attempts_all_refused() {
         0,
         "no re-entrant withdrawal should succeed"
     );
+}
+
+/// Structural CEI guard (#964): every storage mutation in `withdraw_funds`
+/// (including `set_campaign`, `set_campaign_reserve`, `set_total_raised_global`,
+/// and `set_campaign_payout_marker`) must occur strictly before `client.transfer`.
+#[test]
+fn test_withdraw_funds_source_orders_all_effects_before_interaction() {
+    let source = include_str!("../campaigns/withdraw.rs");
+
+    let start = source
+        .find("pub(crate) fn withdraw_funds")
+        .expect("withdraw_funds not found");
+    let end = source[start..]
+        .find("pub(crate) fn withdraw_reserve")
+        .map(|i| start + i)
+        .unwrap_or(source.len());
+    let body = &source[start..end];
+
+    let transfer = body
+        .find("client.transfer(")
+        .expect("no token transfer in withdraw_funds");
+
+    for effect in [
+        "set_campaign(env, campaign_id, &campaign)",
+        "decrement_active_campaign_count(env)",
+        "remove_emergency_withdrawal(env, campaign_id)",
+        "set_campaign_reserve(env, campaign_id, &reserve)",
+        "set_total_raised_global(",
+        "set_campaign_payout_marker(env, campaign_id, payout_marker)",
+    ] {
+        let pos = body
+            .find(effect)
+            .unwrap_or_else(|| panic!("effect missing in withdraw_funds: {}", effect));
+        assert!(
+            pos < transfer,
+            "CEI (#964): `{}` must occur before `client.transfer(` in withdraw_funds",
+            effect
+        );
+    }
+}
+
+/// Structural CEI guard (#964): every storage mutation in `withdraw_reserve`
+/// must occur strictly before `client.transfer`.
+#[test]
+fn test_withdraw_reserve_source_orders_all_effects_before_interaction() {
+    let source = include_str!("../campaigns/withdraw.rs");
+
+    let start = source
+        .find("pub(crate) fn withdraw_reserve")
+        .expect("withdraw_reserve not found");
+    let end = source[start..]
+        .find("pub(crate) fn set_vesting_params")
+        .map(|i| start + i)
+        .unwrap_or(source.len());
+    let body = &source[start..end];
+
+    let transfer = body
+        .find("client.transfer(")
+        .expect("no token transfer in withdraw_reserve");
+
+    for effect in [
+        "set_campaign_reserve(env, campaign_id, &reserve)",
+        "set_total_raised_global(",
+    ] {
+        let pos = body
+            .find(effect)
+            .unwrap_or_else(|| panic!("effect missing in withdraw_reserve: {}", effect));
+        assert!(
+            pos < transfer,
+            "CEI (#964): `{}` must occur before `client.transfer(` in withdraw_reserve",
+            effect
+        );
+    }
 }

@@ -64,7 +64,10 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.effective_amount_raised - fee_amount;
+    let total_after_fee = campaign
+        .effective_amount_raised
+        .checked_sub(fee_amount)
+        .ok_or(Error::Overflow)?;
 
     // Use per-campaign vesting params snapshotted at creation, falling back
     // to the global defaults for campaigns created before the snapshot was
@@ -80,10 +83,12 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let creator_amount = total_after_fee - reserve_amount;
+    let creator_amount = total_after_fee
+        .checked_sub(reserve_amount)
+        .ok_or(Error::Overflow)?;
 
     // Update state before the token transfer (CEI pattern) so that a
-    // malicious token contract cannot re-enter and double-claim (#557).
+    // malicious token contract cannot re-enter and double-claim (#557, #964).
     campaign.set_funds_withdrawn(true);
     campaign.set_active(false);
     set_campaign(env, campaign_id, &campaign);
@@ -109,13 +114,20 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         set_campaign_reserve(env, campaign_id, &reserve);
     }
 
+    let released_from_escrow = campaign
+        .effective_amount_raised
+        .checked_sub(reserve_amount)
+        .ok_or(Error::Overflow)?;
     let total_raised = get_total_raised_global(env);
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.effective_amount_raised - reserve_amount)
+            .checked_sub(released_from_escrow)
             .ok_or(Error::Overflow)?,
     );
+
+    let payout_marker = env.ledger().sequence();
+    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
 
     // Token transfers happen after all state updates (CEI pattern).
     //
@@ -153,8 +165,6 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         (fee_recipient, fee_amount),
     );
 
-    let payout_marker = env.ledger().sequence();
-    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
     env.events()
         .publish(("payout_marker", campaign_id), payout_marker);
 

@@ -340,6 +340,7 @@ fn test_withdrawal_pays_in_the_campaign_currency() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &5000);
 
+    advance_past_deadline(&env, &client, id);
     client.withdraw_funds(&id);
 
     // The creator was paid in USDC, and the contract's platform-token balance
@@ -455,8 +456,8 @@ fn test_concurrent_refunds_in_campaign_currency() {
     let id = client.create_campaign_with_token(&params(&env, &creator, "Refund Test"), &usdc);
     client.verify_campaign(&id);
 
-    client.contribute(&id, &contributor1, &2000);
-    client.contribute(&id, &contributor2, &3000);
+    client.contribute(&id, &contributor1, &1500);
+    client.contribute(&id, &contributor2, &2500);
 
     client.cancel_campaign(&id);
     client.claim_refund(&id, &contributor1);
@@ -480,14 +481,16 @@ fn test_withdrawal_with_revenue_share_in_campaign_currency() {
     platform_admin.mint(&client.address, &10_000);
 
     let mut params = params(&env, &creator, "Revenue Test");
+    params.category = Category::EducationalStartup;
     params.has_revenue_sharing = true;
     params.revenue_share_percentage = 50;
 
     let id = client.create_campaign_with_token(&params, &usdc);
+    client.vote_on_campaign(&id, &contributor1, &true);
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &5000);
 
-    client.vote_on_campaign(&id, &contributor1, &true);
+    advance_past_deadline(&env, &client, id);
     client.withdraw_funds(&id);
 
     assert!(usdc_token.balance(&creator) > 0);
