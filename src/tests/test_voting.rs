@@ -1242,3 +1242,98 @@ fn test_purge_voting_state_split_batches_then_finalize() {
     }
     assert_eq!(client.get_approve_votes(&campaign_id), 0);
 }
+
+#[test]
+fn test_token_delegation_transfer_after_vote_blocks_revote_and_enforces_min_balance() {
+    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+    let delegate = Address::generate(&env);
+
+    // Admin enforces a minimum voting balance of 500 tokens to resist dust splitting.
+    client.set_min_voting_balance(&admin, &500);
+
+    token_admin.mint(&contributor1, &500);
+    token_admin.mint(&contributor2, &500);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Delegation Audit"),
+        String::from_str(&env, "Audit token delegation and splitting"),
+        1_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    // contributor1 casts a vote while holding 500 tokens.
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+
+    // Splitting tokens across contributor2 and delegate so delegate holds < 500 fails min_voting_balance.
+    token.transfer(&contributor2, &delegate, &200);
+    assert_eq!(
+        client.try_vote_on_campaign(&campaign_id, &delegate, &true),
+        Err(Ok(Error::NotTokenHolder))
+    );
+    // contributor2 now only has 300 (< 500 min_voting_balance), so contributor2 also cannot vote.
+    assert_eq!(
+        client.try_vote_on_campaign(&campaign_id, &contributor2, &true),
+        Err(Ok(Error::NotTokenHolder))
+    );
+
+    // Even if delegate returns tokens to contributor1, contributor1 cannot vote a second time.
+    token.transfer(&delegate, &contributor1, &200);
+    assert_eq!(
+        client.try_vote_on_campaign(&campaign_id, &contributor1, &true),
+        Err(Ok(Error::AlreadyVoted))
+    );
+}
+
+#[test]
+fn test_delegated_token_inflation_does_not_bypass_quorum_consensus() {
+    let (env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    // Mint massive balance + contribution history to contributor1 to inflate dynamic weight.
+    token_admin.mint(&contributor1, &10_000_000);
+    token_admin.mint(&contributor2, &100);
+
+    let prior_campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Prior Verified Campaign"),
+        String::from_str(&env, "Build donor history"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&prior_campaign_id);
+    client.contribute(&prior_campaign_id, &contributor1, &500);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator,
+        String::from_str(&env, "Weight Isolation Audit"),
+        String::from_str(&env, "Dynamic weight cannot bypass 1-address-1-vote quorum"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &contributor1, &true);
+    client.vote_on_campaign(&campaign_id, &contributor2, &true);
+
+    // Dynamic voting weight reflects token balance + contribution history,
+    // but consensus quorum (default 3 distinct voters) still rejects verification with only 2 voters.
+    assert!(client.get_dynamic_voting_weight(&campaign_id, &contributor1) >= 10_000_000);
+    assert_eq!(client.get_approve_votes(&campaign_id), 2);
+    assert_eq!(
+        client.try_verify_campaign_with_votes(&campaign_id),
+        Err(Ok(Error::VotingQuorumNotMet))
+    );
+}
