@@ -103,6 +103,7 @@ fn create_campaign_inner(
     // `get_creator_campaigns` let a caller tell this apart from the other
     // validation failures above.
     let title_hash = hash_text(env, &title);
+    validate_metadata_hash_preimage(&title_hash.to_array())?;
     if creator_has_title(env, &creator, &title_hash) {
         return Err(Error::ValidationFailed);
     }
@@ -244,4 +245,55 @@ fn create_campaign_inner(
     );
 
     Ok(count)
+}
+
+/// Validates a 32-byte SHA-256 metadata/IPFS digest against degenerate or
+/// placeholder preimage patterns (#997).
+///
+/// Rejects digests where all 32 bytes are identical (such as `[0u8; 32]` or
+/// `[0xFFu8; 32]`), which indicate an unhashed placeholder or malformed
+/// off-chain metadata payload rather than a genuine SHA-256 commitment.
+pub const fn validate_metadata_hash_preimage(digest: &[u8; 32]) -> Result<(), Error> {
+    let first = digest[0];
+    let mut idx = 1usize;
+    let mut all_equal = true;
+    while idx < 32 {
+        if digest[idx] != first {
+            all_equal = false;
+            break;
+        }
+        idx += 1;
+    }
+    if all_equal {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_metadata_hash_preimage;
+    use crate::errors::Error;
+    use crate::storage::hash_text;
+    use soroban_sdk::{Env, String};
+
+    #[test]
+    fn test_validate_metadata_hash_preimage_rejects_degenerate_and_accepts_sha256() {
+        assert_eq!(
+            validate_metadata_hash_preimage(&[0u8; 32]),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            validate_metadata_hash_preimage(&[0xFFu8; 32]),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            validate_metadata_hash_preimage(&[0xAAu8; 32]),
+            Err(Error::ValidationFailed)
+        );
+
+        let env = Env::default();
+        let digest = hash_text(&env, &String::from_str(&env, "QmValidIpfsMetadataCid"));
+        assert_eq!(validate_metadata_hash_preimage(&digest.to_array()), Ok(()));
+    }
 }
