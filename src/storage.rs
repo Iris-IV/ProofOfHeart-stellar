@@ -1703,8 +1703,55 @@ pub fn append_campaign_to_tag(env: &Env, tag_hash: &BytesN<32>, campaign_id: u32
     let mut bucket = get_tag_campaigns_bucket(env, tag_hash, bucket_idx);
     bucket.push_back(campaign_id);
     set_tag_campaigns_bucket(env, tag_hash, bucket_idx, &bucket);
-    set_tag_campaign_count(env, tag_hash, count + 1);
+    set_tag_campaign_count(env, tag_hash, count.saturating_add(1));
 }
+
+/// Default minimum balance (in stroops, 10^7 = 1 XLM) retained to cover Soroban host rent (#999).
+pub const MIN_CONTRACT_RENT_RESERVE_BALANCE: i128 = 10_000_000;
+
+/// Verifies that TTL bump parameters satisfy Soroban host invariants (`0 < threshold <= extend_to`) (#999).
+pub const fn validate_ttl_bump_bounds(
+    threshold: u32,
+    extend_to: u32,
+) -> Result<(), crate::errors::Error> {
+    if threshold == 0 || threshold > extend_to {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+/// Enforces minimum balance retention when computing a contract payout (#999).
+///
+/// Ensures `contract_balance - requested_payout >= min_rent_reserve` using checked
+/// 128-bit arithmetic so outbound transfers cannot exhaust the base balance needed
+/// to sustain persistent/instance ledger rent. Returns the remaining post-payout balance.
+pub const fn enforce_minimum_rent_balance(
+    contract_balance: i128,
+    requested_payout: i128,
+    min_rent_reserve: i128,
+) -> Result<i128, crate::errors::Error> {
+    if contract_balance < 0 || requested_payout < 0 || min_rent_reserve < 0 {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    let remaining = match contract_balance.checked_sub(requested_payout) {
+        Some(rem) => rem,
+        None => return Err(crate::errors::Error::Overflow),
+    };
+    if remaining < min_rent_reserve {
+        return Err(crate::errors::Error::NoFundsToWithdraw);
+    }
+    Ok(remaining)
+}
+
+const _: () = {
+    assert!(validate_ttl_bump_bounds(BUMP_THRESHOLD, BUMP_AMOUNT).is_ok());
+    assert!(enforce_minimum_rent_balance(
+        25_000_000,
+        10_000_000,
+        MIN_CONTRACT_RENT_RESERVE_BALANCE
+    )
+    .is_ok());
+};
 
 // ── Bulk TTL bump (#1062) ────────────────────────────────────────────────────
 
@@ -1744,6 +1791,11 @@ pub fn bump_all_campaign_state(env: &Env, campaign_id: u32) {
 
 #[cfg(test)]
 mod ttl_bump_tests {
+    use super::{
+        enforce_minimum_rent_balance, validate_ttl_bump_bounds, BUMP_AMOUNT, BUMP_THRESHOLD,
+        MIN_CONTRACT_RENT_RESERVE_BALANCE,
+    };
+    use crate::errors::Error;
     use crate::tests::helpers::*;
     use crate::Category;
 
@@ -1773,5 +1825,36 @@ mod ttl_bump_tests {
         with_contract(&env, &client.address, || {
             crate::storage::bump_all_campaign_state(&env, id + 9999);
         });
+    }
+
+    #[test]
+    fn minimum_rent_balance_and_ttl_bounds_are_enforced() {
+        assert_eq!(
+            validate_ttl_bump_bounds(BUMP_THRESHOLD, BUMP_AMOUNT),
+            Ok(())
+        );
+        assert_eq!(
+            validate_ttl_bump_bounds(0, BUMP_AMOUNT),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            validate_ttl_bump_bounds(BUMP_AMOUNT + 1, BUMP_AMOUNT),
+            Err(Error::ValidationFailed)
+        );
+
+        assert_eq!(
+            enforce_minimum_rent_balance(25_000_000, 15_000_000, MIN_CONTRACT_RENT_RESERVE_BALANCE),
+            Ok(10_000_000)
+        );
+        // Payout that would breach the minimum rent reserve is rejected
+        assert_eq!(
+            enforce_minimum_rent_balance(25_000_000, 15_000_001, MIN_CONTRACT_RENT_RESERVE_BALANCE),
+            Err(Error::NoFundsToWithdraw)
+        );
+        // Negative inputs rejected
+        assert_eq!(
+            enforce_minimum_rent_balance(-1, 100, MIN_CONTRACT_RENT_RESERVE_BALANCE),
+            Err(Error::ValidationFailed)
+        );
     }
 }
