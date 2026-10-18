@@ -96,3 +96,143 @@ pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
 /// reached. Keeping the bound below the entry limit leaves room for the fixed
 /// reads (counters, buckets, token, fee) each query also performs.
 pub(crate) const MAX_STATS_SCAN: u32 = 40;
+
+/// Category-specific platform fee scaling multipliers in basis points out of
+/// [`BPS_DENOMINATOR`] (#1019).
+///
+/// Non-commercial educational causes (`Learner`, `Educator`, `Publisher`)
+/// receive a discounted share of the global platform fee, whereas commercial
+/// `EducationalStartup` campaigns pay the full base rate unless overridden.
+pub(crate) const CATEGORY_FEE_MULTIPLIER_LEARNER_BPS: u32 = 5_000;
+pub(crate) const CATEGORY_FEE_MULTIPLIER_EDUCATOR_BPS: u32 = 7_500;
+pub(crate) const CATEGORY_FEE_MULTIPLIER_PUBLISHER_BPS: u32 = 9_000;
+pub(crate) const CATEGORY_FEE_MULTIPLIER_STARTUP_BPS: u32 = 10_000;
+
+/// Returns the fee scaling multiplier (in basis points out of `BPS_DENOMINATOR`)
+/// for a campaign's [`crate::types::Category`] (#1019).
+pub(crate) const fn category_fee_multiplier_bps(category: crate::types::Category) -> u32 {
+    match category {
+        crate::types::Category::Learner => CATEGORY_FEE_MULTIPLIER_LEARNER_BPS,
+        crate::types::Category::Educator => CATEGORY_FEE_MULTIPLIER_EDUCATOR_BPS,
+        crate::types::Category::Publisher => CATEGORY_FEE_MULTIPLIER_PUBLISHER_BPS,
+        crate::types::Category::EducationalStartup => CATEGORY_FEE_MULTIPLIER_STARTUP_BPS,
+    }
+}
+
+/// Computes the effective platform fee in basis points for a campaign given
+/// the global `base_fee_bps`, its cause `category`, and an optional per-campaign
+/// `fee_override` (#1019).
+pub(crate) const fn calculate_category_platform_fee_bps(
+    base_fee_bps: u32,
+    category: crate::types::Category,
+    fee_override: Option<u32>,
+) -> Result<u32, crate::errors::Error> {
+    if base_fee_bps > crate::PLATFORM_FEE_MAX_BPS {
+        return Err(crate::errors::Error::InvalidPlatformFee);
+    }
+    if let Some(override_bps) = fee_override {
+        if override_bps > crate::PLATFORM_FEE_MAX_BPS {
+            return Err(crate::errors::Error::InvalidPlatformFee);
+        }
+        return Ok(override_bps);
+    }
+
+    let multiplier = category_fee_multiplier_bps(category) as u64;
+    let effective = (base_fee_bps as u64 * multiplier) / (BPS_DENOMINATOR as u64);
+    Ok(effective as u32)
+}
+
+/// Computes the token fee amount from `gross_amount` and `effective_fee_bps`
+/// using ceiling division consistent with withdrawal accounting (#1019).
+pub(crate) const fn calculate_category_platform_fee_amount(
+    gross_amount: i128,
+    effective_fee_bps: u32,
+) -> Result<i128, crate::errors::Error> {
+    if gross_amount < 0 {
+        return Err(crate::errors::Error::ValidationFailed);
+    }
+    if effective_fee_bps > crate::PLATFORM_FEE_MAX_BPS {
+        return Err(crate::errors::Error::InvalidPlatformFee);
+    }
+    if gross_amount == 0 || effective_fee_bps == 0 {
+        return Ok(0);
+    }
+    let scaled = match gross_amount.checked_mul(effective_fee_bps as i128) {
+        Some(v) => v,
+        None => return Err(crate::errors::Error::Overflow),
+    };
+    let with_ceil = match scaled.checked_add(BPS_CEIL_OFFSET) {
+        Some(v) => v,
+        None => return Err(crate::errors::Error::Overflow),
+    };
+    Ok(with_ceil / (BPS_DENOMINATOR as i128))
+}
+
+const _: () = {
+    assert!(
+        calculate_category_platform_fee_bps(500, crate::types::Category::Learner, None).is_ok()
+    );
+    assert!(calculate_category_platform_fee_amount(10_000, 250).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::Error;
+    use crate::types::Category;
+
+    #[test]
+    fn dynamic_category_platform_fee_bps_scales_by_cause_and_respects_override() {
+        assert_eq!(
+            calculate_category_platform_fee_bps(400, Category::Learner, None),
+            Ok(200)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(400, Category::Educator, None),
+            Ok(300)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(400, Category::Publisher, None),
+            Ok(360)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(400, Category::EducationalStartup, None),
+            Ok(400)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(400, Category::Learner, Some(150)),
+            Ok(150)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(
+                crate::PLATFORM_FEE_MAX_BPS + 1,
+                Category::Learner,
+                None
+            ),
+            Err(Error::InvalidPlatformFee)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_bps(
+                400,
+                Category::Learner,
+                Some(crate::PLATFORM_FEE_MAX_BPS + 1)
+            ),
+            Err(Error::InvalidPlatformFee)
+        );
+    }
+
+    #[test]
+    fn dynamic_category_platform_fee_amount_uses_ceiling_and_guards_bounds() {
+        assert_eq!(calculate_category_platform_fee_amount(10_000, 200), Ok(200));
+        assert_eq!(calculate_category_platform_fee_amount(101, 200), Ok(3));
+        assert_eq!(calculate_category_platform_fee_amount(10_000, 0), Ok(0));
+        assert_eq!(
+            calculate_category_platform_fee_amount(-1, 200),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            calculate_category_platform_fee_amount(i128::MAX, 500),
+            Err(Error::Overflow)
+        );
+    }
+}
