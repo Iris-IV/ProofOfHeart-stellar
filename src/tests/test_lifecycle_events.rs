@@ -36,44 +36,51 @@ fn test_full_lifecycle_event_sequence() {
         has_event(&env, "campaign_created"),
         "campaign_created event must be emitted"
     );
+    let mut total = env.events().all().len();
 
     client.verify_campaign(&id);
     assert!(
         has_event(&env, "campaign_verified"),
         "campaign_verified event must be emitted"
     );
+    total += env.events().all().len();
 
     client.contribute(&id, &contributor1, &1_000);
     assert!(
         has_event(&env, "contribution_made"),
         "contribution_made event must be emitted"
     );
+    total += env.events().all().len();
 
+    env.ledger().with_mut(|li| li.timestamp += 31 * 86_400);
     client.withdraw_funds(&id);
     assert!(
         has_event(&env, "withdrawal"),
         "withdrawal event must be emitted"
     );
+    total += env.events().all().len();
 
     client.deposit_revenue(&id, &2_000);
     assert!(
         has_event(&env, "revenue_deposited"),
         "revenue_deposited event must be emitted"
     );
+    total += env.events().all().len();
 
     client.claim_revenue(&id, &contributor1);
     assert!(
         has_event(&env, "revenue_claimed"),
         "revenue_claimed event must be emitted"
     );
+    total += env.events().all().len();
 
     client.claim_creator_revenue(&id);
     assert!(
         has_event(&env, "creator_revenue_claimed"),
         "creator_revenue_claimed event must be emitted"
     );
+    total += env.events().all().len();
 
-    let total = env.events().all().len();
     assert!(
         total >= 8,
         "full lifecycle must emit at least 8 events, got {}",
@@ -193,7 +200,8 @@ fn test_campaign_created_event_includes_category() {
 /// per EVENT_PAYLOADS.md: topics=["initialized", admin], data=(token, fee, quorum, threshold, version).
 #[test]
 fn test_initialized_event_payload_schema() {
-    let (env, admin, _creator, _c1, _c2, token, _token_admin, _client) = setup_env();
+    let (env, admin, _creator, _c1, _c2, token, _token_admin, _client) =
+        setup_env_with_default_min();
 
     let events = env.events().all();
     let init_event = events
@@ -218,16 +226,17 @@ fn test_initialized_event_payload_schema() {
         admin
     );
 
-    let data: soroban_sdk::Vec<soroban_sdk::Val> =
-        soroban_sdk::FromVal::from_val(&env, &init_event.2);
-    let token_addr = soroban_sdk::Address::try_from_val(&env, &data.get(0).unwrap()).unwrap();
+    let (token_addr, fee, quorum, threshold, version): (Address, u32, u32, u32, u32) =
+        FromVal::from_val(&env, &init_event.2);
     assert_eq!(token_addr, token.address);
-    let fee: u32 = soroban_sdk::TryFromVal::try_from_val(&env, &data.get(1).unwrap()).unwrap();
-    assert!(fee <= 1000, "fee must be capped at 1000 bps");
+    assert_eq!(fee, 300);
+    assert_eq!(quorum, crate::voting::DEFAULT_MIN_VOTES_QUORUM);
+    assert_eq!(threshold, crate::voting::DEFAULT_APPROVAL_THRESHOLD_BPS);
+    assert_eq!(version, crate::CONTRACT_VERSION);
 }
 
 /// Verifies that `campaign_created` emits topics=["campaign_created", id, creator]
-/// and data=campaign_title per EVENT_PAYLOADS.md.
+/// and data=(campaign_title, category) per EVENT_PAYLOADS.md.
 #[test]
 fn test_campaign_created_event_payload_schema() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
@@ -271,8 +280,9 @@ fn test_campaign_created_event_payload_schema() {
         creator
     );
 
-    let data_title = String::try_from_val(&env, &create_event.2).unwrap();
+    let (data_title, data_category): (String, u32) = FromVal::from_val(&env, &create_event.2);
     assert_eq!(data_title, title);
+    assert_eq!(data_category, Category::Educator as u32);
 }
 
 /// Verifies that `contribution_made` emits topics=["contribution_made", id, contributor]
