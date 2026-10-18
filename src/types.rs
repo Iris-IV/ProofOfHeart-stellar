@@ -324,4 +324,135 @@ impl Campaign {
             self.status &= !CAMPAIGN_SUCCEEDED;
         }
     }
+
+    /// Verifies that the campaign's stored title and description satisfy the
+    /// protocol's length boundaries (`1..=CAMPAIGN_TITLE_MAX_LEN` and
+    /// `1..=CAMPAIGN_DESCRIPTION_MAX_LEN`).
+    pub fn has_valid_string_bounds(&self) -> bool {
+        !self.title.is_empty()
+            && self.title.len() <= crate::CAMPAIGN_TITLE_MAX_LEN
+            && !self.description.is_empty()
+            && self.description.len() <= crate::CAMPAIGN_DESCRIPTION_MAX_LEN
+    }
+}
+
+impl CreateCampaignParams {
+    /// Validates `title` and `description` length boundaries against
+    /// `CAMPAIGN_TITLE_MAX_LEN` and `CAMPAIGN_DESCRIPTION_MAX_LEN`.
+    pub fn validate_string_bounds(&self) -> Result<(), crate::errors::Error> {
+        if self.title.is_empty() || self.title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        if self.description.is_empty()
+            || self.description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
+        {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        Ok(())
+    }
+}
+
+impl Milestone {
+    /// Validates that the milestone description is non-empty and within
+    /// `CAMPAIGN_DESCRIPTION_MAX_LEN`.
+    pub fn validate_description_bounds(&self) -> Result<(), crate::errors::Error> {
+        if self.description.is_empty()
+            || self.description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN
+        {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::Error;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn test_create_campaign_params_string_length_boundaries() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let max_title = "t".repeat(crate::CAMPAIGN_TITLE_MAX_LEN as usize);
+        let over_title = "t".repeat(crate::CAMPAIGN_TITLE_MAX_LEN as usize + 1);
+        let max_desc = "d".repeat(crate::CAMPAIGN_DESCRIPTION_MAX_LEN as usize);
+        let over_desc = "d".repeat(crate::CAMPAIGN_DESCRIPTION_MAX_LEN as usize + 1);
+
+        let mut params = CreateCampaignParams {
+            creator,
+            title: String::from_str(&env, &max_title),
+            description: String::from_str(&env, &max_desc),
+            funding_goal: 1_000,
+            duration_days: 30,
+            category: Category::Learner,
+            has_revenue_sharing: false,
+            revenue_share_percentage: 0,
+            max_contribution_per_user: 0,
+        };
+        assert_eq!(params.validate_string_bounds(), Ok(()));
+
+        params.title = String::from_str(&env, "");
+        assert_eq!(
+            params.validate_string_bounds(),
+            Err(Error::ValidationFailed)
+        );
+
+        params.title = String::from_str(&env, &over_title);
+        assert_eq!(
+            params.validate_string_bounds(),
+            Err(Error::ValidationFailed)
+        );
+
+        params.title = String::from_str(&env, &max_title);
+        params.description = String::from_str(&env, "");
+        assert_eq!(
+            params.validate_string_bounds(),
+            Err(Error::ValidationFailed)
+        );
+
+        params.description = String::from_str(&env, &over_desc);
+        assert_eq!(
+            params.validate_string_bounds(),
+            Err(Error::ValidationFailed)
+        );
+    }
+
+    #[test]
+    fn test_milestone_description_length_boundaries() {
+        let env = Env::default();
+        let max_desc = "m".repeat(crate::CAMPAIGN_DESCRIPTION_MAX_LEN as usize);
+        let over_desc = "m".repeat(crate::CAMPAIGN_DESCRIPTION_MAX_LEN as usize + 1);
+
+        let valid = Milestone {
+            id: 1,
+            description: String::from_str(&env, &max_desc),
+            payout_bps: 10_000,
+            verified: false,
+        };
+        assert_eq!(valid.validate_description_bounds(), Ok(()));
+
+        let empty = Milestone {
+            id: 1,
+            description: String::from_str(&env, ""),
+            payout_bps: 10_000,
+            verified: false,
+        };
+        assert_eq!(
+            empty.validate_description_bounds(),
+            Err(Error::ValidationFailed)
+        );
+
+        let oversized = Milestone {
+            id: 1,
+            description: String::from_str(&env, &over_desc),
+            payout_bps: 10_000,
+            verified: false,
+        };
+        assert_eq!(
+            oversized.validate_description_bounds(),
+            Err(Error::ValidationFailed)
+        );
+    }
 }
