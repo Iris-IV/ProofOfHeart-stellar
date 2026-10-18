@@ -190,3 +190,137 @@ pub(crate) fn extend_campaign_deadline(
     );
     Ok(())
 }
+
+/// Default minimum voter quorum for community-governed campaign extensions (#1008).
+pub const EXTENSION_GOVERNANCE_MIN_QUORUM: u32 = 3;
+
+/// Default approval threshold in basis points (6000 = 60%) for campaign extensions (#1008).
+pub const EXTENSION_GOVERNANCE_THRESHOLD_BPS: u32 = 6_000;
+
+/// Verifies that a campaign deadline or goal extension proposal satisfies the
+/// community governance quorum and approval threshold (#1008).
+pub const fn verify_extension_governance_threshold(
+    approve_votes: u32,
+    reject_votes: u32,
+    min_quorum: u32,
+    threshold_bps: u32,
+) -> Result<(), Error> {
+    if min_quorum == 0
+        || threshold_bps < crate::voting::MIN_APPROVAL_THRESHOLD_BPS
+        || threshold_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let total_votes = match approve_votes.checked_add(reject_votes) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    if total_votes < min_quorum {
+        return Err(Error::VotingQuorumNotMet);
+    }
+    let approve_scaled = (approve_votes as u64) * (crate::BPS_DENOMINATOR as u64);
+    let required_scaled = (total_votes as u64) * (threshold_bps as u64);
+    if approve_scaled < required_scaled {
+        return Err(Error::VotingThresholdNotMet);
+    }
+    Ok(())
+}
+
+/// Validates a proposed campaign funding goal extension against platform bounds
+/// and a maximum 2x step-up limit (#1008).
+pub const fn validate_goal_extension_bounds(
+    current_goal: i128,
+    proposed_goal: i128,
+    amount_raised: i128,
+    max_goal: i128,
+) -> Result<(), Error> {
+    if current_goal <= 0 || proposed_goal <= current_goal || amount_raised < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if proposed_goal > max_goal {
+        return Err(Error::FundingGoalTooHigh);
+    }
+    let max_step_goal = match current_goal.checked_mul(2) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    if proposed_goal > max_step_goal {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+const _: () = {
+    assert!(verify_extension_governance_threshold(
+        3,
+        1,
+        EXTENSION_GOVERNANCE_MIN_QUORUM,
+        EXTENSION_GOVERNANCE_THRESHOLD_BPS
+    )
+    .is_ok());
+    assert!(validate_goal_extension_bounds(
+        100_000,
+        150_000,
+        80_000,
+        crate::CAMPAIGN_FUNDING_GOAL_MAX
+    )
+    .is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        validate_goal_extension_bounds, verify_extension_governance_threshold,
+        EXTENSION_GOVERNANCE_MIN_QUORUM, EXTENSION_GOVERNANCE_THRESHOLD_BPS,
+    };
+    use crate::errors::Error;
+
+    #[test]
+    fn test_extension_governance_threshold_and_goal_bounds() {
+        assert_eq!(
+            verify_extension_governance_threshold(
+                3,
+                2,
+                EXTENSION_GOVERNANCE_MIN_QUORUM,
+                EXTENSION_GOVERNANCE_THRESHOLD_BPS
+            ),
+            Ok(())
+        );
+        // Quorum not met (2 < 3)
+        assert_eq!(
+            verify_extension_governance_threshold(
+                2,
+                0,
+                EXTENSION_GOVERNANCE_MIN_QUORUM,
+                EXTENSION_GOVERNANCE_THRESHOLD_BPS
+            ),
+            Err(Error::VotingQuorumNotMet)
+        );
+        // Threshold not met (2/4 = 50% < 60%)
+        assert_eq!(
+            verify_extension_governance_threshold(
+                2,
+                2,
+                EXTENSION_GOVERNANCE_MIN_QUORUM,
+                EXTENSION_GOVERNANCE_THRESHOLD_BPS
+            ),
+            Err(Error::VotingThresholdNotMet)
+        );
+
+        // Goal extension within 2x limit and platform max succeeds
+        assert_eq!(
+            validate_goal_extension_bounds(1_000, 2_000, 500, crate::CAMPAIGN_FUNDING_GOAL_MAX),
+            Ok(())
+        );
+        // Goal extension exceeding 2x step-up limit rejected
+        assert_eq!(
+            validate_goal_extension_bounds(1_000, 2_001, 500, crate::CAMPAIGN_FUNDING_GOAL_MAX),
+            Err(Error::ValidationFailed)
+        );
+        // Goal extension exceeding platform max rejected
+        assert_eq!(
+            validate_goal_extension_bounds(1_000, 1_500, 500, 1_200),
+            Err(Error::FundingGoalTooHigh)
+        );
+    }
+}
