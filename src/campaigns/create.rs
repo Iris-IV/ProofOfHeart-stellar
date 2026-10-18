@@ -16,6 +16,10 @@ use crate::storage::{
 use crate::storage::{get_token, is_token_explicitly_allowed};
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
 
+/// Maximum number of campaigns a single creator address may own concurrently
+/// to prevent spam state bloat and unbounded bucket growth (#982).
+pub const MAX_CAMPAIGNS_PER_CREATOR: u32 = 1_000;
+
 /// Creates a campaign denominated in the platform token.
 ///
 /// Kept as the default entry point so existing clients are unaffected by
@@ -155,6 +159,11 @@ fn create_campaign_inner(
         _ => None,
     };
 
+    let creator_count = get_creator_campaign_count(env, &creator);
+    if creator_count >= MAX_CAMPAIGNS_PER_CREATOR {
+        return Err(Error::ValidationFailed);
+    }
+
     bump_instance_ttl(env);
     let count = get_campaign_count(env)
         .checked_add(1)
@@ -226,7 +235,6 @@ fn create_campaign_inner(
     set_category_campaign_bucket(env, category, bucket_idx, &bucket);
     set_category_campaign_count(env, category, next_category_count);
 
-    let creator_count = get_creator_campaign_count(env, &creator);
     // Same guard for the per-creator index (#838).
     let next_creator_count = creator_count.checked_add(1).ok_or(Error::Overflow)?;
     let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
@@ -244,4 +252,54 @@ fn create_campaign_inner(
     );
 
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAX_CAMPAIGNS_PER_CREATOR;
+    use crate::storage::set_creator_campaign_count;
+    use crate::tests::helpers::*;
+    use crate::{Category, Error};
+    use soroban_sdk::String;
+
+    #[test]
+    fn test_create_campaign_enforces_creator_rate_limit_against_spam_bloat() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+
+        // Simulate creator having reached MAX_CAMPAIGNS_PER_CREATOR campaigns.
+        env.as_contract(&client.address, || {
+            set_creator_campaign_count(&env, &creator, MAX_CAMPAIGNS_PER_CREATOR);
+        });
+
+        let res = client.try_create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Spam Campaign Beyond Cap"),
+            String::from_str(&env, "Should be rejected by per-creator cap"),
+            1_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        assert_eq!(res, Err(Ok(Error::ValidationFailed)));
+
+        // Creator just below the cap can still create one final campaign.
+        env.as_contract(&client.address, || {
+            set_creator_campaign_count(&env, &creator, MAX_CAMPAIGNS_PER_CREATOR - 1);
+        });
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Allowed Final Campaign"),
+            String::from_str(&env, "Within per-creator cap"),
+            1_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        assert_eq!(id, 1);
+    }
 }
