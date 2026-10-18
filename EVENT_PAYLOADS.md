@@ -580,4 +580,94 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Data   | `amount: i128` |
 | Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
 
-Total: 55 documented publish() call sites
+---
+
+### `campaign_tag_added`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_tag_added", campaign_id: u32)` |
+| Data   | `tag: String` |
+| Source | `src/tags.rs` — `add_campaign_tag()` (#798) |
+
+---
+
+### `campaign_token_allowlisted`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_token_allowlisted", admin: Address)` |
+| Data   | `(token: Address, allowed: bool)` |
+| Source | `src/admin.rs` — `set_token_allowed()` |
+
+---
+
+### `campaign_token_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_token_set", campaign_id: u32)` |
+| Data   | `token: Address` |
+| Source | `src/campaigns/create.rs` — `create_campaign()` (#407) |
+
+---
+
+### `category_voting_threshold_removed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_voting_threshold_removed", category: u32)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `remove_category_voting_threshold()` |
+
+---
+
+### `emergency_pause_signers_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_pause_signers_updated", admin: Address)` |
+| Data   | `signer_count: u32` |
+| Source | `src/admin.rs` — `set_emergency_pause_signers()` (#785) |
+
+---
+
+### `milestones_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestones_set", campaign_id: u32)` |
+| Data   | `milestone_count: u32` |
+| Source | `src/milestones.rs` — `set_milestones()` (#783) |
+
+---
+
+### `milestone_verified`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestone_verified", campaign_id: u32, milestone_id: u32)` |
+| Data   | `()` |
+| Source | `src/milestones.rs` — `verify_milestone()` (#783) |
+
+---
+
+### `payout_marker`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("payout_marker", campaign_id: u32)` |
+| Data   | `ledger_sequence: u32` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |
+
+---
+
+### `token_update_delay_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("token_update_delay_updated",)` |
+| Data   | `(old_delay_secs: u64, new_delay_secs: u64)` |
+| Source | `src/admin.rs` — `set_token_update_delay()` |
+
+Total: 64 documented publish() call sites

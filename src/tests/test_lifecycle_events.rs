@@ -326,3 +326,25 @@ fn test_contribution_made_event_payload_schema() {
     let amount: i128 = soroban_sdk::TryFromVal::try_from_val(&env, &contrib_event.2).unwrap();
     assert_eq!(amount, 500);
 }
+
+#[test]
+fn test_event_payloads_doc_covers_all_documented_topics() {
+    let doc = include_str!("../../EVENT_PAYLOADS.md");
+    let required_topics = [
+        "campaign_tag_added",
+        "campaign_token_allowlisted",
+        "campaign_token_set",
+        "category_voting_threshold_removed",
+        "emergency_pause_signers_updated",
+        "milestone_verified",
+        "milestones_set",
+        "payout_marker",
+        "token_update_delay_updated",
+    ];
+    for topic in required_topics {
+        assert!(
+            doc.contains(topic),
+            "EVENT_PAYLOADS.md is missing documentation for event topic `{topic}`"
+        );
+    }
+}
