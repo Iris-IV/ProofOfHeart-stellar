@@ -477,8 +477,98 @@ pub(crate) fn batch_verify_milestones(
     Ok(newly_verified)
 }
 
+/// Maximum timelock delay (180 days in seconds) for a verified milestone release (#1006).
+pub const MAX_MILESTONE_TIMELOCK_SECS: u64 = 180 * crate::SECONDS_PER_DAY;
+
+/// Computes the earliest ledger timestamp at which a verified milestone tranche
+/// unlocks after its timelock window (#1006).
+pub const fn calculate_milestone_release_timestamp(
+    verified_at: u64,
+    timelock_delay_secs: u64,
+) -> Result<u64, Error> {
+    if timelock_delay_secs > MAX_MILESTONE_TIMELOCK_SECS {
+        return Err(Error::ValidationFailed);
+    }
+    match verified_at.checked_add(timelock_delay_secs) {
+        Some(ts) => Ok(ts),
+        None => Err(Error::Overflow),
+    }
+}
+
+/// Verifies that a milestone is verified and its configured timelock schedule
+/// has elapsed at `current_timestamp` (#1006).
+pub const fn verify_milestone_timelock_elapsed(
+    verified: bool,
+    verified_at: u64,
+    timelock_delay_secs: u64,
+    current_timestamp: u64,
+) -> Result<(), Error> {
+    if !verified {
+        return Err(Error::MilestoneNotVerified);
+    }
+    let release_at = match calculate_milestone_release_timestamp(verified_at, timelock_delay_secs) {
+        Ok(ts) => ts,
+        Err(e) => return Err(e),
+    };
+    if current_timestamp < release_at {
+        return Err(Error::DeadlineNotPassed);
+    }
+    Ok(())
+}
+
+/// Computes the `(creator_claimable, platform_fee_slice)` amounts for a single
+/// milestone tranche using checked 128-bit arithmetic (#1006).
+pub const fn calculate_milestone_tranche_split(
+    amount_raised: i128,
+    fee_bps: u32,
+    payout_bps: u32,
+) -> Result<(i128, i128), Error> {
+    if amount_raised <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+    if fee_bps > crate::PLATFORM_FEE_MAX_BPS
+        || payout_bps == 0
+        || payout_bps > crate::BPS_DENOMINATOR
+    {
+        return Err(Error::ValidationFailed);
+    }
+    let fee_num = match amount_raised.checked_mul(fee_bps as i128) {
+        Some(n) => match n.checked_add(crate::BPS_CEIL_OFFSET) {
+            Some(v) => v,
+            None => return Err(Error::Overflow),
+        },
+        None => return Err(Error::Overflow),
+    };
+    let fee_total = fee_num / (crate::BPS_DENOMINATOR as i128);
+    let total_after_fee = match amount_raised.checked_sub(fee_total) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let claimable = match total_after_fee.checked_mul(payout_bps as i128) {
+        Some(v) => v / (crate::BPS_DENOMINATOR as i128),
+        None => return Err(Error::Overflow),
+    };
+    let fee_slice = match fee_total.checked_mul(payout_bps as i128) {
+        Some(v) => v / (crate::BPS_DENOMINATOR as i128),
+        None => return Err(Error::Overflow),
+    };
+    if claimable <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+    Ok((claimable, fee_slice))
+}
+
+const _: () = {
+    assert!(verify_milestone_timelock_elapsed(true, 1_000, 86_400, 87_400).is_ok());
+    assert!(calculate_milestone_tranche_split(10_000, 300, 5_000).is_ok());
+};
+
 #[cfg(test)]
 mod tests {
+    use super::{
+        calculate_milestone_release_timestamp, calculate_milestone_tranche_split,
+        verify_milestone_timelock_elapsed, MAX_MILESTONE_TIMELOCK_SECS,
+    };
     use crate::tests::helpers::*;
     use crate::Category;
     use crate::Milestone;
@@ -716,5 +806,33 @@ mod tests {
         ));
         let res = client.try_batch_verify_milestones(&admin, &id);
         assert_eq!(res, Err(Ok(crate::Error::MilestoneNotFound)));
+    }
+
+    #[test]
+    fn test_milestone_timelock_schedule_and_tranche_split() {
+        assert_eq!(
+            calculate_milestone_release_timestamp(1_000, 86_400),
+            Ok(87_400)
+        );
+        assert_eq!(
+            calculate_milestone_release_timestamp(1_000, MAX_MILESTONE_TIMELOCK_SECS + 1),
+            Err(crate::Error::ValidationFailed)
+        );
+        assert_eq!(
+            verify_milestone_timelock_elapsed(false, 1_000, 86_400, 90_000),
+            Err(crate::Error::MilestoneNotVerified)
+        );
+        assert_eq!(
+            verify_milestone_timelock_elapsed(true, 1_000, 86_400, 87_399),
+            Err(crate::Error::DeadlineNotPassed)
+        );
+        assert_eq!(
+            verify_milestone_timelock_elapsed(true, 1_000, 86_400, 87_400),
+            Ok(())
+        );
+        assert_eq!(
+            calculate_milestone_tranche_split(1_000, 300, 5_000),
+            Ok((485, 15))
+        );
     }
 }
