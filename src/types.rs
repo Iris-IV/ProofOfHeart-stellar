@@ -324,4 +324,205 @@ impl Campaign {
             self.status &= !CAMPAIGN_SUCCEEDED;
         }
     }
+
+    /// Packs the campaign's boolean lifecycle and configuration flags into a
+    /// single 32-bit bitmask for compact XDR state serialization (#1014).
+    pub fn packed_state_flags(&self) -> u32 {
+        let mut flags = self.status
+            & (CAMPAIGN_ACTIVE | CAMPAIGN_PAUSED | CAMPAIGN_VALIDATED | CAMPAIGN_SUCCEEDED);
+        if self.has_revenue_sharing {
+            flags |= CAMPAIGN_REVENUE_SHARING_FLAG;
+        }
+        if self.deadline_extended {
+            flags |= CAMPAIGN_DEADLINE_EXTENDED_FLAG;
+        }
+        flags
+    }
+
+    /// Projects the full `Campaign` record into a lightweight, fixed-width
+    /// `CompactCampaignSummary` that omits variable-length `title` and
+    /// `description` strings to minimize ledger XDR read/serialization cost (#1014).
+    pub fn to_compact_summary(&self) -> CompactCampaignSummary {
+        CompactCampaignSummary {
+            id: self.id,
+            creator: self.creator.clone(),
+            funding_goal: self.funding_goal,
+            amount_raised: self.amount_raised,
+            effective_amount_raised: self.effective_amount_raised,
+            deadline: self.deadline,
+            category: self.category,
+            packed_flags: self.packed_state_flags(),
+            revenue_share_percentage: self.revenue_share_percentage,
+        }
+    }
+}
+
+/// Bitmask flag indicating `has_revenue_sharing` in `CompactCampaignSummary::packed_flags` (#1014).
+pub const CAMPAIGN_REVENUE_SHARING_FLAG: u32 = 1 << 4;
+/// Bitmask flag indicating `deadline_extended` in `CompactCampaignSummary::packed_flags` (#1014).
+pub const CAMPAIGN_DEADLINE_EXTENDED_FLAG: u32 = 1 << 5;
+
+/// Bitmask flags for `CompactUserCampaignState::packed_flags` (#1014).
+pub const USER_STATE_BOOKMARKED: u32 = 1 << 0;
+pub const USER_STATE_VOTED: u32 = 1 << 1;
+pub const USER_STATE_REFUNDED: u32 = 1 << 2;
+
+/// Compact, fixed-size Soroban state summary for a campaign (#1014).
+///
+/// Packs lifecycle and configuration booleans into `packed_flags` and excludes
+/// variable-length string metadata (`title`, `description`) to minimize XDR
+/// serialization overhead during batch queries and storage reads.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactCampaignSummary {
+    pub id: u32,
+    pub creator: Address,
+    pub funding_goal: i128,
+    pub amount_raised: i128,
+    pub effective_amount_raised: i128,
+    pub deadline: u64,
+    pub category: Category,
+    pub packed_flags: u32,
+    pub revenue_share_percentage: u32,
+}
+
+impl CompactCampaignSummary {
+    pub const fn is_active(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_ACTIVE) != 0
+    }
+
+    pub const fn is_cancelled(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_PAUSED) != 0
+    }
+
+    pub const fn is_verified(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_VALIDATED) != 0
+    }
+
+    pub const fn funds_withdrawn(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_SUCCEEDED) != 0
+    }
+
+    pub const fn has_revenue_sharing(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_REVENUE_SHARING_FLAG) != 0
+    }
+
+    pub const fn deadline_extended(&self) -> bool {
+        (self.packed_flags & CAMPAIGN_DEADLINE_EXTENDED_FLAG) != 0
+    }
+}
+
+/// Compact per-user state for a campaign combining contribution balance,
+/// claimed revenue, and bit-packed interaction flags (#1014).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactUserCampaignState {
+    pub contribution: i128,
+    pub claimed_revenue: i128,
+    pub packed_flags: u32,
+}
+
+impl CompactUserCampaignState {
+    pub const fn new(
+        contribution: i128,
+        claimed_revenue: i128,
+        bookmarked: bool,
+        voted: bool,
+        refunded: bool,
+    ) -> Self {
+        let mut flags = 0u32;
+        if bookmarked {
+            flags |= USER_STATE_BOOKMARKED;
+        }
+        if voted {
+            flags |= USER_STATE_VOTED;
+        }
+        if refunded {
+            flags |= USER_STATE_REFUNDED;
+        }
+        Self {
+            contribution,
+            claimed_revenue,
+            packed_flags: flags,
+        }
+    }
+
+    pub const fn is_bookmarked(&self) -> bool {
+        (self.packed_flags & USER_STATE_BOOKMARKED) != 0
+    }
+
+    pub const fn has_voted(&self) -> bool {
+        (self.packed_flags & USER_STATE_VOTED) != 0
+    }
+
+    pub const fn is_refunded(&self) -> bool {
+        (self.packed_flags & USER_STATE_REFUNDED) != 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn compact_campaign_summary_packs_all_flags_losslessly() {
+        let env = Env::default();
+        let creator = Address::generate(&env);
+        let mut campaign = Campaign {
+            id: 7,
+            creator: creator.clone(),
+            first_creator: creator,
+            pending_creator: None,
+            pending_creator_expiry: 0,
+            title: String::from_str(&env, "Compact Title"),
+            description: String::from_str(&env, "Long description omitted in compact summary"),
+            funding_goal: 50_000,
+            deadline: 1_800_000_000,
+            amount_raised: 60_000,
+            status: CAMPAIGN_ACTIVE | CAMPAIGN_VALIDATED,
+            category: Category::EducationalStartup,
+            has_revenue_sharing: true,
+            revenue_share_percentage: 1_500,
+            max_contribution_per_user: 0,
+            fee_override: None,
+            deadline_extended: true,
+            effective_amount_raised: 55_000,
+        };
+
+        let summary = campaign.to_compact_summary();
+        assert_eq!(summary.id, 7);
+        assert_eq!(summary.funding_goal, 50_000);
+        assert_eq!(summary.amount_raised, 60_000);
+        assert_eq!(summary.effective_amount_raised, 55_000);
+        assert_eq!(summary.category, Category::EducationalStartup);
+        assert_eq!(summary.revenue_share_percentage, 1_500);
+        assert!(summary.is_active());
+        assert!(!summary.is_cancelled());
+        assert!(summary.is_verified());
+        assert!(!summary.funds_withdrawn());
+        assert!(summary.has_revenue_sharing());
+        assert!(summary.deadline_extended());
+
+        campaign.set_cancelled(true);
+        campaign.set_funds_withdrawn(true);
+        campaign.has_revenue_sharing = false;
+        campaign.deadline_extended = false;
+
+        let updated = campaign.to_compact_summary();
+        assert!(updated.is_cancelled());
+        assert!(updated.funds_withdrawn());
+        assert!(!updated.has_revenue_sharing());
+        assert!(!updated.deadline_extended());
+    }
+
+    #[test]
+    fn compact_user_campaign_state_roundtrips_interaction_flags() {
+        let state = CompactUserCampaignState::new(10_000, 2_500, true, false, true);
+        assert_eq!(state.contribution, 10_000);
+        assert_eq!(state.claimed_revenue, 2_500);
+        assert!(state.is_bookmarked());
+        assert!(!state.has_voted());
+        assert!(state.is_refunded());
+    }
 }
