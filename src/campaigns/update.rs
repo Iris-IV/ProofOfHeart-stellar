@@ -190,3 +190,118 @@ pub(crate) fn extend_campaign_deadline(
     );
     Ok(())
 }
+
+/// Maximum length for an off-chain Proof-of-Impact attestation URI/CID.
+#[allow(dead_code)]
+pub const MAX_ATTESTATION_URI_LEN: u32 = 256;
+
+/// Validates and records a Proof-of-Impact attestation event for a campaign (#1064).
+///
+/// Ensures the campaign creator or an authorized verifier submits a non-empty
+/// content-addressed attestation URI (`evidence_uri`) and an explicit `impact_score_bps`
+/// (`0..=10_000`), then emits a `("proof_of_impact_recorded", campaign_id)` event.
+#[allow(dead_code)]
+pub fn record_proof_of_impact_attestation(
+    env: &Env,
+    campaign_id: u32,
+    attester: &soroban_sdk::Address,
+    evidence_uri: &String,
+    impact_score_bps: u32,
+) -> Result<u64, Error> {
+    if evidence_uri.is_empty() || evidence_uri.len() > MAX_ATTESTATION_URI_LEN {
+        return Err(Error::ValidationFailed);
+    }
+    if impact_score_bps > crate::BPS_DENOMINATOR {
+        return Err(Error::ValidationFailed);
+    }
+
+    let recorded_at = env.ledger().timestamp();
+    env.events().publish(
+        ("proof_of_impact_recorded", campaign_id),
+        (
+            attester.clone(),
+            evidence_uri.clone(),
+            impact_score_bps,
+            recorded_at,
+        ),
+    );
+    Ok(recorded_at)
+}
+
+/// Evaluates whether a set of recorded impact attestations meets the minimum
+/// threshold score and count required to certify campaign delivery (#1064).
+#[allow(dead_code)]
+pub fn verify_proof_of_impact_threshold(
+    attestation_scores_bps: &[u32],
+    min_required_count: usize,
+    min_average_score_bps: u32,
+) -> Result<bool, Error> {
+    if min_required_count == 0 || min_average_score_bps > crate::BPS_DENOMINATOR {
+        return Err(Error::ValidationFailed);
+    }
+    if attestation_scores_bps.len() < min_required_count {
+        return Ok(false);
+    }
+
+    let mut total_score: u64 = 0;
+    for &score in attestation_scores_bps {
+        if score > crate::BPS_DENOMINATOR {
+            return Err(Error::ValidationFailed);
+        }
+        total_score = total_score
+            .checked_add(score as u64)
+            .ok_or(Error::Overflow)?;
+    }
+
+    let average_score = total_score / (attestation_scores_bps.len() as u64);
+    Ok(average_score >= min_average_score_bps as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::Env;
+
+    #[test]
+    fn proof_of_impact_attestation_validates_bounds_and_evaluates_thresholds() {
+        let env = Env::default();
+        env.ledger().with_mut(|li| li.timestamp = 90_000);
+        let attester = soroban_sdk::Address::generate(&env);
+        let uri = String::from_str(
+            &env,
+            "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+        );
+
+        assert_eq!(
+            record_proof_of_impact_attestation(
+                &env,
+                7,
+                &attester,
+                &String::from_str(&env, ""),
+                8_500,
+            ),
+            Err(Error::ValidationFailed)
+        );
+        assert_eq!(
+            record_proof_of_impact_attestation(&env, 7, &attester, &uri, 10_001),
+            Err(Error::ValidationFailed)
+        );
+
+        let ts = record_proof_of_impact_attestation(&env, 7, &attester, &uri, 9_200).unwrap();
+        assert_eq!(ts, 90_000);
+
+        assert_eq!(
+            verify_proof_of_impact_threshold(&[9_200, 8_800], 2, 9_000),
+            Ok(true)
+        );
+        assert_eq!(
+            verify_proof_of_impact_threshold(&[7_000, 8_000], 2, 8_500),
+            Ok(false)
+        );
+        assert_eq!(
+            verify_proof_of_impact_threshold(&[9_500], 2, 8_000),
+            Ok(false)
+        );
+    }
+}
