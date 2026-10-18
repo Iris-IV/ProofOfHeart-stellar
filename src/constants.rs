@@ -12,7 +12,7 @@ pub(crate) const BPS_DENOMINATOR: u32 = 10_000;
 ///
 /// Consumed in `campaigns/withdraw.rs` for the platform-fee and reserve
 /// ceiling-division computations.
-pub(crate) const BPS_CEIL_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
+pub(crate) const BPS_CEIL_OFFSET: i128 = u32_to_i128_checked(BPS_DENOMINATOR) - 1;
 
 /// Number of seconds in one day.
 pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
@@ -96,3 +96,66 @@ pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
 /// reached. Keeping the bound below the entry limit leaves room for the fixed
 /// reads (counters, buckets, token, fee) each query also performs.
 pub(crate) const MAX_STATS_SCAN: u32 = 40;
+
+/// Safely converts a non-negative `i128` value into `u64`, returning
+/// [`crate::Error::Overflow`] if the value is negative or exceeds `u64::MAX` (#976).
+#[inline]
+pub const fn i128_to_u64_checked(value: i128) -> Result<u64, crate::Error> {
+    if value < 0 || value > u64::MAX as i128 {
+        Err(crate::Error::Overflow)
+    } else {
+        Ok(value as u64)
+    }
+}
+
+/// Safely converts a `u64` value into `i128` (#976).
+#[inline]
+pub const fn u64_to_i128_checked(value: u64) -> i128 {
+    value as i128
+}
+
+/// Safely converts a `u32` value into `i128` (#976).
+#[inline]
+pub const fn u32_to_i128_checked(value: u32) -> i128 {
+    value as i128
+}
+
+// Compile-time verification that all time constants convert cleanly between u64 and i128 (#976).
+const _: () = {
+    let secs_i128 = u64_to_i128_checked(MAX_TOKEN_UPDATE_DELAY_SECS);
+    assert!(matches!(
+        i128_to_u64_checked(secs_i128),
+        Ok(MAX_TOKEN_UPDATE_DELAY_SECS)
+    ));
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Error;
+
+    #[test]
+    fn test_i128_to_u64_checked_boundaries() {
+        assert_eq!(i128_to_u64_checked(0), Ok(0));
+        assert_eq!(i128_to_u64_checked(u64::MAX as i128), Ok(u64::MAX));
+        assert_eq!(i128_to_u64_checked(-1), Err(Error::Overflow));
+        assert_eq!(i128_to_u64_checked(i128::MIN), Err(Error::Overflow));
+        assert_eq!(
+            i128_to_u64_checked((u64::MAX as i128) + 1),
+            Err(Error::Overflow)
+        );
+        assert_eq!(i128_to_u64_checked(i128::MAX), Err(Error::Overflow));
+    }
+
+    #[test]
+    fn test_unsigned_to_i128_checked_roundtrip() {
+        assert_eq!(u64_to_i128_checked(0), 0i128);
+        assert_eq!(u64_to_i128_checked(u64::MAX), u64::MAX as i128);
+        assert_eq!(
+            i128_to_u64_checked(u64_to_i128_checked(SECONDS_PER_DAY)),
+            Ok(SECONDS_PER_DAY)
+        );
+        assert_eq!(u32_to_i128_checked(BPS_DENOMINATOR), 10_000i128);
+        assert_eq!(u32_to_i128_checked(u32::MAX), u32::MAX as i128);
+    }
+}
