@@ -497,3 +497,148 @@ pub(crate) fn remove_personal_cap_fn(
     );
     Ok(())
 }
+
+/// Validates a new contribution against a wallet's cross-campaign aggregate
+/// personal contribution limit (#1051).
+///
+/// `wallet_global_cap == 0` disables the cross-campaign cap (unlimited).
+/// Returns the updated cumulative contribution total across campaigns when
+/// the donation is within the configured limit.
+pub const fn validate_global_personal_contribution_limit(
+    current_global_contributed: i128,
+    incoming_amount: i128,
+    wallet_global_cap: i128,
+) -> Result<i128, Error> {
+    if incoming_amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    if current_global_contributed < 0 || wallet_global_cap < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    let updated_total = match current_global_contributed.checked_add(incoming_amount) {
+        Some(total) => total,
+        None => return Err(Error::Overflow),
+    };
+    if wallet_global_cap > 0 && updated_total > wallet_global_cap {
+        return Err(Error::ContributionCapExceeded);
+    }
+    Ok(updated_total)
+}
+
+/// Computes the effective remaining contribution allowance for a wallet
+/// considering both its per-campaign personal cap and its cross-campaign
+/// aggregate personal cap (#1051).
+///
+/// A cap of `0` means no limit on that axis. Returns `Ok(None)` when both caps
+/// are disabled (`0`), or `Ok(Some(remaining))` with the tighter remaining
+/// allowance (clamped at `0` if already reached).
+pub const fn calculate_remaining_personal_allowance(
+    current_campaign_contributed: i128,
+    campaign_personal_cap: i128,
+    current_global_contributed: i128,
+    wallet_global_cap: i128,
+) -> Result<Option<i128>, Error> {
+    if current_campaign_contributed < 0
+        || campaign_personal_cap < 0
+        || current_global_contributed < 0
+        || wallet_global_cap < 0
+    {
+        return Err(Error::ValidationFailed);
+    }
+
+    let campaign_rem = if campaign_personal_cap > 0 {
+        if current_campaign_contributed >= campaign_personal_cap {
+            Some(0)
+        } else {
+            match campaign_personal_cap.checked_sub(current_campaign_contributed) {
+                Some(rem) => Some(rem),
+                None => return Err(Error::Overflow),
+            }
+        }
+    } else {
+        None
+    };
+
+    let global_rem = if wallet_global_cap > 0 {
+        if current_global_contributed >= wallet_global_cap {
+            Some(0)
+        } else {
+            match wallet_global_cap.checked_sub(current_global_contributed) {
+                Some(rem) => Some(rem),
+                None => return Err(Error::Overflow),
+            }
+        }
+    } else {
+        None
+    };
+
+    match (campaign_rem, global_rem) {
+        (None, None) => Ok(None),
+        (Some(c), None) => Ok(Some(c)),
+        (None, Some(g)) => Ok(Some(g)),
+        (Some(c), Some(g)) => Ok(Some(if c < g { c } else { g })),
+    }
+}
+
+const _: () = {
+    assert!(validate_global_personal_contribution_limit(400, 100, 500).is_ok());
+    assert!(calculate_remaining_personal_allowance(200, 500, 1_200, 2_000).is_ok());
+};
+
+#[cfg(test)]
+mod personal_limit_tracking_tests {
+    use super::{
+        calculate_remaining_personal_allowance, validate_global_personal_contribution_limit,
+    };
+    use crate::errors::Error;
+
+    #[test]
+    fn test_validate_global_personal_contribution_limit_and_allowance() {
+        // Uncapped global limit (0) allows any positive contribution
+        assert_eq!(
+            validate_global_personal_contribution_limit(5_000, 2_500, 0),
+            Ok(7_500)
+        );
+        // Within global cap
+        assert_eq!(
+            validate_global_personal_contribution_limit(1_200, 800, 2_000),
+            Ok(2_000)
+        );
+        // Exceeding global cap returns ContributionCapExceeded
+        assert_eq!(
+            validate_global_personal_contribution_limit(1_200, 801, 2_000),
+            Err(Error::ContributionCapExceeded)
+        );
+        // Non-positive incoming amount rejected
+        assert_eq!(
+            validate_global_personal_contribution_limit(100, 0, 500),
+            Err(Error::ContributionMustBePositive)
+        );
+        // Negative state or cap rejected
+        assert_eq!(
+            validate_global_personal_contribution_limit(-1, 100, 500),
+            Err(Error::ValidationFailed)
+        );
+        // Overflow rejected
+        assert_eq!(
+            validate_global_personal_contribution_limit(i128::MAX, 1, 0),
+            Err(Error::Overflow)
+        );
+
+        // Neither cap active -> None
+        assert_eq!(
+            calculate_remaining_personal_allowance(300, 0, 1_500, 0),
+            Ok(None)
+        );
+        // Both caps active -> tighter allowance wins (campaign rem = 300, global rem = 200 -> 200)
+        assert_eq!(
+            calculate_remaining_personal_allowance(200, 500, 1_800, 2_000),
+            Ok(Some(200))
+        );
+        // Already at or above cap -> 0 remaining
+        assert_eq!(
+            calculate_remaining_personal_allowance(500, 500, 1_000, 2_000),
+            Ok(Some(0))
+        );
+    }
+}
