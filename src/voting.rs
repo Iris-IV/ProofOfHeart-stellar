@@ -268,3 +268,137 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Maximum duration for a proxy voting delegation authorization (90 days) (#1058).
+pub const MAX_DELEGATION_EXPIRY_SECS: u64 = 90 * crate::SECONDS_PER_DAY;
+
+/// Validates a proxy voting delegation from `delegator` to `delegate` at
+/// ledger timestamp `now` (#1058).
+///
+/// Rejects self-delegation (`delegator == delegate`), already-expired
+/// delegations (`expires_at <= now`), and delegations exceeding
+/// [`MAX_DELEGATION_EXPIRY_SECS`].
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn validate_voting_delegation(
+    delegator: &Address,
+    delegate: &Address,
+    now: u64,
+    expires_at: u64,
+) -> Result<(), Error> {
+    if delegator == delegate {
+        return Err(Error::ValidationFailed);
+    }
+    let duration = expires_at.checked_sub(now).ok_or(Error::InvalidDuration)?;
+    if duration == 0 || duration > MAX_DELEGATION_EXPIRY_SECS {
+        return Err(Error::InvalidDuration);
+    }
+    Ok(())
+}
+
+/// Computes the effective proxy vote count and aggregate stake weight for a
+/// delegate given `delegate_own_balance`, a slice of active `delegator_balances`,
+/// and the platform `min_voting_balance` threshold (#1058).
+///
+/// Only balances that are strictly positive (`> 0`) and at least
+/// `min_voting_balance` contribute a unit vote and stake weight.
+pub(crate) const fn calculate_delegated_voting_weight(
+    delegate_own_balance: i128,
+    delegator_balances: &[i128],
+    min_voting_balance: i128,
+) -> Result<(u32, i128), Error> {
+    if min_voting_balance < 0 || delegate_own_balance < 0 {
+        return Err(Error::ValidationFailed);
+    }
+
+    let mut total_votes: u32 = 0;
+    let mut total_weight: i128 = 0;
+
+    if delegate_own_balance > 0 && delegate_own_balance >= min_voting_balance {
+        total_votes = 1;
+        total_weight = delegate_own_balance;
+    }
+
+    let mut idx = 0usize;
+    while idx < delegator_balances.len() {
+        let bal = delegator_balances[idx];
+        if bal < 0 {
+            return Err(Error::ValidationFailed);
+        }
+        if bal > 0 && bal >= min_voting_balance {
+            total_votes = match total_votes.checked_add(1) {
+                Some(v) => v,
+                None => return Err(Error::Overflow),
+            };
+            total_weight = match total_weight.checked_add(bal) {
+                Some(w) => w,
+                None => return Err(Error::Overflow),
+            };
+        }
+        idx += 1;
+    }
+
+    if total_votes == 0 {
+        return Err(Error::NotTokenHolder);
+    }
+
+    Ok((total_votes, total_weight))
+}
+
+const _: () = {
+    assert!(calculate_delegated_voting_weight(1_000, &[500, 2_000], 500).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    fn delegated_voting_validates_proxy_authorization_and_tallies_eligible_principals() {
+        let env = Env::default();
+        let delegator = Address::generate(&env);
+        let delegate = Address::generate(&env);
+        let now = 1_700_000_000u64;
+
+        assert_eq!(
+            validate_voting_delegation(
+                &delegator,
+                &delegate,
+                now,
+                now + 7 * crate::SECONDS_PER_DAY
+            ),
+            Ok(())
+        );
+        // Self-delegation is rejected
+        assert_eq!(
+            validate_voting_delegation(
+                &delegator,
+                &delegator,
+                now,
+                now + 7 * crate::SECONDS_PER_DAY
+            ),
+            Err(Error::ValidationFailed)
+        );
+        // Over-long expiry is rejected
+        assert_eq!(
+            validate_voting_delegation(
+                &delegator,
+                &delegate,
+                now,
+                now + MAX_DELEGATION_EXPIRY_SECS + 1
+            ),
+            Err(Error::InvalidDuration)
+        );
+
+        // Delegate (1_000) + 2 eligible delegators (600, 1_400) + 1 below min (200) -> 3 votes, 3_000 weight
+        assert_eq!(
+            calculate_delegated_voting_weight(1_000, &[600, 200, 1_400], 500),
+            Ok((3, 3_000))
+        );
+        // No eligible holder -> NotTokenHolder
+        assert_eq!(
+            calculate_delegated_voting_weight(100, &[200, 300], 500),
+            Err(Error::NotTokenHolder)
+        );
+    }
+}
