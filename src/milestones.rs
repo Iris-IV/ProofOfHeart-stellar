@@ -126,9 +126,9 @@ use soroban_sdk::{Address, Env, Vec};
 use crate::errors::Error;
 use crate::lifecycle::{get_campaign_or_error, require_not_paused};
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_milestones,
-    get_platform_fee, get_total_raised_global, is_milestone_claimed, set_campaign,
-    set_campaign_milestones, set_milestone_claimed, set_total_raised_global,
+    bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_fee_recipient,
+    get_campaign_milestones, get_platform_fee, get_total_raised_global, is_milestone_claimed,
+    set_campaign, set_campaign_milestones, set_milestone_claimed, set_total_raised_global,
 };
 use crate::types::Milestone;
 
@@ -166,7 +166,7 @@ pub(crate) fn set_milestones(
         if m.payout_bps == 0 || m.payout_bps > crate::BPS_DENOMINATOR {
             return Err(Error::ValidationFailed);
         }
-        if m.description.is_empty() {
+        if m.description.is_empty() || m.description.len() > crate::CAMPAIGN_DESCRIPTION_MAX_LEN {
             return Err(Error::ValidationFailed);
         }
         if seen_ids.iter().any(|id| id == m.id) {
@@ -207,7 +207,7 @@ pub(crate) fn verify_milestone(
     crate::lifecycle::assert_admin(env, &admin)?;
     require_not_paused(env)?;
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled() {
+    if campaign.is_cancelled() || campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
 
@@ -261,10 +261,10 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     if campaign.funds_withdrawn() {
         return Err(Error::FundsAlreadyWithdrawn);
     }
-    if campaign.amount_raised == 0 {
+    if campaign.effective_amount_raised <= 0 {
         return Err(Error::NoFundsToWithdraw);
     }
-    if campaign.amount_raised < campaign.funding_goal {
+    if campaign.effective_amount_raised < campaign.funding_goal {
         return Err(Error::FundingGoalNotReached);
     }
 
@@ -293,12 +293,15 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
         .fee_override
         .unwrap_or_else(|| get_platform_fee(env));
     let fee_total = campaign
-        .amount_raised
+        .effective_amount_raised
         .checked_mul(platform_fee as i128)
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.amount_raised - fee_total;
+    let total_after_fee = campaign
+        .effective_amount_raised
+        .checked_sub(fee_total)
+        .ok_or(Error::Overflow)?;
 
     // Compute sum of already claimed amounts to handle dust on last milestone.
     let mut claimed_bps: u32 = 0;
@@ -405,10 +408,11 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
         decrement_active_campaign_count(env);
     }
 
-    let admin_addr = get_admin(env);
+    let fee_recipient =
+        get_campaign_fee_recipient(env, campaign_id).unwrap_or_else(|| get_admin(env));
     let client = crate::lifecycle::campaign_token_client(env, campaign_id);
     if fee_claim > 0 {
-        client.transfer(&env.current_contract_address(), &admin_addr, &fee_claim);
+        client.transfer(&env.current_contract_address(), &fee_recipient, &fee_claim);
     }
     client.transfer(
         &env.current_contract_address(),
@@ -433,7 +437,7 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
 /// milestones that were newly verified.
 ///
 /// # Errors
-/// * `CampaignNotActive`   — Campaign cancelled.
+/// * `CampaignNotActive`   — Campaign cancelled or already withdrawn.
 /// * `MilestoneNotFound`   — No milestone plan is set.
 /// * `ContractPaused`      — Contract is paused.
 /// * `NotAuthorized`       — Caller is not the stored admin.
@@ -445,7 +449,7 @@ pub(crate) fn batch_verify_milestones(
     crate::lifecycle::assert_admin(env, &admin)?;
     require_not_paused(env)?;
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled() {
+    if campaign.is_cancelled() || campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
 
@@ -460,7 +464,7 @@ pub(crate) fn batch_verify_milestones(
         if m.verified {
             updated.push_back(m.clone());
         } else {
-            newly_verified += 1;
+            newly_verified = newly_verified.checked_add(1).ok_or(Error::Overflow)?;
             updated.push_back(Milestone {
                 id: m.id,
                 description: m.description.clone(),
@@ -716,5 +720,70 @@ mod tests {
         ));
         let res = client.try_batch_verify_milestones(&admin, &id);
         assert_eq!(res, Err(Ok(crate::Error::MilestoneNotFound)));
+    }
+
+    #[test]
+    fn test_set_milestones_rejects_oversized_description() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Desc Bound"),
+            String::from_str(&env, "Valid"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        let oversized_bytes = [b'x'; (crate::CAMPAIGN_DESCRIPTION_MAX_LEN as usize) + 1];
+        let oversized_desc =
+            String::from_str(&env, core::str::from_utf8(&oversized_bytes).unwrap());
+        let mut plan = Vec::new(&env);
+        plan.push_back(Milestone {
+            id: 1,
+            description: oversized_desc,
+            payout_bps: 10_000,
+            verified: false,
+        });
+        assert_eq!(
+            client.try_set_milestones(&id, &plan),
+            Err(Ok(crate::Error::ValidationFailed))
+        );
+    }
+
+    #[test]
+    fn test_claim_milestone_honors_snapshotted_fee_recipient_after_admin_rotation() {
+        let (env, admin, creator, c1, _c2, token, token_admin, client) = setup_env();
+        let new_admin = soroban_sdk::Address::generate(&env);
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Fee Snapshot Milestone"),
+            String::from_str(&env, "Desc"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &1000);
+        // Contribution snapshots original `admin` as fee recipient.
+        client.contribute(&id, &c1, &1000);
+        client.set_milestones(&id, &make_milestones(&env));
+        client.verify_milestone(&admin, &id, &1);
+        client.verify_milestone(&admin, &id, &2);
+
+        // Rotate admin before claiming milestones.
+        client.initiate_admin_transfer(&admin, &new_admin);
+        client.accept_admin_transfer();
+
+        client.claim_milestone(&id, &1);
+        client.claim_milestone(&id, &2);
+
+        assert_eq!(token.balance(&admin), 30);
+        assert_eq!(token.balance(&new_admin), 0);
+        assert_eq!(token.balance(&creator), 970);
     }
 }
