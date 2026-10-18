@@ -191,9 +191,48 @@ pub(crate) fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Resul
     get_campaign_start_time(env, campaign_id).ok_or(Error::InvalidDuration)
 }
 
+/// Maximum configurable grace period (in seconds) after a campaign deadline before
+/// contributor refunds unlock (14 days) (#1045).
+#[allow(dead_code)]
+pub const MAX_REFUND_GRACE_PERIOD_SECS: u64 = 14 * crate::SECONDS_PER_DAY;
+
+/// Computes the exact timestamp at which contributor refunds unlock for an
+/// expired campaign given a `grace_period_secs` buffer (#1045).
+#[allow(dead_code)]
+pub fn refund_unlock_timestamp(deadline: u64, grace_period_secs: u64) -> Result<u64, Error> {
+    if grace_period_secs > MAX_REFUND_GRACE_PERIOD_SECS {
+        return Err(Error::InvalidDuration);
+    }
+    deadline
+        .checked_add(grace_period_secs)
+        .ok_or(Error::Overflow)
+}
+
+/// Checks whether a campaign is eligible for contributor refund execution at `current_time`,
+/// bypassing the post-deadline `grace_period_secs` buffer if the campaign was explicitly cancelled (#1045).
+#[allow(dead_code)]
+pub fn is_refund_grace_period_elapsed(
+    campaign: &Campaign,
+    current_time: u64,
+    grace_period_secs: u64,
+) -> Result<bool, Error> {
+    if campaign.is_cancelled() {
+        return Ok(true);
+    }
+    if campaign.funds_withdrawn() || campaign.amount_raised >= campaign.funding_goal {
+        return Ok(false);
+    }
+    let unlock_at = refund_unlock_timestamp(campaign.deadline, grace_period_secs)?;
+    Ok(current_time > unlock_at)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{transition, CampaignState};
+    use super::{
+        is_refund_grace_period_elapsed, refund_unlock_timestamp, transition, CampaignState,
+        MAX_REFUND_GRACE_PERIOD_SECS,
+    };
+    use crate::errors::Error;
     use crate::types::{Campaign, Category, MaybePendingCreator};
     use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
@@ -328,5 +367,34 @@ mod tests {
         assert!(transition(CampaignState::Verified, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Cancelled, CampaignState::Active).is_err());
         assert!(transition(CampaignState::Withdrawn, CampaignState::Active).is_err());
+    }
+
+    #[test]
+    fn refund_grace_period_unlocks_after_configured_window_or_on_cancellation() {
+        let env = Env::default();
+        let mut campaign = make_campaign(&env, true, false, false, true);
+        campaign.deadline = 100_000;
+        campaign.amount_raised = 400;
+
+        assert_eq!(
+            refund_unlock_timestamp(100_000, MAX_REFUND_GRACE_PERIOD_SECS + 1),
+            Err(Error::InvalidDuration)
+        );
+        assert_eq!(refund_unlock_timestamp(100_000, 3_600), Ok(103_600));
+
+        assert_eq!(
+            is_refund_grace_period_elapsed(&campaign, 102_000, 3_600),
+            Ok(false)
+        );
+        assert_eq!(
+            is_refund_grace_period_elapsed(&campaign, 103_601, 3_600),
+            Ok(true)
+        );
+
+        let cancelled = make_campaign(&env, false, false, true, false);
+        assert_eq!(
+            is_refund_grace_period_elapsed(&cancelled, 50_000, 3_600),
+            Ok(true)
+        );
     }
 }
