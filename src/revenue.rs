@@ -315,3 +315,105 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     Ok(())
 }
+
+/// Segregated principal and yield balances for a campaign's contributor and
+/// creator revenue buckets (#1049).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SegregatedRevenuePool {
+    pub contributor_bucket: i128,
+    pub creator_bucket: i128,
+    pub contributor_yield: i128,
+    pub creator_yield: i128,
+}
+
+/// Segregates `total_pool` and `accrued_yield` into isolated contributor and
+/// creator buckets according to `revenue_share_bps` so creator claims can
+/// never contaminate contributor entitlements (#1049).
+pub(crate) const fn segregate_revenue_pool_with_yield(
+    total_pool: i128,
+    accrued_yield: i128,
+    revenue_share_bps: u32,
+) -> Result<SegregatedRevenuePool, Error> {
+    if total_pool < 0 || accrued_yield < 0 || revenue_share_bps > crate::BPS_DENOMINATOR {
+        return Err(Error::ValidationFailed);
+    }
+
+    let creator_share_bps = (crate::BPS_DENOMINATOR - revenue_share_bps) as i128;
+    let denom = crate::BPS_DENOMINATOR as i128;
+
+    let creator_bucket = match total_pool.checked_mul(creator_share_bps) {
+        Some(v) => v / denom,
+        None => return Err(Error::Overflow),
+    };
+    let contributor_bucket = total_pool - creator_bucket;
+
+    let creator_yield = match accrued_yield.checked_mul(creator_share_bps) {
+        Some(v) => v / denom,
+        None => return Err(Error::Overflow),
+    };
+    let contributor_yield = accrued_yield - creator_yield;
+
+    Ok(SegregatedRevenuePool {
+        contributor_bucket,
+        creator_bucket,
+        contributor_yield,
+        creator_yield,
+    })
+}
+
+/// Verifies that cumulative claims from the contributor and creator buckets do
+/// not exceed their respective segregated principal + yield allocations (#1049).
+pub(crate) const fn verify_segregated_pool_solvent(
+    pool: &SegregatedRevenuePool,
+    contributor_claimed: i128,
+    creator_claimed: i128,
+) -> Result<(), Error> {
+    if contributor_claimed < 0 || creator_claimed < 0 {
+        return Err(Error::ValidationFailed);
+    }
+    let max_contributor = match pool.contributor_bucket.checked_add(pool.contributor_yield) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    let max_creator = match pool.creator_bucket.checked_add(pool.creator_yield) {
+        Some(v) => v,
+        None => return Err(Error::Overflow),
+    };
+    if contributor_claimed > max_contributor || creator_claimed > max_creator {
+        return Err(Error::InvariantBroken);
+    }
+    Ok(())
+}
+
+const _: () = {
+    let pool = match segregate_revenue_pool_with_yield(10_000, 500, 2_000) {
+        Ok(p) => p,
+        Err(_) => panic!(),
+    };
+    assert!(verify_segregated_pool_solvent(&pool, 2_100, 8_400).is_ok());
+};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creator_bucket_revenue_pool_segregation_and_yield_allocation() {
+        let pool = segregate_revenue_pool_with_yield(5_000, 250, 2_000).unwrap();
+        assert_eq!(pool.contributor_bucket, 1_000);
+        assert_eq!(pool.creator_bucket, 4_000);
+        assert_eq!(pool.contributor_yield, 50);
+        assert_eq!(pool.creator_yield, 200);
+
+        assert_eq!(verify_segregated_pool_solvent(&pool, 1_050, 4_200), Ok(()));
+        // Attempting to draw 1 extra token from contributor bucket fails even if creator bucket has funds
+        assert_eq!(
+            verify_segregated_pool_solvent(&pool, 1_051, 0),
+            Err(Error::InvariantBroken)
+        );
+        assert_eq!(
+            segregate_revenue_pool_with_yield(5_000, 250, crate::BPS_DENOMINATOR + 1),
+            Err(Error::ValidationFailed)
+        );
+    }
+}
