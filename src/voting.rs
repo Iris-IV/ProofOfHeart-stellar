@@ -123,6 +123,12 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
     }
     require_unverified_campaign(&campaign)?;
 
+    // Reject duplicate votes before invoking the external token contract (#967).
+    if get_has_voted(env, campaign_id, &voter) {
+        extend_ttl(env, campaign_id, &voter);
+        return Err(Error::AlreadyVoted);
+    }
+
     // Deliberately the platform token, not the campaign's own currency (#784).
     // Voting weight is a platform-wide stake: measuring it in whatever asset a
     // campaign happens to be denominated in would let a creator pick an
@@ -137,13 +143,8 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
         return Err(Error::NotTokenHolder);
     }
 
-    if get_has_voted(env, campaign_id, &voter) {
-        extend_ttl(env, campaign_id, &voter);
-        return Err(Error::AlreadyVoted);
-    }
-
     // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
-    // regardless of token balance (#469).
+    // regardless of token balance (#469, #967).
     //
     // ApproveWeight/RejectWeight are deliberately kept as a mirror of the vote
     // counts (unit weight per vote) so the legacy storage layout and the
@@ -246,15 +247,21 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         return Err(Error::VotingQuorumNotMet);
     }
 
-    // 1-address-1-vote (#469): threshold is computed from vote counts, not
-    // token balances, so flash-loaned tokens cannot inflate the approval
-    // percentage. calculate_approval_bps returns 0 when total_votes is 0;
-    // with a non-zero quorum the check above already guarantees total_votes > 0.
+    // 1-address-1-vote (#469, #967): threshold is computed strictly from unit
+    // vote counts, not token balances, so flash-loaned tokens cannot inflate
+    // the approval percentage. calculate_approval_bps returns 0 when
+    // total_votes is 0; with a non-zero quorum the check above already
+    // guarantees total_votes > 0.
     let threshold = effective_approval_threshold_bps(env, campaign.category);
     let approval_bps = calculate_approval_bps(approve_votes, total_votes);
     if approval_bps < threshold {
         return Err(Error::VotingThresholdNotMet);
     }
+
+    // Normalize stored weight mirrors to unit counts so any pre-migration
+    // balance-weighted tally is reconciled on verification (#967).
+    set_approve_weight(env, campaign_id, approve_votes as i128);
+    set_reject_weight(env, campaign_id, reject_votes as i128);
 
     bump_campaign(env, campaign_id);
     bump_votes(env, campaign_id);
@@ -267,4 +274,90 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .publish(("campaign_verified", campaign_id), approve_votes);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tests::helpers::*;
+    use crate::{storage, Category, Error};
+    use soroban_sdk::{Address, String};
+
+    /// Audit #967: a flash-loan attacker holding a massive temporary balance
+    /// gets only 1 unit vote and cannot override the majority of regular
+    /// token holders.
+    #[test]
+    fn test_flash_loan_whale_cannot_override_community_majority() {
+        let (env, _admin, creator, honest1, honest2, token, token_admin, client) = setup_env();
+        let flash_attacker = Address::generate(&env);
+
+        // Two honest voters hold 1 token each; attacker flash-borrows 10^12 tokens.
+        token_admin.mint(&honest1, &1);
+        token_admin.mint(&honest2, &1);
+        token_admin.mint(&flash_attacker, &1_000_000_000_000);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Flash Loan Audit"),
+            String::from_str(&env, "Testing flash-loan vote resistance"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        // Attacker votes approve with 10^12 tokens and immediately returns them.
+        client.vote_on_campaign(&campaign_id, &flash_attacker, &true);
+        token.transfer(&flash_attacker, &creator, &1_000_000_000_000);
+
+        // Two honest voters reject with 1 token each.
+        client.vote_on_campaign(&campaign_id, &honest1, &false);
+        client.vote_on_campaign(&campaign_id, &honest2, &false);
+
+        assert_eq!(client.get_approve_votes(&campaign_id), 1);
+        assert_eq!(client.get_reject_votes(&campaign_id), 2);
+
+        // Verification must fail because approval is 1/3 (3333 bps < 6000 bps).
+        let res = client.try_verify_campaign_with_votes(&campaign_id);
+        assert_eq!(res, Err(Ok(Error::VotingThresholdNotMet)));
+    }
+
+    /// Audit #967: even if legacy storage has an artificially inflated
+    /// `ApproveWeight` from a pre-#469 flash loan, `verify_with_votes` relies
+    /// exclusively on unit vote counts and rejects verification when threshold
+    /// is not met.
+    #[test]
+    fn test_inflated_legacy_approve_weight_cannot_bypass_vote_threshold() {
+        let (env, _admin, creator, v1, v2, _token, token_admin, client) = setup_env();
+        let v3 = Address::generate(&env);
+
+        token_admin.mint(&v1, &100);
+        token_admin.mint(&v2, &100);
+        token_admin.mint(&v3, &100);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Legacy Weight Audit"),
+            String::from_str(&env, "Testing legacy weight immunization"),
+            100_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        client.vote_on_campaign(&campaign_id, &v1, &true);
+        client.vote_on_campaign(&campaign_id, &v2, &false);
+        client.vote_on_campaign(&campaign_id, &v3, &false);
+
+        // Simulate a legacy flash-loaned ApproveWeight in persistent storage.
+        env.as_contract(&client.address, || {
+            storage::set_approve_weight(&env, campaign_id, 999_999_999_999);
+        });
+
+        let res = client.try_verify_campaign_with_votes(&campaign_id);
+        assert_eq!(res, Err(Ok(Error::VotingThresholdNotMet)));
+    }
 }
