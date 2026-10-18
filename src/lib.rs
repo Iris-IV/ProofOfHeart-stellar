@@ -1298,6 +1298,134 @@ impl ProofOfHeart {
     pub fn get_censured_comment_count(env: Env, campaign_id: u32) -> u32 {
         comments::campaign_censured_comment_count(&env, campaign_id)
     }
+
+    // ── Tax receipt hash verification (#1000) ────────────────────────────────
+
+    /// Computes and verifies a domain-separated SHA-256 tax receipt hash for a
+    /// contributor's active, non-refunded contribution to `campaign_id` (#1000).
+    ///
+    /// Prevents receipt spoofing by:
+    /// 1. Rejecting non-positive `claimed_amount` values.
+    /// 2. Ensuring `campaign_id` exists and has not been cancelled.
+    /// 3. Requiring the contributor's live on-chain contribution balance to
+    ///    equal `claimed_amount` (blocking spoofed accounts, refunded donors,
+    ///    and inflated receipt amounts).
+    /// 4. Binding the SHA-256 digest to the contract address, campaign ID,
+    ///    contributor address, and verified amount via canonical XDR encoding.
+    pub fn verify_tax_receipt_hash(
+        env: Env,
+        campaign_id: u32,
+        contributor: Address,
+        claimed_amount: i128,
+        expected_hash: BytesN<32>,
+    ) -> Result<bool, Error> {
+        let computed = compute_tax_receipt_hash(&env, campaign_id, &contributor, claimed_amount)?;
+        Ok(computed == expected_hash)
+    }
+}
+
+/// Computes the canonical domain-separated SHA-256 tax receipt hash for a
+/// verified on-chain contribution (#1000).
+pub fn compute_tax_receipt_hash(
+    env: &Env,
+    campaign_id: u32,
+    contributor: &Address,
+    claimed_amount: i128,
+) -> Result<BytesN<32>, Error> {
+    if claimed_amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.is_cancelled() {
+        return Err(Error::CampaignNotActive);
+    }
+    let recorded = get_contribution(env, campaign_id, contributor);
+    if recorded <= 0 || recorded != claimed_amount {
+        return Err(Error::ValidationFailed);
+    }
+    let payload = (
+        soroban_sdk::Symbol::new(env, "POH_TAX_V1"),
+        env.current_contract_address(),
+        campaign_id,
+        contributor.clone(),
+        recorded,
+    );
+    let xdr_bytes = soroban_sdk::xdr::ToXdr::to_xdr(&payload, env);
+    Ok(env.crypto().sha256(&xdr_bytes).into())
+}
+
+#[cfg(test)]
+mod tax_receipt_tests {
+    use super::compute_tax_receipt_hash;
+    use crate::tests::helpers::*;
+    use crate::{Category, Error};
+    use soroban_sdk::{Address, BytesN, String};
+
+    #[test]
+    fn test_verify_tax_receipt_hash_prevents_spoofing() {
+        let (env, _admin, creator, c1, c2, _token, token_admin, client) = setup_env();
+        token_admin.mint(&c1, &1_000);
+
+        let id = client.create_campaign(&make_params(
+            creator,
+            String::from_str(&env, "Tax Receipt Audit"),
+            String::from_str(&env, "Verify tax receipt hash entrypoint"),
+            1_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        client.contribute(&id, &c1, &500);
+
+        let valid_hash = with_contract(&env, &client.address, || {
+            compute_tax_receipt_hash(&env, id, &c1, 500).unwrap()
+        });
+
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c1, &500, &valid_hash),
+            Ok(Ok(true))
+        );
+
+        // Wrong expected hash returns Ok(false)
+        let wrong_hash = BytesN::from_array(&env, &[0xABu8; 32]);
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c1, &500, &wrong_hash),
+            Ok(Ok(false))
+        );
+
+        // Unauthorized / non-contributing account cannot spoof c1's receipt
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c2, &500, &valid_hash),
+            Err(Ok(Error::ValidationFailed))
+        );
+        let outsider = Address::generate(&env);
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &outsider, &500, &valid_hash),
+            Err(Ok(Error::ValidationFailed))
+        );
+
+        // Inflated amount rejected
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c1, &600, &valid_hash),
+            Err(Ok(Error::ValidationFailed))
+        );
+
+        // Non-positive amount rejected
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c1, &0, &valid_hash),
+            Err(Ok(Error::ContributionMustBePositive))
+        );
+
+        // Cancelled campaign receipt rejected
+        client.cancel_campaign(&id);
+        assert_eq!(
+            client.try_verify_tax_receipt_hash(&id, &c1, &500, &valid_hash),
+            Err(Ok(Error::CampaignNotActive))
+        );
+    }
 }
 
 #[cfg(test)]
