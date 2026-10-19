@@ -29,6 +29,7 @@ mod test_lifecycle_events;
 mod test_milestones;
 mod test_multi_step;
 mod test_multi_token;
+mod partial_refund;
 mod test_queries;
 mod test_refund_edge;
 mod test_regressions;
