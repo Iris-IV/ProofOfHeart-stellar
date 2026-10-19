@@ -605,8 +605,7 @@ pub(crate) fn get_contributor_portfolio(
                 };
 
                 let refundable = campaign.is_cancelled()
-                    || (now > campaign.deadline
-                        && campaign.amount_raised < campaign.funding_goal);
+                    || (now > campaign.deadline && campaign.amount_raised < campaign.funding_goal);
 
                 portfolio.push_back((
                     current_id,

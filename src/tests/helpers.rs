@@ -118,11 +118,7 @@ pub(crate) fn setup_contract<'a>(
 /// past the campaign deadline. The deadline is read through the contract's
 /// own `get_campaign` view, so no direct storage access (and therefore no
 /// `as_contract` wrap) is needed.
-pub(crate) fn advance_past_deadline(
-    env: &Env,
-    client: &ProofOfHeartClient<'_>,
-    campaign_id: u32,
-) {
+pub(crate) fn advance_past_deadline(env: &Env, client: &ProofOfHeartClient<'_>, campaign_id: u32) {
     let deadline = client.get_campaign(&campaign_id).deadline;
     env.ledger().with_mut(|l| l.timestamp = deadline + 1);
 }
@@ -134,10 +130,6 @@ pub(crate) fn advance_past_deadline(
 /// invocation) fail with `Error(Storage, InternalError)` or silently return
 /// empty results. Every such read must run inside `env.as_contract`; this
 /// helper names that intent at the call site.
-pub(crate) fn with_contract<T>(
-    env: &Env,
-    contract: &Address,
-    f: impl FnOnce() -> T,
-) -> T {
+pub(crate) fn with_contract<T>(env: &Env, contract: &Address, f: impl FnOnce() -> T) -> T {
     env.as_contract(contract, f)
 }

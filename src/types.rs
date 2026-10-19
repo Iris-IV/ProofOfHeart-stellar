@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, String};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String};
 
 /// Represents the lifecycle state of a campaign as a single strongly-typed
 /// enum, replacing the previous ad-hoc combination of boolean flags.
@@ -324,4 +324,78 @@ impl Campaign {
             self.status &= !CAMPAIGN_SUCCEEDED;
         }
     }
+}
+
+/// A fixed-length 32-byte array representation of short strings (up to 32 bytes)
+/// for compact, efficient on-chain storage without heap allocations.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactString(pub BytesN<32>);
+
+impl CompactString {
+    pub const MAX_LEN: usize = 32;
+
+    /// Creates a CompactString from a string slice.
+    /// Trailing unused bytes are padded with null bytes (0).
+    /// Returns ValidationFailed if the string exceeds 32 bytes.
+    pub fn from_str(env: &Env, s: &str) -> Result<Self, crate::errors::Error> {
+        let bytes = s.as_bytes();
+        if bytes.len() > Self::MAX_LEN {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        let mut arr = [0u8; 32];
+        arr[..bytes.len()].copy_from_slice(bytes);
+        Ok(Self(BytesN::from_array(env, &arr)))
+    }
+
+    /// Creates a CompactString from a Soroban SDK String.
+    pub fn from_string(env: &Env, s: &String) -> Result<Self, crate::errors::Error> {
+        let len = s.len() as usize;
+        if len > Self::MAX_LEN {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        let mut arr = [0u8; 32];
+        s.copy_into_slice(&mut arr[..len]);
+        Ok(Self(BytesN::from_array(env, &arr)))
+    }
+
+    /// Converts back to a Soroban SDK String, trimming trailing zero padding.
+    pub fn to_string(&self, env: &Env) -> String {
+        let arr = self.0.to_array();
+        let len = arr.iter().position(|&b| b == 0).unwrap_or(32);
+        match core::str::from_utf8(&arr[..len]) {
+            Ok(valid_str) => String::from_str(env, valid_str),
+            Err(_) => String::from_str(env, ""),
+        }
+    }
+
+    /// Returns the raw BytesN<32> underlying byte array.
+    pub fn as_bytes(&self) -> &BytesN<32> {
+        &self.0
+    }
+
+    /// Returns the effective length in bytes (excluding trailing zero padding).
+    pub fn len(&self) -> u32 {
+        let arr = self.0.to_array();
+        arr.iter().position(|&b| b == 0).unwrap_or(32) as u32
+    }
+
+    /// Returns true if the compact string has an effective length of 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Creates a CompactString directly from a raw BytesN<32>.
+    pub fn from_bytes(bytes: BytesN<32>) -> Self {
+        Self(bytes)
+    }
+}
+
+/// A cryptographic proof of impact submitted by a campaign verifier.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofOfImpact {
+    pub verifier: Address,
+    pub proof_hash: BytesN<32>,
+    pub timestamp: u64,
 }

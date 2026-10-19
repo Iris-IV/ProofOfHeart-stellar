@@ -235,6 +235,8 @@ pub enum CampaignKey {
     EmergencyWithdrawal(u32),
     /// Payout marker for a campaign, keyed by campaign ID.
     CampaignPayoutMarker(u32),
+    /// Cryptographic proof-of-impact submitted by a verifier, keyed by campaign ID.
+    ProofOfImpact(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -293,6 +295,8 @@ pub enum VotingKey {
     /// Per-category approval threshold override in basis points, keyed by
     /// category discriminant. Falls back to `ApprovalThresholdBps` when unset.
     CategoryThresholdBps(u32),
+    /// Delegate chosen by a token holder for voting weight, keyed by delegator address.
+    VoteDelegation(Address),
 }
 
 /// Keys for revenue-sharing pools and claim tracking.
@@ -313,6 +317,8 @@ pub enum RevenueKey {
     /// Number of distinct contributors who have claimed revenue at least
     /// once for a campaign, keyed by campaign ID (#526).
     ContributorRevenueClaimants(u32),
+    /// Isolated revenue bucket for a creator, keyed by (campaign_id, creator).
+    CreatorRevenueBucket(u32, Address),
 }
 
 /// Keys for a wallet's saved/bookmarked campaigns (#507).
@@ -368,6 +374,15 @@ pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
 
 pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
     persistent_set!(env, CampaignKey::CampaignPayoutMarker(campaign_id), &marker);
+}
+
+pub fn get_proof_of_impact(env: &Env, campaign_id: u32) -> Option<crate::types::ProofOfImpact> {
+    let key = CampaignKey::ProofOfImpact(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_proof_of_impact(env: &Env, campaign_id: u32, proof: &crate::types::ProofOfImpact) {
+    persistent_set!(env, CampaignKey::ProofOfImpact(campaign_id), proof);
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────
@@ -729,6 +744,21 @@ pub fn set_contributor_revenue_claimants(env: &Env, campaign_id: u32, count: u32
     );
 }
 
+/// Returns the isolated creator revenue bucket balance for a campaign and creator.
+pub fn get_creator_bucket_balance(env: &Env, campaign_id: u32, creator: &Address) -> i128 {
+    let key = RevenueKey::CreatorRevenueBucket(campaign_id, creator.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the isolated creator revenue bucket balance for a campaign and creator, extending TTL.
+pub fn set_creator_bucket_balance(env: &Env, campaign_id: u32, creator: &Address, balance: i128) {
+    persistent_set!(
+        env,
+        RevenueKey::CreatorRevenueBucket(campaign_id, creator.clone()),
+        &balance
+    );
+}
+
 // ── Voting ────────────────────────────────────────────────────────────────────
 
 /// Returns the number of approval votes for a campaign.
@@ -896,6 +926,25 @@ pub fn set_category_voting_threshold_bps(env: &Env, category: Category, bps: u32
 pub fn remove_category_voting_threshold_bps(env: &Env, category: Category) {
     let key = VotingKey::CategoryThresholdBps(category as u32);
     env.storage().instance().remove(&key);
+}
+
+/// Returns the active delegate chosen by a delegator, if any.
+pub fn get_vote_delegate(env: &Env, delegator: &Address) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&VotingKey::VoteDelegation(delegator.clone()))
+}
+
+/// Sets the active delegate for a delegator and extends the entry's TTL.
+pub fn set_vote_delegate(env: &Env, delegator: &Address, delegate: &Address) {
+    persistent_set!(env, VotingKey::VoteDelegation(delegator.clone()), delegate);
+}
+
+/// Removes the active delegate for a delegator.
+pub fn remove_vote_delegate(env: &Env, delegator: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&VotingKey::VoteDelegation(delegator.clone()));
 }
 
 /// Returns the total number of campaigns in a category.
