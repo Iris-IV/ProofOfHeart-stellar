@@ -949,6 +949,29 @@ impl ProofOfHeart {
         get_campaign_count(&env)
     }
 
+    /// Checks settlement status for a campaign (#1027).
+    ///
+    /// Returns `(deadline_passed, goal_met, ready_for_withdrawal)` to help
+    /// external systems determine if a campaign needs settlement action:
+    /// - `deadline_passed`: true if current timestamp > campaign.deadline
+    /// - `goal_met`: true if amount_raised >= funding_goal
+    /// - `ready_for_withdrawal`: true if verified, goal met, deadline passed,
+    ///   and not yet withdrawn
+    ///
+    /// Background keepers can call this for active campaigns to find ones
+    /// ready for auto-settlement. Campaigns with `deadline_passed && goal_met`
+    /// have succeeded and can be withdrawn; those with `deadline_passed &&
+    /// !goal_met` have expired and contributors can claim refunds.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` — No campaign with that id.
+    pub fn check_settlement_status(
+        env: Env,
+        campaign_id: u32,
+    ) -> Result<(bool, bool, bool), Error> {
+        lifecycle::check_settlement_status(&env, campaign_id)
+    }
+
     /// Returns the total amount raised across all campaigns.
     pub fn get_total_raised_global(env: Env) -> i128 {
         get_total_raised_global(&env)
