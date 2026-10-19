@@ -136,6 +136,7 @@ test: deadline boundary coverage
 3. Update `EVENT_PAYLOADS.md` if your PR adds, modifies, or removes any `env.events().publish(...)` call — keep topics, data shape, and source location in sync
 4. Ensure CI is green — all four checks in the Code Style section must pass
 5. One issue per PR
+6. **Issue write-ups belong in the PR description**, not in separate markdown files in the repo. The PR is the permanent home for the rationale, screenshots, benchmarks, and design decisions behind a change. Standalone `ISSUE-*.md` files go stale and confuse contributors
 
 ## Changelog
 
