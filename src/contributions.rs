@@ -214,6 +214,26 @@ pub(crate) fn contribute(
 
     check_burst_guard(env, campaign_id, &campaign, amount)?;
 
+    // #1010: Partial refund for over-subscribed contributions.
+    // If this contribution would exceed the funding goal, only accept the
+    // portion that brings the campaign exactly to its goal and refund the rest.
+    let remaining_capacity = campaign
+        .funding_goal
+        .checked_sub(campaign.amount_raised)
+        .ok_or(Error::Overflow)?;
+
+    let (accepted_amount, refund_amount) = if remaining_capacity <= 0 {
+        // Campaign already met or exceeded goal (shouldn't normally happen,
+        // but handle defensively)
+        return Err(Error::FundingGoalReached);
+    } else if amount > remaining_capacity {
+        // Partial contribution: accept only what fits, refund the excess
+        (remaining_capacity, amount - remaining_capacity)
+    } else {
+        // Full contribution fits within remaining capacity
+        (amount, 0)
+    };
+
     bump_instance_ttl(env);
     crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
     update_contribution_accounting(
@@ -223,10 +243,12 @@ pub(crate) fn contribute(
         &mut campaign,
         current,
         lifetime,
-        amount,
+        accepted_amount,
     )?;
 
-    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let new_total = current
+        .checked_add(accepted_amount)
+        .ok_or(Error::Overflow)?;
     let is_new_top = match get_top_contributor(env, campaign_id) {
         Some(top_addr) if top_addr != contributor => {
             new_total > get_contribution(env, campaign_id, &top_addr)
@@ -239,10 +261,20 @@ pub(crate) fn contribute(
     set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
     let client = campaign_token_client(env, campaign_id);
+    // Transfer the full amount from contributor to contract first
     client.transfer(&contributor, &env.current_contract_address(), &amount);
 
+    // If there's a refund, send it back immediately
+    if refund_amount > 0 {
+        client.transfer(&env.current_contract_address(), &contributor, &refund_amount);
+        env.events().publish(
+            ("contribution_refunded", campaign_id, contributor.clone()),
+            refund_amount,
+        );
+    }
+
     env.events()
-        .publish(("contribution_made", campaign_id, contributor), amount);
+        .publish(("contribution_made", campaign_id, contributor), accepted_amount);
 
     Ok(())
 }
