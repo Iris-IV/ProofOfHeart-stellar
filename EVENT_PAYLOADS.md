@@ -580,4 +580,54 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Data   | `amount: i128` |
 | Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
 
-Total: 55 documented publish() call sites
+---
+
+### `vote_delegated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("vote_delegated", delegator: Address)` |
+| Data   | `delegate: Address` |
+| Source | `src/voting.rs` — `delegate_votes()` |
+
+---
+
+### `vote_undelegated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("vote_undelegated", delegator: Address)` |
+| Data   | `()` |
+| Source | `src/voting.rs` — `undelegate_votes()` |
+
+---
+
+### `campaign_delegated_vote_cast`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_delegated_vote_cast", campaign_id: u32, delegate: Address)` |
+| Data   | `(delegator: Address, approve: bool)` |
+| Source | `src/voting.rs` — `cast_delegated_vote()` |
+
+---
+
+### `proof_of_impact_recorded`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("proof_of_impact_recorded", campaign_id: u32, verifier: Address)` |
+| Data   | `(proof_hash: BytesN<32>, timestamp: u64)` |
+| Source | `src/campaigns/update.rs` — `record_proof_of_impact()` |
+
+---
+
+### `creator_bucket_credited`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("creator_bucket_credited", campaign_id: u32, creator: Address)` |
+| Data   | `creator_share: i128` |
+| Source | `src/revenue.rs` — `deposit_revenue()` |
+
+Total: 60 documented publish() call sites

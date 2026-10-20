@@ -96,3 +96,61 @@ pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
 /// reached. Keeping the bound below the entry limit leaves room for the fixed
 /// reads (counters, buckets, token, fee) each query also performs.
 pub(crate) const MAX_STATS_SCAN: u32 = 40;
+
+// ---------------------------------------------------------------------------
+// Dynamic platform fee by category (#1019)
+//
+// Different cause categories have different fee structures to align with
+// their risk profiles, regulatory overhead, and platform sustainability goals.
+// These constants define the default fee percentage (in basis points) for
+// each category when category-specific fees are enabled.
+// ---------------------------------------------------------------------------
+
+/// Default platform fee for Learner campaigns (150 bps = 1.5%).
+///
+/// Learner campaigns typically request smaller amounts for educational purposes
+/// and benefit from lower fees to maximize funding received. The reduced fee
+/// encourages individual learners to use the platform.
+pub(crate) const LEARNER_FEE_BPS: u32 = 150;
+
+/// Default platform fee for EducationalStartup campaigns (300 bps = 3%).
+///
+/// Startups with revenue-sharing models represent higher administrative
+/// overhead (ongoing tracking, distribution) and justify a standard commercial
+/// platform fee.
+pub(crate) const EDUCATIONAL_STARTUP_FEE_BPS: u32 = 300;
+
+/// Default platform fee for Educator campaigns (200 bps = 2%).
+///
+/// Educators creating learning content fall between individual learners and
+/// commercial startups. A moderate fee balances platform sustainability with
+/// the educational mission.
+pub(crate) const EDUCATOR_FEE_BPS: u32 = 200;
+
+/// Default platform fee for Publisher campaigns (350 bps = 3.5%).
+///
+/// Publishers typically launch larger campaigns for educational materials and
+/// represent the highest commercial risk profile. The fee reflects the
+/// additional verification and compliance burden.
+pub(crate) const PUBLISHER_FEE_BPS: u32 = 350;
+
+/// Returns the default platform fee (in basis points) for a given category.
+///
+/// This mapping enables category-specific fee calculations without hardcoding
+/// switch statements throughout the codebase. Callers can use this function
+/// when category-based fees are enabled, or fall back to the global platform
+/// fee when uniform pricing is desired.
+///
+/// # Example
+/// ```ignore
+/// let fee_bps = get_category_fee_bps(Category::Learner); // 150 bps
+/// ```
+pub(crate) const fn get_category_fee_bps(category: u32) -> u32 {
+    match category {
+        0 => LEARNER_FEE_BPS,           // Category::Learner
+        1 => EDUCATIONAL_STARTUP_FEE_BPS, // Category::EducationalStartup
+        2 => EDUCATOR_FEE_BPS,           // Category::Educator
+        3 => PUBLISHER_FEE_BPS,          // Category::Publisher
+        _ => EDUCATIONAL_STARTUP_FEE_BPS, // Fallback to standard fee
+    }
+}
