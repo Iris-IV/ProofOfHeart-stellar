@@ -7,11 +7,12 @@ use crate::storage::{
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
     get_min_campaign_funding_goal, get_withdraw_release_delay_days,
-    get_withdraw_reserve_percentage, hash_text, set_campaign, set_campaign_count,
-    set_campaign_creator_index, set_campaign_start_time, set_campaign_token, set_campaign_vesting,
-    set_category_campaign_bucket, set_category_campaign_count, set_creator_campaign_bucket,
-    set_creator_campaign_count, set_creator_campaign_position, set_creator_title_index,
-    set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE, CREATOR_CAMPAIGNS_BUCKET_SIZE,
+    get_withdraw_reserve_percentage, hash_text, is_category_enabled, set_campaign,
+    set_campaign_count, set_campaign_creator_index, set_campaign_start_time, set_campaign_token,
+    set_campaign_vesting, set_category_campaign_bucket, set_category_campaign_count,
+    set_creator_campaign_bucket, set_creator_campaign_count, set_creator_campaign_position,
+    set_creator_title_index, set_revenue_pool, CATEGORY_CAMPAIGNS_BUCKET_SIZE,
+    CREATOR_CAMPAIGNS_BUCKET_SIZE,
 };
 use crate::storage::{get_token, is_token_explicitly_allowed};
 use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator};
@@ -76,6 +77,14 @@ fn create_campaign_inner(
         revenue_share_percentage,
         max_contribution_per_user,
     } = params;
+
+    // Category taxonomy (#1039). `Category` is a closed enum, so the host
+    // already rejects a discriminant outside the taxonomy when it decodes the
+    // arguments; this enforces the admin's view of which categories are open.
+    // `ValidationFailed` because `Error` has no free slot (see below).
+    if !is_category_enabled(env, category) {
+        return Err(Error::ValidationFailed);
+    }
 
     if funding_goal <= 0 {
         return Err(Error::FundingGoalMustBePositive);

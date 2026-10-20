@@ -314,6 +314,24 @@ pub(crate) fn set_category_duration_cap(
     Ok(())
 }
 
+/// Opens or closes a category to new campaigns (#1039).
+///
+/// Closing a category does not touch campaigns that already exist in it; it
+/// only stops new ones from being created there.
+pub(crate) fn set_category_enabled(
+    env: &Env,
+    admin: Address,
+    category: crate::types::Category,
+    enabled: bool,
+) -> Result<(), Error> {
+    ensure_admin!(env, &admin);
+    bump_instance_ttl(env);
+    storage::set_category_enabled(env, category, enabled);
+    env.events()
+        .publish(("category_enabled_set", category as u32), enabled);
+    Ok(())
+}
+
 pub(crate) fn remove_category_duration_cap(
     env: &Env,
     admin: Address,

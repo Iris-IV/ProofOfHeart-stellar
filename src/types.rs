@@ -36,6 +36,26 @@ pub enum Category {
     Publisher = 3,
 }
 
+impl Category {
+    /// Every category in the taxonomy, in discriminant order (#1039).
+    ///
+    /// The single list that the contract validates against: adding a variant
+    /// above without adding it here fails `test_category_taxonomy_is_complete`.
+    pub const ALL: [Category; 4] = [
+        Category::Learner,
+        Category::EducationalStartup,
+        Category::Educator,
+        Category::Publisher,
+    ];
+
+    /// Maps a raw discriminant back to a category, or `None` if it is not
+    /// part of the taxonomy. Useful for off-chain callers and indexers that
+    /// carry the category as the `u32` published in `campaign_created`.
+    pub fn from_u32(value: u32) -> Option<Category> {
+        Category::ALL.into_iter().find(|c| *c as u32 == value)
+    }
+}
+
 /// Stores all details related to a funding campaign.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

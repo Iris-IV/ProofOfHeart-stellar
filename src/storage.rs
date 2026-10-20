@@ -235,6 +235,10 @@ pub enum CampaignKey {
     EmergencyWithdrawal(u32),
     /// Payout marker for a campaign, keyed by campaign ID.
     CampaignPayoutMarker(u32),
+    /// Present (as `true`) when the admin has closed a category to new
+    /// campaigns, keyed by category discriminant (#1039). Absent means open,
+    /// so every category is accepted until the admin says otherwise.
+    CategoryDisabled(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -1233,6 +1237,25 @@ pub fn set_category_duration_cap(env: &Env, category: Category, max_days: u64) {
 pub fn remove_category_duration_cap(env: &Env, category: Category) {
     let key = CampaignKey::CategoryDurationCap(category as u32);
     env.storage().instance().remove(&key);
+}
+
+// ── Category taxonomy (#1039) ─────────────────────────────────────────────────
+
+/// Whether new campaigns may be created in `category`.
+pub fn is_category_enabled(env: &Env, category: Category) -> bool {
+    let key = CampaignKey::CategoryDisabled(category as u32);
+    !env.storage().instance().has(&key)
+}
+
+/// Opens or closes `category` to new campaigns. Only the closed state is
+/// stored, so an untouched category costs no storage.
+pub fn set_category_enabled(env: &Env, category: Category, enabled: bool) {
+    let key = CampaignKey::CategoryDisabled(category as u32);
+    if enabled {
+        env.storage().instance().remove(&key);
+    } else {
+        env.storage().instance().set(&key, &true);
+    }
 }
 
 // ── Pending token update ──────────────────────────────────────────────────────
