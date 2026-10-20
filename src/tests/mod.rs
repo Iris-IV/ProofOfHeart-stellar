@@ -34,6 +34,7 @@ mod test_queries;
 mod test_refund_edge;
 mod test_regressions;
 mod test_revenue;
+mod test_security_audit;
 mod test_revenue_deposit;
 mod test_snapshots;
 mod test_tags;
