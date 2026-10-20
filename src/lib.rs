@@ -433,6 +433,21 @@ impl ProofOfHeart {
         campaigns::update::extend_campaign_deadline(&env, campaign_id, additional_days)
     }
 
+    /// Records a cryptographic proof-of-impact hash submitted by an authorized verifier.
+    pub fn record_proof_of_impact(
+        env: Env,
+        campaign_id: u32,
+        verifier: Address,
+        proof_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        campaigns::update::record_proof_of_impact(&env, campaign_id, verifier, proof_hash)
+    }
+
+    /// Returns the recorded proof of impact for a campaign, if one exists.
+    pub fn get_proof_of_impact(env: Env, campaign_id: u32) -> Option<ProofOfImpact> {
+        campaigns::update::get_proof_of_impact(&env, campaign_id)
+    }
+
     // ── Campaign ownership transfer ───────────────────────────────────────────
 
     /// Starts a two-step ownership transfer of `campaign_id` to `new_creator`.
@@ -499,6 +514,11 @@ impl ProofOfHeart {
         revenue::claim_creator_revenue(&env, campaign_id)
     }
 
+    /// Returns the isolated creator revenue bucket balance for a campaign.
+    pub fn get_creator_bucket_balance(env: Env, campaign_id: u32, creator: Address) -> i128 {
+        revenue::get_creator_bucket(&env, campaign_id, creator)
+    }
+
     // ── Voting & verification ─────────────────────────────────────────────────
 
     /// Casts `voter`'s approve/reject vote on an unverified campaign. Requires
@@ -534,6 +554,38 @@ impl ProofOfHeart {
     /// Returns a donor's cumulative contributions across all campaigns (#1054).
     pub fn get_donor_total_contributed(env: Env, donor: Address) -> i128 {
         storage::get_donor_total_contributed(&env, &donor)
+    }
+
+    /// Delegates the caller's voting rights to a designated community delegate.
+    pub fn delegate_votes(env: Env, delegator: Address, delegate: Address) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::delegate_votes(&env, delegator, delegate)
+    }
+
+    /// Revokes an existing vote delegation.
+    pub fn undelegate_votes(env: Env, delegator: Address) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::undelegate_votes(&env, delegator)
+    }
+
+    /// Returns the active delegate for a given delegator, if one has been assigned.
+    pub fn get_delegate(env: Env, delegator: Address) -> Option<Address> {
+        voting::get_delegate(&env, delegator)
+    }
+
+    /// Casts a vote on behalf of a delegator who delegated their voting rights to the caller.
+    pub fn cast_delegated_vote(
+        env: Env,
+        campaign_id: u32,
+        delegate: Address,
+        delegator: Address,
+        approve: bool,
+    ) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::cast_delegated_vote(&env, campaign_id, delegate, delegator, approve)
     }
 
     /// Admin: verifies `campaign_id` directly, bypassing community voting.

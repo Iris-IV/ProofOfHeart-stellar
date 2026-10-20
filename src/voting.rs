@@ -3,12 +3,13 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
-    bump_campaign, bump_votes, extend_ttl, get_approval_threshold_bps, get_approve_votes,
-    get_approve_weight, get_category_voting_threshold_bps, get_donor_total_contributed,
-    get_has_voted, get_lifetime_contribution, get_min_votes_quorum, get_min_voting_balance,
-    get_reject_votes, get_reject_weight, increment_verified_campaign_count,
-    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    bump_campaign, bump_instance_ttl, bump_votes, extend_ttl, get_approval_threshold_bps,
+    get_approve_votes, get_approve_weight, get_category_voting_threshold_bps,
+    get_donor_total_contributed, get_has_voted, get_lifetime_contribution, get_min_votes_quorum,
+    get_min_voting_balance, get_reject_votes, get_reject_weight, get_vote_delegate,
+    increment_verified_campaign_count, remove_vote_delegate, set_approval_threshold_bps,
+    set_approve_votes, set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum,
+    set_reject_votes, set_reject_weight, set_vote_delegate,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -265,6 +266,137 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     increment_verified_campaign_count(env);
     env.events()
         .publish(("campaign_verified", campaign_id), approve_votes);
+
+    Ok(())
+}
+
+/// Delegates the caller's voting rights to a designated community delegate.
+///
+/// # Errors
+/// * `ValidationFailed` - Delegator cannot delegate to themselves.
+/// * `NotTokenHolder` - Delegator holds no tokens or is below the minimum balance.
+pub fn delegate_votes(env: &Env, delegator: Address, delegate: Address) -> Result<(), Error> {
+    delegator.require_auth();
+    if delegator == delegate {
+        return Err(Error::ValidationFailed);
+    }
+    let balance = crate::lifecycle::token_client(env).balance(&delegator);
+    if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
+        return Err(Error::NotTokenHolder);
+    }
+
+    bump_instance_ttl(env);
+    set_vote_delegate(env, &delegator, &delegate);
+
+    env.events()
+        .publish(("vote_delegated", delegator), delegate);
+
+    Ok(())
+}
+
+/// Revokes an existing vote delegation.
+///
+/// # Errors
+/// * `ValidationFailed` - No active delegation exists for this delegator.
+pub fn undelegate_votes(env: &Env, delegator: Address) -> Result<(), Error> {
+    delegator.require_auth();
+    if get_vote_delegate(env, &delegator).is_none() {
+        return Err(Error::ValidationFailed);
+    }
+
+    bump_instance_ttl(env);
+    remove_vote_delegate(env, &delegator);
+
+    env.events().publish(("vote_undelegated", delegator), ());
+
+    Ok(())
+}
+
+/// Returns the active delegate for a given delegator, if one has been assigned.
+pub fn get_delegate(env: &Env, delegator: Address) -> Option<Address> {
+    get_vote_delegate(env, &delegator)
+}
+
+/// Casts a vote on behalf of a delegator who delegated their voting rights to the caller.
+///
+/// # Errors
+/// * `NotAuthorized` - Caller is not the registered delegate of the delegator.
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignAlreadyVerified` - The campaign is already verified.
+/// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed.
+/// * `NotTokenHolder` - The delegator holds no tokens or is below the minimum.
+/// * `AlreadyVoted` - The delegator has already cast a vote on this campaign.
+pub fn cast_delegated_vote(
+    env: &Env,
+    campaign_id: u32,
+    delegate: Address,
+    delegator: Address,
+    approve: bool,
+) -> Result<(), Error> {
+    delegate.require_auth();
+
+    match get_vote_delegate(env, &delegator) {
+        Some(d) if d == delegate => {}
+        _ => return Err(Error::NotAuthorized),
+    }
+
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn() {
+        return Err(Error::CampaignNotActive);
+    }
+    require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+    require_unverified_campaign(&campaign)?;
+
+    let balance = crate::lifecycle::token_client(env).balance(&delegator);
+    if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
+        return Err(Error::NotTokenHolder);
+    }
+
+    if get_has_voted(env, campaign_id, &delegator) {
+        extend_ttl(env, campaign_id, &delegator);
+        return Err(Error::AlreadyVoted);
+    }
+
+    if approve {
+        let new_count = get_approve_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_votes(env, campaign_id, new_count);
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
+    } else {
+        let new_count = get_reject_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_votes(env, campaign_id, new_count);
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
+    }
+
+    set_has_voted(env, campaign_id, &delegator);
+    extend_ttl(env, campaign_id, &delegator);
+
+    env.events().publish(
+        ("campaign_delegated_vote_cast", campaign_id, delegate),
+        (delegator, approve),
+    );
 
     Ok(())
 }
