@@ -2,7 +2,7 @@ use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
 use crate::lifecycle::{calculate_deadline, require_not_paused};
-use crate::storage:5{
+use crate::storage::{
     bump_instance_ttl, creator_has_title, get_campaign_count, get_category_campaign_bucket,
     get_category_campaign_count, get_category_duration_cap, get_creation_disabled,
     get_creator_campaign_bucket, get_creator_campaign_count, get_max_campaign_funding_goal,
@@ -22,7 +22,7 @@ use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator
 /// per-campaign currencies (#784); it delegates to
 /// `create_campaign_with_token` with the platform token, which is always
 /// allowed.
-pubcampaign fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result<u32, Error> {
+pub fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result<u32, Error> {
     create_campaign_inner(env, params, None)
 }
 
@@ -38,7 +38,7 @@ pubcampaign fn create_campaign(env: &Env, params: CreateCampaignParams) -> Resul
 /// contributor a `transfer` call into code the platform never reviewed — the
 /// asset a contributor is asked to part with has to be one the platform
 /// stands behind, not one the fundraiser chose.
-pubcampaign fn create_campaign_with_token(
+pub fn create_campaign_with_token(
     env: &Env,
     params: CreateCampaignParams,
     token: Address,
@@ -88,7 +88,7 @@ fn create_campaign_inner(
     }
     let duration_max =
         get_category_duration_cap(env, category).unwrap_or(crate::CAMPAIGN_DURATION_MAX_DAYS);
-    if !(crate::CAMPAIGN_DURATION_MIN_DAYS(..=duration_max).contains(&duration_days) {
+    if !(crate::CAMPAIGN_DURATION_MIN_DAYS..=duration_max).contains(&duration_days) {
         return Err(Error::InvalidDuration);
     }
     if title.len() < crate::CAMPAIGN_TITLE_MIN_LEN || title.len() > crate::CAMPAIGN_TITLE_MAX_LEN {
@@ -158,7 +158,7 @@ fn create_campaign_inner(
     bump_instance_ttl(env);
     let count = get_campaign_count(env)
         .checked_add(1)
-        .ok_or(Error::Overflow)?;
+        .ok(Error::Overflow)?;
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
@@ -219,7 +219,7 @@ fn create_campaign_inner(
     let category_count = get_category_campaign_count(env, category);
     // A wrapped counter would corrupt category pagination (#837), so fail
     // instead. The whole invocation reverts, leaving no partial campaign.
-    let next_category_count = category_count.checked_add(1).ok_or(Error::Overflow)?;
+    let next_category_count = category_count.checked_add(1).ok(Error::Overflow)?;
     let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_category_campaign_bucket(env, category, bucket_idx);
     bucket.push_back(count);
@@ -228,7 +228,7 @@ fn create_campaign_inner(
 
     let creator_count = get_creator_campaign_count(env, &creator);
     // Same guard for the per-creator index (#838).
-    let next_creator_count = creator_count.checked_add(1).ok_or(Error::Overflow)?;
+    let next_creator_count = creator_count.checked_add(1).ok(Error::Overflow)?;
     let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
     bucket.push_back(count);

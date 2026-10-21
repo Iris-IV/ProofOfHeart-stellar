@@ -14,11 +14,11 @@
 // force-verify, token migration) require multiple signers or a mandatory
 // delay before taking effect.
 
-use soroban_sdk:{Address, Env, Vec};
+use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::{emit_event, ensure_admin, get_campaign_or_error, require_active_campaign};
-use crate::storage:
+use crate::storage::
     {self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_max_contribution_per_transaction,
     get_min_campaign_funding_goal, get_min_votes_quorum, get_pending_admin, get_pending_token,
@@ -116,8 +116,8 @@ pub(crate) fn init(
         &soroban_sdk::Symbol::new(env, "decimals"),
         soroban_sdk::Vec::new(env),
     )
-    .map_err|/| Error::InvalidTokenContract)?
-    .map_err|| Error::InvalidTokenContract)?;
+    .map_err(|_| Error::InvalidTokenContract)?
+    .map_err(|_| Error::InvalidTokenContract)?;
 
     bump_instance_ttl(env);
     set_admin(env, &admin);
@@ -146,7 +146,7 @@ pub(crate) fn init(
             crate::CONTRACT_VERSION,
         ),
     );
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn pause(env: &Env) -> Result<(), Error> {
@@ -154,7 +154,7 @@ pub(crate) fn pause(env: &Env) -> Result<(), Error> {
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
     emit_event!(env, ("contract_paused", admin), ());
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
@@ -163,7 +163,7 @@ pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
     env.storage().instance().set(&AdminKey::Paused, &false);
     env.storage().instance().set(&AdminKey::AutoPaused, &false);
     emit_event!(env, ("contract_unpaused", admin), ());
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn set_emergency_pause_signers(
@@ -183,7 +183,7 @@ pub(crate) fn set_emergency_pause_signers(
     storage::set_emergency_pause_signers(env, &signers);
     env.events()
         .publish(("emergency_pause_signers_updated", admin), signers.len());
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
@@ -198,7 +198,7 @@ pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
     emit_event!(env, ("emergency_paused", caller), ());
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), Error> {
@@ -208,7 +208,7 @@ pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), 
     set_creation_disabled(env, disabled);
     env.events()
         .publish(("creation_disabled_updated", admin), disabled);
-    Ok(()
+    Ok(())
 }
 
 /// Add or remove a token from the set creators may denominate campaigns in
@@ -224,7 +224,7 @@ pub(crate) fn set_token_allowed_fn(env: &Env, token: Address, allowed: bool) -> 
     crate::storage::set_token_allowed(env, &token, allowed);
     env.events()
         .publish(("campaign_token_allowlisted", admin), (token, allowed));
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_voting_params(
@@ -256,7 +256,7 @@ pub(crate) fn set_voting_params(
             approval_threshold_bps,
         ),
     );
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_min_voting_balance_fn(
@@ -284,7 +284,7 @@ pub(crate) fn set_min_voting_balance_fn(
         ),
         (old_balance, min_balance),
     );
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
@@ -312,7 +312,7 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
     emit_event!(env, ("fee_updated",), (old_fee, new_fee));
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_max_contribution_per_transaction(
@@ -331,7 +331,7 @@ pub(crate) fn set_max_contribution_per_transaction(
         ("max_contribution_per_transaction_updated", admin),
         (old_amount, amount),
     );
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_campaign_fee_override(
@@ -358,7 +358,7 @@ pub(crate) fn set_campaign_fee_override(
     storage::set_campaign(env, campaign_id, &campaign);
     env.events()
         .publish(("campaign_fee_override_set", campaign_id), fee_bps);
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn set_category_duration_cap(
@@ -376,7 +376,7 @@ pub(crate) fn set_category_duration_cap(
     storage::set_category_duration_cap(env, category, max_days);
     env.events()
         .publish(("category_duration_cap_set", category as u32), max_days);
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn remove_category_duration_cap(
@@ -389,7 +389,7 @@ pub(crate) fn remove_category_duration_cap(
     storage::remove_category_duration_cap(env, category);
     env.events()
         .publish(("category_duration_cap_removed", category as u32), ());
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn set_campaign_funding_goals(
@@ -409,7 +409,7 @@ pub(crate) fn set_campaign_funding_goals(
         ("campaign_funding_goals_updated", admin),
         (min_goal, max_goal),
     );
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn propose_admin(env: &Env, new_admin: Address) -> Result<(), Error> {
@@ -417,7 +417,7 @@ pub(crate) fn propose_admin(env: &Env, new_admin: Address) -> Result<(), Error> 
     bump_instance_ttl(env);
     set_pending_admin(env, &new_admin);
     emit_event!(env, ("admin_transfer_proposed", admin), new_admin);
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn accept_admin_function(env: &Env) -> Result<(), Error> {
@@ -427,7 +427,7 @@ pub(crate) fn accept_admin_function(env: &Env) -> Result<(), Error> {
     set_admin(env, &new_admin);
     remove_pending_admin(env);
     emit_event!(env, ("admin_transfer_accepted", new_admin), ());
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn propose_token_update(
@@ -438,13 +438,13 @@ pub(crate) fn propose_token_update(
     let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     let release_at = env.ledger().timestamp() + release_delay_secs;
-    set_pending_token(env, &nEw_token);
+    set_pending_token(env, &new_token);
     set_pending_token_release(env, release_at);
     env.events().publish(
         ("token_update_proposed", admin),
         (new_token, release_at),
     );
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn accept_token_update(env: &Env) -> Result<(), Error> {
@@ -455,10 +455,10 @@ pub(crate) fn accept_token_update(env: &Env) -> Result<(), Error> {
         return Err(Error::TokenUpdateNotReady);
     }
     bump_instance_ttl(env);
-    set_token(env, &nEw_token);
+    set_token(env, &new_token);
     remove_pending_token(env);
     emit_event!(env, ("token_update_accepted", admin), new_token);
-    Ok()
+    Ok(())
 }
 
 pub(crate) fn cancel_token_update(env: &Env) -> Result<(), Error> {
@@ -466,7 +466,7 @@ pub(crate) fn cancel_token_update(env: &Env) -> Result<(), Error> {
     bump_instance_ttl(env);
     remove_pending_token(env);
     emit_event!(env, ("token_update_cancelled", admin), ());
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn migrate(env: &Env, new_version: u32) -> Result<(), Error> {
@@ -475,7 +475,7 @@ pub(crate) fn migrate(env: &Env, new_version: u32) -> Result<(), Error> {
     let old_version = get_version(env);
     set_version(env, new_version);
     emit_event!(env, ("migrated", admin), (old_version, new_version));
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn purge_voting_state(env: &Env, campaign_id: u32) -> Result<(), Error> {
@@ -483,7 +483,7 @@ pub(crate) fn purge_voting_state(env: &Env, campaign_id: u32) -> Result<(), Erro
     bump_instance_ttl(env);
     remove_voting_state(env, campaign_id);
     emit_event!(env, ("voting_state_purged", admin, campaign_id), ());
-    Ok(()
+    Ok(())
 }
 
 pub(crate) fn get_admin_public(env: &Env) -> Result<Address, Error> {
@@ -502,7 +502,7 @@ pub(crate) fn get_token_public(env: &Env) -> Result<Address, Error> {
     get_token(env).ok_or(Err(Error::NotInitialized))
 }
 
-pub(crate) fn get_platform_fee_public(env &Env) -> Result<u32, Error> {
+pub(crate) fn get_platform_fee_public(env: &Env) -> Result<u32, Error> {
     Ok(get_platform_fee(env))
 }
 
