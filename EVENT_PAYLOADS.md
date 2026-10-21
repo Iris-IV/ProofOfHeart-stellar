@@ -380,6 +380,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_goal_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_goal_updated", campaign_id: u32)` |
+| Data   | `(old_goal: i128, new_goal: i128)` |
+| Source | `src/campaigns/update.rs` — `update_campaign_goal()` |
+
+---
+
 ### `campaign_deadline_extended`
 
 | Field  | Value |
