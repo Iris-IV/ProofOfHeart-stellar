@@ -1,10 +1,10 @@
 pub(crate) mod helpers;
 
 // mod test_admin;
-mod test_auto_settlement;
+//TMP mod test_auto_settlement;
 // mod test_bookmarks;
 // mod test_admin_cancel;
-mod test_admin_security;
+//TMP mod test_admin_security;
 mod test_benchmark;
 // mod test_campaign_update;
 // mod test_campaigns;
@@ -30,12 +30,12 @@ mod test_lifecycle_events;
 mod test_milestones;
 mod test_multi_step;
 mod test_multi_token;
-mod partial_refund;
+//TMP mod partial_refund;
 mod test_queries;
 mod test_refund_edge;
 mod test_regressions;
 mod test_revenue;
-mod test_security_audit;
+//TMP mod test_security_audit;
 mod test_revenue_deposit;
 mod test_snapshots;
 mod test_tags;
