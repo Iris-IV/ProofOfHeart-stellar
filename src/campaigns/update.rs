@@ -1,9 +1,9 @@
-use soroban_sdk::{Env, String};
+use soroban_sdk::{Address, BytesN, Env, String};
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    campaign_start_time_or_error, get_creator_campaign, require_active_campaign,
-    require_not_paused, require_unverified_campaign,
+    campaign_start_time_or_error, get_campaign_or_error, get_creator_campaign,
+    require_active_campaign, require_not_paused, require_unverified_campaign,
 };
 use crate::storage::{
     bump_instance_ttl, creator_has_title, get_category_duration_cap, hash_text,
@@ -189,4 +189,54 @@ pub(crate) fn extend_campaign_deadline(
         ),
     );
     Ok(())
+}
+
+/// Records a cryptographic proof-of-impact hash submitted by an authorized verifier (e.g. admin).
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - Campaign is cancelled or inactive.
+/// * `NotAuthorized` - Caller is not the admin or authorized verifier.
+/// * `ContractPaused` - The contract is paused.
+pub(crate) fn record_proof_of_impact(
+    env: &Env,
+    campaign_id: u32,
+    verifier: Address,
+    proof_hash: BytesN<32>,
+) -> Result<(), Error> {
+    verifier.require_auth();
+    require_not_paused(env)?;
+
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+
+    let admin = crate::storage::get_admin(env);
+    if verifier != admin {
+        return Err(Error::NotAuthorized);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let proof = crate::types::ProofOfImpact {
+        verifier: verifier.clone(),
+        proof_hash: proof_hash.clone(),
+        timestamp,
+    };
+
+    bump_instance_ttl(env);
+    crate::storage::set_proof_of_impact(env, campaign_id, &proof);
+
+    env.events().publish(
+        ("proof_of_impact_recorded", campaign_id, verifier),
+        (proof_hash, timestamp),
+    );
+
+    Ok(())
+}
+
+/// Returns the recorded proof of impact for a campaign, if one exists.
+pub(crate) fn get_proof_of_impact(
+    env: &Env,
+    campaign_id: u32,
+) -> Option<crate::types::ProofOfImpact> {
+    crate::storage::get_proof_of_impact(env, campaign_id)
 }

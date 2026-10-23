@@ -424,6 +424,59 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     Ok(())
 }
 
+/// Admin batch-verifies all milestones for a campaign in one call (#1043).
+///
+/// Designed for verified non-profit creator accounts where per-milestone
+/// community review is waived: the admin calls this once and every unverified
+/// milestone in the plan is marked verified atomically. Already-verified
+/// milestones are silently skipped (idempotent). Returns the number of
+/// milestones that were newly verified.
+///
+/// # Errors
+/// * `CampaignNotActive`   — Campaign cancelled.
+/// * `MilestoneNotFound`   — No milestone plan is set.
+/// * `ContractPaused`      — Contract is paused.
+/// * `NotAuthorized`       — Caller is not the stored admin.
+pub(crate) fn batch_verify_milestones(
+    env: &Env,
+    admin: Address,
+    campaign_id: u32,
+) -> Result<u32, Error> {
+    crate::lifecycle::assert_admin(env, &admin)?;
+    require_not_paused(env)?;
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.is_cancelled() {
+        return Err(Error::CampaignNotActive);
+    }
+
+    let milestones = get_campaign_milestones(env, campaign_id);
+    if milestones.is_empty() {
+        return Err(Error::MilestoneNotFound);
+    }
+
+    let mut newly_verified: u32 = 0;
+    let mut updated: Vec<Milestone> = Vec::new(env);
+    for m in milestones.iter() {
+        if m.verified {
+            updated.push_back(m.clone());
+        } else {
+            newly_verified += 1;
+            updated.push_back(Milestone {
+                id: m.id,
+                description: m.description.clone(),
+                payout_bps: m.payout_bps,
+                verified: true,
+            });
+        }
+    }
+
+    bump_instance_ttl(env);
+    set_campaign_milestones(env, campaign_id, &updated);
+    env.events()
+        .publish(("milestones_batch_verified", campaign_id), newly_verified);
+    Ok(newly_verified)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tests::helpers::*;
@@ -585,5 +638,83 @@ mod tests {
         assert_eq!(token.balance(&admin), 30);
         assert_eq!(token.balance(&creator), 970);
         assert!(client.get_campaign(&id).funds_withdrawn());
+    }
+
+    /// Admin can verify all milestones at once via `batch_verify_milestones`
+    /// (#1043). Every unverified milestone becomes claimable in one call.
+    #[test]
+    fn test_batch_verify_milestones_verifies_all() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "B"),
+            String::from_str(&env, "D"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &2000);
+        client.contribute(&id, &c1, &1000);
+        client.set_milestones(&id, &make_milestones(&env));
+
+        // batch-verify both milestones at once
+        let newly_verified = client.batch_verify_milestones(&admin, &id);
+        assert_eq!(newly_verified, 2);
+
+        // Both milestones should now be claimable without individual verify calls.
+        client.claim_milestone(&id, &1);
+        client.claim_milestone(&id, &2);
+        assert!(client.get_campaign(&id).funds_withdrawn());
+    }
+
+    /// Calling `batch_verify_milestones` a second time returns 0 because all
+    /// milestones are already verified (idempotent).
+    #[test]
+    fn test_batch_verify_milestones_is_idempotent() {
+        let (env, admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "B2"),
+            String::from_str(&env, "D"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        client.verify_campaign(&id);
+        token_admin.mint(&c1, &2000);
+        client.contribute(&id, &c1, &1000);
+        client.set_milestones(&id, &make_milestones(&env));
+
+        client.batch_verify_milestones(&admin, &id);
+        // Second call: nothing new to verify.
+        let count = client.batch_verify_milestones(&admin, &id);
+        assert_eq!(count, 0);
+    }
+
+    /// `batch_verify_milestones` fails with `MilestoneNotFound` when no plan
+    /// has been set yet.
+    #[test]
+    fn test_batch_verify_milestones_no_plan_fails() {
+        let (env, admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "C3"),
+            String::from_str(&env, "D"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+        let res = client.try_batch_verify_milestones(&admin, &id);
+        assert_eq!(res, Err(Ok(crate::Error::MilestoneNotFound)));
     }
 }

@@ -415,6 +415,12 @@ mod attacker {
             get_u32(&env, &AttackKey::Transfers)
         }
 
+        pub fn reentry_attempts(env: Env) -> u32 {
+            // Every `transfer` callback from the target contract represents one
+            // re-entry attempt; `transfers()` counts exactly those.
+            get_u32(&env, &AttackKey::Transfers)
+        }
+
         pub fn moved(env: Env) -> i128 {
             env.storage().instance().get(&AttackKey::Moved).unwrap_or(0)
         }
@@ -678,4 +684,72 @@ fn test_claim_milestone_reentry_cannot_withdraw_everything() {
     let outcome = client.try_claim_milestone(&campaign_id, &1);
 
     assert_reentry_refused(&outcome, &attacker, GOAL / 2);
+}
+
+/// Re-entry attack simulation: hostile token attempts nested cancel during
+/// revenue pool refund. Verifies state is fully committed before external call.
+#[test]
+fn test_revenue_refund_nested_cancel_attempt_refused() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::CancelCampaign),
+    );
+
+    // Deposit revenue pool before cancellation
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.set_funds_withdrawn(true);
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+    client.deposit_revenue(&campaign_id, &1000);
+    env.as_contract(&client.address, || {
+        let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
+        campaign.set_funds_withdrawn(false);
+        storage::set_campaign(&env, campaign_id, &campaign);
+    });
+
+    let outcome = client.try_cancel_campaign(&campaign_id);
+
+    assert_reentry_refused(&outcome, &attacker, 1000);
+    // Verify campaign is in consistent terminal state
+    if outcome.is_ok() {
+        let campaign = client.get_campaign(&campaign_id);
+        assert!(campaign.is_cancelled());
+        assert_eq!(client.get_revenue_pool(&campaign_id), 0);
+    }
+}
+
+/// Multi-step attack simulation: verify withdrawal cannot be chained through
+/// multiple re-entry attempts within gas budget constraints.
+#[test]
+fn test_chained_withdraw_attempts_all_refused() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let (campaign_id, attacker) = hostile_campaign(
+        &env,
+        &creator,
+        &contributor,
+        &token_admin,
+        &client,
+        Some(Attack::WithdrawFunds),
+    );
+    pass_deadline(&env, &client, campaign_id);
+
+    let outcome = client.try_withdraw_funds(&campaign_id);
+
+    // No matter how many nested attempts, only one payout succeeds
+    assert_reentry_refused(&outcome, &attacker, GOAL);
+    assert!(
+        attacker.transfers() >= 1,
+        "attack should have triggered re-entry"
+    );
+    assert_eq!(
+        attacker.reentry_succeeded(),
+        0,
+        "no re-entrant withdrawal should succeed"
+    );
 }

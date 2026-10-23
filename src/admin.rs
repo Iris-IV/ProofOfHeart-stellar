@@ -34,6 +34,64 @@ use crate::storage::{
 };
 use crate::voting;
 
+// ---------------------------------------------------------------------------
+// Security validation helpers (#993)
+//
+// These functions encapsulate access control and parameter validation checks
+// that must hold across all admin operations. Centralizing them here ensures
+// security invariants are enforced consistently and auditable in one place.
+// ---------------------------------------------------------------------------
+
+/// Validates that an address list contains no duplicates.
+///
+/// Duplicate addresses in emergency pause signers or governance committees
+/// would allow a single party to meet quorum requirements alone, defeating
+/// the purpose of multi-party authorization.
+///
+/// Returns `Error::ValidationFailed` when duplicates are found.
+#[inline]
+fn validate_unique_addresses(addresses: &Vec<Address>) -> Result<(), Error> {
+    for i in 0..addresses.len() {
+        for j in (i + 1)..addresses.len() {
+            if addresses.get_unchecked(i) == addresses.get_unchecked(j) {
+                return Err(Error::ValidationFailed);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validates that a quorum value is within acceptable bounds.
+///
+/// A quorum of 0 would allow actions with no votes, defeating governance.
+/// A quorum above a reasonable maximum (e.g., 1000) could make the system
+/// ungovernable by setting an unachievable threshold.
+///
+/// Returns `Error::ValidationFailed` for out-of-bounds quorums.
+#[inline]
+fn validate_quorum_bounds(quorum: u32) -> Result<(), Error> {
+    const MAX_REASONABLE_QUORUM: u32 = 1000;
+    if quorum == 0 || quorum > MAX_REASONABLE_QUORUM {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+/// Validates that a percentage (in basis points) does not exceed 100%.
+///
+/// Many operations express percentages as basis points (1 bps = 0.01%).
+/// A value above 10,000 bps (100%) would represent an invalid percentage
+/// and could cause arithmetic overflow or underflow in downstream calculations.
+///
+/// Returns `Error::ValidationFailed` for values > 10,000.
+#[inline]
+fn validate_bps_percentage(bps: u32) -> Result<(), Error> {
+    if bps > 10_000 {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
 pub(crate) fn init(
     env: &Env,
     admin: Address,
@@ -117,6 +175,9 @@ pub(crate) fn set_emergency_pause_signers(
     if signers.is_empty() {
         return Err(Error::ValidationFailed);
     }
+    // #993 — Prevent a single signer from appearing multiple times, which would
+    // defeat multi-party authorization by allowing one address to meet quorum alone.
+    validate_unique_addresses(&signers)?;
     // No require_not_paused: admin must be able to configure signers even during pause (#785).
     bump_instance_ttl(env);
     storage::set_emergency_pause_signers(env, &signers);
@@ -173,6 +234,10 @@ pub(crate) fn set_voting_params(
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
     ensure_admin!(env, &admin);
+    // #993 — Validate quorum and threshold before applying them to prevent
+    // ungovernable states (quorum = 0 or impossibly high) or invalid percentages.
+    validate_quorum_bounds(min_votes_quorum)?;
+    validate_bps_percentage(approval_threshold_bps)?;
     // No require_not_paused: admin must be able to adjust voting parameters during pause (#388).
     bump_instance_ttl(env);
     let old_quorum = get_min_votes_quorum(env, voting::DEFAULT_MIN_VOTES_QUORUM);

@@ -13,6 +13,7 @@ use crate::storage::{
 };
 use crate::types::MaybePendingCreator;
 
+#[inline]
 fn get_creator_campaign_position_or_legacy_scan(
     env: &Env,
     creator: &Address,

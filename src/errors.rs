@@ -25,7 +25,7 @@
 //! **Codes are stable.** Discriminants are part of the public ABI (indexers,
 //! frontends and SDK bindings match on the number). They are assigned
 //! explicitly, never resequenced, and a removed variant's number is retired:
-//! **`#35` is retired and must not be reused.** The enum is capped at 50
+//! **`#21` and `#35` are retired and must not be reused.** The enum is capped at 50
 //! cases by Soroban's contract-spec XDR (see the note on [`Error`]).
 //!
 //! ## Taxonomy
@@ -49,7 +49,6 @@
 //!
 //! | Code | Variant | Meaning | Raised in |
 //! |---:|---|---|---|
-//! | 21 | `NotPendingOwner` | Reserved: caller is not the pending creator (not currently returned by any entry point) | — |
 //! | 22 | `NoTransferPending` | Accept/cancel with no transfer in flight | `admin`, `campaigns/transfer` |
 //! | 23 | `InvalidNewOwner` | New owner equals the current one | `admin`, `campaigns/transfer` |
 //! | 40 | `TransferAlreadyPending` | A campaign transfer is already pending | `campaigns/transfer` |
@@ -225,12 +224,8 @@ pub enum Error {
     // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
-    /// The caller is not the pending creator.
-    ///
-    /// Reserved: no entry point currently returns this code (pending-transfer
-    /// checks report `NotAuthorized` / `NoTransferPending`). Kept so `#21`
-    /// stays allocated and is never reused for a different meaning.
-    NotPendingOwner = 21,
+    // `#21` (formerly `NotPendingOwner`, never returned by any entry point)
+    // is retired to keep the enum within the 50-case spec limit. Do not reuse.
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
@@ -295,6 +290,8 @@ pub enum Error {
     MilestoneAlreadyClaimed = 50,
     /// An invariant condition has been violated (state corruption or bug).
     InvariantBroken = 51,
+    /// The campaign has reached or exceeded its funding goal.
+    FundingGoalReached = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -341,7 +338,6 @@ impl Error {
                 VotingQuorumNotMet,
                 VotingThresholdNotMet,
                 AlreadyInitialized,
-                NotPendingOwner,
                 NoTransferPending,
                 InvalidNewOwner,
                 ContractPaused,
@@ -371,6 +367,7 @@ impl Error {
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
                 InvariantBroken,
+                FundingGoalReached,
             ]
         )
     }
@@ -437,7 +434,6 @@ mod tests {
             "VotingThresholdNotMet"
         );
         assert_eq!(Error::AlreadyInitialized.to_string(), "AlreadyInitialized");
-        assert_eq!(Error::NotPendingOwner.to_string(), "NotPendingOwner");
         assert_eq!(Error::NoTransferPending.to_string(), "NoTransferPending");
         assert_eq!(Error::InvalidNewOwner.to_string(), "InvalidNewOwner");
         assert_eq!(Error::ContractPaused.to_string(), "ContractPaused");

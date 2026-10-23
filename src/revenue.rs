@@ -89,9 +89,10 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
-    get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, set_contributor_revenue_claimants, set_contributor_revenue_distributed,
-    set_creator_revenue_claimed, set_revenue_claimed, set_revenue_pool,
+    get_contributor_revenue_distributed, get_creator_bucket_balance, get_creator_revenue_claimed,
+    get_revenue_claimed, get_revenue_pool, set_contributor_revenue_claimants,
+    set_contributor_revenue_distributed, set_creator_bucket_balance, set_creator_revenue_claimed,
+    set_revenue_claimed, set_revenue_pool,
 };
 
 pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
@@ -122,11 +123,35 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
         current_pool.checked_add(amount).ok_or(Error::Overflow)?,
     );
 
+    // Isolate creator bucket balance (#Issue 4)
+    let creator_share_bps =
+        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+    let creator_share = amount
+        .checked_mul(creator_share_bps)
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+        .ok_or(Error::Overflow)?;
+
+    let current_bucket = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
+    set_creator_bucket_balance(
+        env,
+        campaign_id,
+        &campaign.creator,
+        current_bucket
+            .checked_add(creator_share)
+            .ok_or(Error::Overflow)?,
+    );
+
     let client = campaign_token_client(env, campaign_id);
     client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
-    env.events()
-        .publish(("revenue_deposited", campaign_id, campaign.creator), amount);
+    env.events().publish(
+        ("revenue_deposited", campaign_id, campaign.creator.clone()),
+        amount,
+    );
+    env.events().publish(
+        ("creator_bucket_credited", campaign_id, campaign.creator),
+        creator_share,
+    );
 
     Ok(())
 }
@@ -270,19 +295,22 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         return Err(Error::ValidationFailed);
     }
 
-    let total_pool = get_revenue_pool(env, campaign_id);
-    // Compute creator entitlement directly instead of as a residual from the
-    // contributor pool. This avoids biasing creator payouts upward when
-    // contributor-side division truncates (#386).
-    let creator_share_bps =
-        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
-    let creator_share_total = total_pool
-        .checked_mul(creator_share_bps)
-        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
-        .ok_or(Error::Overflow)?;
+    // Check isolated creator bucket balance first (#Issue 4)
+    let bucket_balance = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
+    let claimable = if bucket_balance > 0 {
+        bucket_balance
+    } else {
+        let total_pool = get_revenue_pool(env, campaign_id);
+        let creator_share_bps =
+            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_total = total_pool
+            .checked_mul(creator_share_bps)
+            .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+            .ok_or(Error::Overflow)?;
 
-    let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-    let claimable = creator_share_total - already_claimed;
+        let already_claimed = get_creator_revenue_claimed(env, campaign_id);
+        creator_share_total - already_claimed
+    };
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -290,8 +318,10 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     bump_instance_ttl(env);
 
-    // Update state before the token transfer (CEI pattern) so that a
-    // malicious token contract cannot re-enter and double-claim (#557).
+    // Clear isolated creator bucket balance on claim
+    set_creator_bucket_balance(env, campaign_id, &campaign.creator, 0);
+
+    let already_claimed = get_creator_revenue_claimed(env, campaign_id);
     set_creator_revenue_claimed(
         env,
         campaign_id,
@@ -314,4 +344,9 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     );
 
     Ok(())
+}
+
+/// Returns the current isolated creator revenue bucket balance.
+pub(crate) fn get_creator_bucket(env: &Env, campaign_id: u32, creator: Address) -> i128 {
+    get_creator_bucket_balance(env, campaign_id, &creator)
 }

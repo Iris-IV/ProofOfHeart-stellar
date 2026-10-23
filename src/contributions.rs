@@ -157,6 +157,8 @@ fn update_contribution_accounting(
         contributor,
         lifetime.checked_add(amount).ok_or(Error::Overflow)?,
     );
+    // #1054: track cumulative donor history for dynamic voting weight.
+    crate::storage::add_donor_total_contributed(env, contributor, amount);
 
     if lifetime == 0 {
         increment_contributor_count(env, campaign_id);
@@ -212,6 +214,26 @@ pub(crate) fn contribute(
 
     check_burst_guard(env, campaign_id, &campaign, amount)?;
 
+    // #1010: Partial refund for over-subscribed contributions.
+    // If this contribution would exceed the funding goal, only accept the
+    // portion that brings the campaign exactly to its goal and refund the rest.
+    let remaining_capacity = campaign
+        .funding_goal
+        .checked_sub(campaign.amount_raised)
+        .ok_or(Error::Overflow)?;
+
+    let (accepted_amount, refund_amount) = if remaining_capacity <= 0 {
+        // Campaign already met or exceeded goal (shouldn't normally happen,
+        // but handle defensively)
+        return Err(Error::FundingGoalReached);
+    } else if amount > remaining_capacity {
+        // Partial contribution: accept only what fits, refund the excess
+        (remaining_capacity, amount - remaining_capacity)
+    } else {
+        // Full contribution fits within remaining capacity
+        (amount, 0)
+    };
+
     bump_instance_ttl(env);
     crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
     update_contribution_accounting(
@@ -221,10 +243,12 @@ pub(crate) fn contribute(
         &mut campaign,
         current,
         lifetime,
-        amount,
+        accepted_amount,
     )?;
 
-    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let new_total = current
+        .checked_add(accepted_amount)
+        .ok_or(Error::Overflow)?;
     let is_new_top = match get_top_contributor(env, campaign_id) {
         Some(top_addr) if top_addr != contributor => {
             new_total > get_contribution(env, campaign_id, &top_addr)
@@ -237,10 +261,20 @@ pub(crate) fn contribute(
     set_last_contribution_time(env, campaign_id, env.ledger().timestamp());
 
     let client = campaign_token_client(env, campaign_id);
+    // Transfer the full amount from contributor to contract first
     client.transfer(&contributor, &env.current_contract_address(), &amount);
 
+    // If there's a refund, send it back immediately
+    if refund_amount > 0 {
+        client.transfer(&env.current_contract_address(), &contributor, &refund_amount);
+        env.events().publish(
+            ("contribution_refunded", campaign_id, contributor.clone()),
+            refund_amount,
+        );
+    }
+
     env.events()
-        .publish(("contribution_made", campaign_id, contributor), amount);
+        .publish(("contribution_made", campaign_id, contributor), accepted_amount);
 
     Ok(())
 }
@@ -283,70 +317,26 @@ pub(crate) fn batch_contribute(
             return Err(Error::ValidationFailed);
         }
         seen.set(campaign_id, true);
-
-        if amount <= 0 {
-            return Err(Error::ContributionMustBePositive);
-        }
-
-        let mut campaign = get_campaign_or_error(env, campaign_id)?;
-        if !campaign.is_verified() {
-            return Err(Error::CampaignNotVerified);
-        }
-        require_active_campaign(&campaign)?;
-        if contributor == campaign.creator {
-            return Err(Error::NotAuthorized);
-        }
-        if now > campaign.deadline {
-            return Err(Error::DeadlinePassed);
-        }
-
-        let current = get_contribution(env, campaign_id, &contributor);
-        let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
-
-        check_transaction_contribution_cap(env, amount)?;
-        check_contribution_caps(&campaign, lifetime, amount)?;
-
-        if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-            if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
-                return Err(Error::ContributionCapExceeded);
-            }
-        }
-
-        check_burst_guard(env, campaign_id, &campaign, amount)?;
-
-        crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
-        update_contribution_accounting(
+        let (token, contribution_total) = apply_batch_contribution(
             env,
             campaign_id,
-            &contributor,
-            &mut campaign,
-            current,
-            lifetime,
+            contributor.clone(),
             amount,
+            now,
+            &mut platform_token,
         )?;
 
-        let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
-        let is_new_top = match get_top_contributor(env, campaign_id) {
-            Some(top_addr) if top_addr != contributor => {
-                new_total > get_contribution(env, campaign_id, &top_addr)
-            }
-            _ => true,
-        };
-        if is_new_top {
-            set_top_contributor(env, campaign_id, &contributor);
-        }
-        set_last_contribution_time(env, campaign_id, now);
+        total = total
+            .checked_add(contribution_total)
+            .ok_or(Error::Overflow)?;
 
-        total = total.checked_add(amount).ok_or(Error::Overflow)?;
-
-        // Same answer as `get_campaign_token`, but the platform-token
-        // fallback is read once and reused across campaigns that inherit it.
-        let token = match get_pinned_campaign_token(env, campaign_id) {
-            Some(token) => token,
-            None => platform_token.get_or_insert_with(|| get_token(env)).clone(),
-        };
         let running = owed.get(token.clone()).unwrap_or(0);
-        owed.set(token, running.checked_add(amount).ok_or(Error::Overflow)?);
+        owed.set(
+            token,
+            running
+                .checked_add(contribution_total)
+                .ok_or(Error::Overflow)?,
+        );
     }
 
     // Transfers happen here, after accounting and before any events are
@@ -374,6 +364,79 @@ pub(crate) fn batch_contribute(
     );
 
     Ok(())
+}
+
+/// Applies one batch item in its own call frame. Keeping the campaign
+/// validation and accounting locals out of `batch_contribute` reduces the
+/// peak Wasm stack frame for multi-step batches without changing their atomic
+/// semantics (#1187).
+fn apply_batch_contribution(
+    env: &Env,
+    campaign_id: u32,
+    contributor: Address,
+    amount: i128,
+    now: u64,
+    platform_token: &mut Option<Address>,
+) -> Result<(Address, i128), Error> {
+    if amount <= 0 {
+        return Err(Error::ContributionMustBePositive);
+    }
+
+    let mut campaign = get_campaign_or_error(env, campaign_id)?;
+    if !campaign.is_verified() {
+        return Err(Error::CampaignNotVerified);
+    }
+    require_active_campaign(&campaign)?;
+    if contributor == campaign.creator {
+        return Err(Error::NotAuthorized);
+    }
+    if now > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+
+    let current = get_contribution(env, campaign_id, &contributor);
+    let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
+    check_transaction_contribution_cap(env, amount)?;
+    check_contribution_caps(&campaign, lifetime, amount)?;
+
+    if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
+        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
+            return Err(Error::ContributionCapExceeded);
+        }
+    }
+
+    check_burst_guard(env, campaign_id, &campaign, amount)?;
+    crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
+    update_contribution_accounting(
+        env,
+        campaign_id,
+        &contributor,
+        &mut campaign,
+        current,
+        lifetime,
+        amount,
+    )?;
+
+    let new_total = current.checked_add(amount).ok_or(Error::Overflow)?;
+    let is_new_top = match get_top_contributor(env, campaign_id) {
+        Some(top_addr) if top_addr != contributor => {
+            new_total > get_contribution(env, campaign_id, &top_addr)
+        }
+        _ => true,
+    };
+    if is_new_top {
+        set_top_contributor(env, campaign_id, &contributor);
+    }
+    set_last_contribution_time(env, campaign_id, now);
+
+    // Same answer as `get_campaign_token`, but the platform-token fallback is
+    // read once per batch and reused across campaigns that inherit it (#1172).
+    let token = match get_pinned_campaign_token(env, campaign_id) {
+        Some(token) => token,
+        None => platform_token.get_or_insert_with(|| get_token(env)).clone(),
+    };
+
+    Ok((token, amount))
 }
 
 pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) -> Result<(), Error> {
