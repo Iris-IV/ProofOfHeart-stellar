@@ -39,6 +39,40 @@
 //! - `get_campaigns_by_category()`: 10M instructions (pagination + filtering)
 //! - `unpause()`: 1M instructions (simple state update, caught copy-paste regression in #1251)
 //!
+//! ## Measured Results (#1173)
+//!
+//! CPU instructions from `env.budget().cpu_instruction_cost()` in the test
+//! environment (soroban-sdk 22.0.11). Run
+//! `cargo test --features testutils test_batch_contribute -- --nocapture`
+//! to print the `bench ...` lines yourself.
+//!
+//! | Method | Scenario | CPU instructions | Limit |
+//! |--------|----------|------------------|-------|
+//! | `batch_contribute` | 1 campaign | ~984k | - |
+//! | `batch_contribute` | 4 campaigns (after #1172 hoisting) | ~2.93M (was ~2.94M) | 9M |
+//!
+//! The remaining per-method limits are the constants defined below; each test
+//! prints its measured cost next to its limit.
+//!
+//! ## Reproducing with the Soroban CLI
+//!
+//! ```text
+//! stellar contract build
+//! stellar contract invoke --id <CONTRACT_ID> --source <KEY> --network testnet \
+//!   --sim-only -- contribute --campaign_id 1 --contributor <ADDRESS> --amount 100
+//! ```
+//!
+//! `--sim-only` reports the simulated instruction and memory cost without
+//! submitting a transaction.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! test (setup_env) -> client.method() -> contract fn -> storage + token host calls
+//!                          |
+//!                  env.budget() <- CPU instructions asserted against *_CPU_LIMIT
+//! ```
+//!
 //! ## Interpreting Budget Failures
 //!
 //! If a test fails (e.g., "contribute() used 5.2M instructions, limit is 5M"):
