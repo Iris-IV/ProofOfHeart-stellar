@@ -136,10 +136,6 @@ fn create_campaign_inner(
         return Err(Error::ValidationFailed);
     }
     // `ValidationFailed` rather than a dedicated code: `Error` is already at
-    // Soroban's fifty-case ceiling for `#[contracterror] unions, so there is
-    // no free slot. The event and the `is_token_allowed` getter give callers a
-    // way to tell this apart from the other validation failures above.
-    // `ValidationFailed` rather than a dedicated code: `Error` is already at
     // Soroban's fifty-case ceiling for `#[contracterror]` unions, so there is
     // no free slot. `is_token_allowed` lets a caller tell this apart from the
     // other validation failures above.
@@ -158,7 +154,7 @@ fn create_campaign_inner(
     bump_instance_ttl(env);
     let count = get_campaign_count(env)
         .checked_add(1)
-        .ok(Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
 
     let deadline = calculate_deadline(env.ledger().timestamp(), duration_days)?;
 
@@ -219,7 +215,7 @@ fn create_campaign_inner(
     let category_count = get_category_campaign_count(env, category);
     // A wrapped counter would corrupt category pagination (#837), so fail
     // instead. The whole invocation reverts, leaving no partial campaign.
-    let next_category_count = category_count.checked_add(1).ok(Error::Overflow)?;
+    let next_category_count = category_count.checked_add(1).ok_or(Error::Overflow)?;
     let bucket_idx = category_count / CATEGORY_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_category_campaign_bucket(env, category, bucket_idx);
     bucket.push_back(count);
@@ -228,7 +224,7 @@ fn create_campaign_inner(
 
     let creator_count = get_creator_campaign_count(env, &creator);
     // Same guard for the per-creator index (#838).
-    let next_creator_count = creator_count.checked_add(1).ok(Error::Overflow)?;
+    let next_creator_count = creator_count.checked_add(1).ok_or(Error::Overflow)?;
     let bucket_idx = creator_count / CREATOR_CAMPAIGNS_BUCKET_SIZE;
     let mut bucket = get_creator_campaign_bucket(env, &creator, bucket_idx);
     bucket.push_back(count);

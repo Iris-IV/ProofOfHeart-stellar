@@ -147,10 +147,10 @@ pub(crate) const PUBLISHER_FEE_BPS: u32 = 350;
 /// ```
 pub(crate) const fn get_category_fee_bps(category: u32) -> u32 {
     match category {
-        0 => LEARNER_FEE_BPS,           // Category::Learner
+        0 => LEARNER_FEE_BPS,             // Category::Learner
         1 => EDUCATIONAL_STARTUP_FEE_BPS, // Category::EducationalStartup
-        2 => EDUCATOR_FEE_BPS,           // Category::Educator
-        3 => PUBLISHER_FEE_BPS,          // Category::Publisher
+        2 => EDUCATOR_FEE_BPS,            // Category::Educator
+        3 => PUBLISHER_FEE_BPS,           // Category::Publisher
         _ => EDUCATIONAL_STARTUP_FEE_BPS, // Fallback to standard fee
     }
 }

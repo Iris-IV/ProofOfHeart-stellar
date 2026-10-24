@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::constants::{
-    get_category_fee_bps, EDUCATOR_FEE_BPS, EDUCATIONAL_STARTUP_FEE_BPS, LEARNER_FEE_BPS,
+    get_category_fee_bps, EDUCATIONAL_STARTUP_FEE_BPS, EDUCATOR_FEE_BPS, LEARNER_FEE_BPS,
     PUBLISHER_FEE_BPS,
 };
 
@@ -70,4 +70,5 @@ fn test_get_category_fee_bps_is_const_fn() {
     // If it compiles, the function is properly marked as const fn.
     const LEARNER_FEE: u32 = get_category_fee_bps(0);
     assert_eq!(LEARNER_FEE, 150);
+    assert_eq!(get_category_fee_bps(0), 150);
 }

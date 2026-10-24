@@ -18,8 +18,8 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
 use crate::lifecycle::{emit_event, ensure_admin, get_campaign_or_error, require_active_campaign};
-use crate::storage::
-    {self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
+use crate::storage::{
+    self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_max_contribution_per_transaction,
     get_min_campaign_funding_goal, get_min_votes_quorum, get_pending_admin, get_pending_token,
     get_pending_token_release, get_platform_fee, get_token, get_token_update_delay_secs,
@@ -192,7 +192,7 @@ pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
     if signers.is_empty() {
         return Err(Error::NotAuthorized);
     }
-    if !signers.iter().any(|s | s == caller) {
+    if !signers.iter().any(|s| s == caller) {
         return Err(Error::NotAuthorized);
     }
     bump_instance_ttl(env);
@@ -311,209 +311,7 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let old_fee = get_platform_fee(env);
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
-    emit_event!(env, ("fee_updated",), (old_fee, new_fee));
-    Ok(())
-}
-
-pub(crate) fn set_max_contribution_per_transaction(
-    env: &Env,
-    admin: Address,
-    amount: i128,
-) -> Result<(), Error> {
-    ensure_admin!(env, &admin);
-    if amount < 0 {
-        return Err(Error::ValidationFailed);
-    }
-    let old_amount = get_max_contribution_per_transaction(env);
-    bump_instance_ttl(env);
-    set_max_contribution_per_transaction_value(env, amount);
-    env.events().publish(
-        ("max_contribution_per_transaction_updated", admin),
-        (old_amount, amount),
-    );
-    Ok(())
-}
-
-pub(crate) fn set_campaign_fee_override(
-    env: &Env,
-    campaign_id: u32,
-    admin: Address,
-    fee_bps: u32,
-) -> Result<(), Error> {
-    ensure_admin!(env, &admin);
-    // No require_not_paused: per-campaign fee overrides are admin governance (#388).
-    let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
-    // override is still a platform fee and must not be a way around either
-    // the arithmetic limit (fee > 10000 bps would make the platform's cut in
-    // `withdraw_funds` exceed the amount raised and drain the campaign) or the
-    // policy ceiling. Returns the same `InvalidPlatformFee` as
-    // `update_platform_fee` so callers see one consistent error for an
-    // out-of-range fee regardless of which setter they used.
-    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || fee_bps > crate::PLATFORM_FEE_MAX_BPS {
-        return Err(Error::InvalidPlatformFee);
-    }
-    bump_instance_ttl(env);
-    campaign.fee_override = Some(fee_bps);
-    storage::set_campaign(env, campaign_id, &campaign);
     env.events()
-        .publish(("campaign_fee_override_set", campaign_id), fee_bps);
+        .publish(("platform_fee_updated",), (old_fee, new_fee));
     Ok(())
-}
-
-pub(crate) fn set_category_duration_cap(
-    env: &Env,
-    admin: Address,
-    category: crate::types::Category,
-    max_days: u64,
-) -> Result<(), Error> {
-    ensure_admin!(env, &admin);
-    if !(crate::CAMPAIGN_DURATION_MIN_DAYS..=crate::CAMPAIGN_DURATION_MAX_DAYS).contains(&max_days)
-    {
-        return Err(Error::ValidationFailed);
-    }
-    bump_instance_ttl(env);
-    storage::set_category_duration_cap(env, category, max_days);
-    env.events()
-        .publish(("category_duration_cap_set", category as u32), max_days);
-    Ok(())
-}
-
-pub(crate) fn remove_category_duration_cap(
-    env: &Env,
-    admin: Address,
-    category: crate::types::Category,
-) -> Result<(), Error> {
-    ensure_admin!(env, &admin);
-    bump_instance_ttl(env);
-    storage::remove_category_duration_cap(env, category);
-    env.events()
-        .publish(("category_duration_cap_removed", category as u32), ());
-    Ok(())
-}
-
-pub(crate) fn set_campaign_funding_goals(
-    env: &Env,
-    admin: Address,
-    min_goal: i128,
-    max_goal: i128,
-) -> Result<(), Error> {
-    ensure_admin!(env, &admin);
-    if min_goal < 0 || max_goal < min_goal {
-        return Err(Error::ValidationFailed);
-    }
-    bump_instance_ttl(env);
-    set_min_campaign_funding_goal(env, min_goal);
-    set_max_campaign_funding_goal(env, max_goal);
-    env.events().publish(
-        ("campaign_funding_goals_updated", admin),
-        (min_goal, max_goal),
-    );
-    Ok(())
-}
-
-pub(crate) fn propose_admin(env: &Env, new_admin: Address) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    bump_instance_ttl(env);
-    set_pending_admin(env, &new_admin);
-    emit_event!(env, ("admin_transfer_proposed", admin), new_admin);
-    Ok(())
-}
-
-pub(crate) fn accept_admin_function(env: &Env) -> Result<(), Error> {
-    let new_admin = get_pending_admin(env).ok_or(Err(Error::NoPendingAdmin))?;
-    new_admin.require_auth();
-    bump_instance_ttl(env);
-    set_admin(env, &new_admin);
-    remove_pending_admin(env);
-    emit_event!(env, ("admin_transfer_accepted", new_admin), ());
-    Ok(())
-}
-
-pub(crate) fn propose_token_update(
-    env: &Env,
-    new_token: Address,
-    release_delay_secs: u64,
-) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    bump_instance_ttl(env);
-    let release_at = env.ledger().timestamp() + release_delay_secs;
-    set_pending_token(env, &new_token);
-    set_pending_token_release(env, release_at);
-    env.events().publish(
-        ("token_update_proposed", admin),
-        (new_token, release_at),
-    );
-    Ok(())
-}
-
-pub(crate) fn accept_token_update(env: &Env) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    let new_token = get_pending_token(env).ok_or(Err(Error::NoPendingToken))?;
-    let release_at = get_pending_token_release(env).ok_or(Err(Error::NoPendingToken))?;
-    if env.ledger().timestamp() < release_at {
-        return Err(Error::TokenUpdateNotReady);
-    }
-    bump_instance_ttl(env);
-    set_token(env, &new_token);
-    remove_pending_token(env);
-    emit_event!(env, ("token_update_accepted", admin), new_token);
-    Ok(())
-}
-
-pub(crate) fn cancel_token_update(env: &Env) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    bump_instance_ttl(env);
-    remove_pending_token(env);
-    emit_event!(env, ("token_update_cancelled", admin), ());
-    Ok(())
-}
-
-pub(crate) fn migrate(env: &Env, new_version: u32) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    bump_instance_ttl(env);
-    let old_version = get_version(env);
-    set_version(env, new_version);
-    emit_event!(env, ("migrated", admin), (old_version, new_version));
-    Ok(())
-}
-
-pub(crate) fn purge_voting_state(env: &Env, campaign_id: u32) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
-    bump_instance_ttl(env);
-    remove_voting_state(env, campaign_id);
-    emit_event!(env, ("voting_state_purged", admin, campaign_id), ());
-    Ok(())
-}
-
-pub(crate) fn get_admin_public(env: &Env) -> Result<Address, Error> {
-    get_admin(env).ok_or(Err(Error::NotInitialized))
-}
-
-pub(crate) fn get_admin_count_public(env: &Env) -> Result<u32, Error> {
-    Ok(get_active_campaign_count(env))
-}
-
-pub(crate) fn get_global_total_public(env: &Env) -> Result<i128, Error> {
-    Ok(get_total_raised_global(env))
-}
-
-pub(crate) fn get_token_public(env: &Env) -> Result<Address, Error> {
-    get_token(env).ok_or(Err(Error::NotInitialized))
-}
-
-pub(crate) fn get_platform_fee_public(env: &Env) -> Result<u32, Error> {
-    Ok(get_platform_fee(env))
-}
-
-pub(crate) fn get_token_update_delay_public(env: &Env) -> Result<u64, Error> {
-    Ok(get_token_update_delay_secs(env))
-}
-
-pub(crate) fn get_min_campaign_funding_goal_public(env: &Env) -> Result<i128, Error> {
-    Ok(get_min_campaign_funding_goal(env))
-}
-
-pub(crate) fn get_max_campaign_funding_goal_public(env: &Env) -> Result<i128, Error> {
-    Ok(get_max_campaign_funding_goal(env))
 }
