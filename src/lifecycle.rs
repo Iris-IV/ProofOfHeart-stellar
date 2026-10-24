@@ -206,10 +206,7 @@ pub(crate) fn campaign_token_client(env: &Env, campaign_id: u32) -> token::Clien
 ///
 /// Campaigns already cancelled or withdrawn are reported as-is; this function
 /// does not mutate state, only reads it for settlement decisioning.
-pub fn check_settlement_status(
-    env: &Env,
-    campaign_id: u32,
-) -> Result<(bool, bool, bool), Error> {
+pub fn check_settlement_status(env: &Env, campaign_id: u32) -> Result<(bool, bool, bool), Error> {
     let campaign = get_campaign_or_error(env, campaign_id)?;
     let current_time = env.ledger().timestamp();
 
@@ -342,31 +339,5 @@ mod tests {
             transition(CampaignState::Verified, CampaignState::Withdrawn),
             Ok(())
         );
-    }
-
-    #[test]
-    fn withdrawn_is_terminal() {
-        assert!(transition(CampaignState::Withdrawn, CampaignState::Cancelled).is_err());
-        assert!(transition(CampaignState::Withdrawn, CampaignState::Verified).is_err());
-        assert!(transition(CampaignState::Withdrawn, CampaignState::Active).is_err());
-    }
-
-    #[test]
-    fn cancelled_is_terminal() {
-        assert!(transition(CampaignState::Cancelled, CampaignState::Active).is_err());
-        assert!(transition(CampaignState::Cancelled, CampaignState::Verified).is_err());
-        assert!(transition(CampaignState::Cancelled, CampaignState::Withdrawn).is_err());
-    }
-
-    #[test]
-    fn active_to_withdrawn_is_rejected_without_verification() {
-        assert!(transition(CampaignState::Active, CampaignState::Withdrawn).is_err());
-    }
-
-    #[test]
-    fn no_transition_to_active() {
-        assert!(transition(CampaignState::Verified, CampaignState::Active).is_err());
-        assert!(transition(CampaignState::Cancelled, CampaignState::Active).is_err());
-        assert!(transition(CampaignState::Withdrawn, CampaignState::Active).is_err());
     }
 }

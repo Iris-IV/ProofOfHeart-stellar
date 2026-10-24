@@ -11,7 +11,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("initialized", admin: Address)` |
-| Data   | `(token: Address, fee_bps: u32, min_quorum: u32, threshold_bps: u32, version: u32)` |
+| Data   | `token: Address` |
 | Source | `src/admin.rs` — `init()` |
 
 ---
@@ -314,7 +314,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("token_update_proposed",)` |
+| Topics | `("token_update_proposed",` |
 | Data   | `(new_token: Address, release_after: u64)` |
 | Source | `src/admin.rs` — `propose_token_update()` |
 
@@ -334,7 +334,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("token_update_cancelled",)` |
+| Topics | `("token_update_cancelled",` |
 | Data   | `()` |
 | Source | `src/admin.rs` — `cancel_token_update()` |
 
@@ -344,7 +344,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("fee_updated",)` |
+| Topics | `("fee_updated",` |
 | Data   | `(old_fee: u32, new_fee: u32)` |
 | Source | `src/admin.rs` — `update_platform_fee()` |
 
@@ -414,7 +414,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("admin_transfer_initiated",)` |
+| Topics | `("admin_transfer_initiated",` |
 | Data   | `(current_admin: Address, new_admin: Address)` |
 | Source | `src/admin.rs` — `initiate_admin_transfer()` |
 
@@ -424,7 +424,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("admin_transfer_cancelled",)` |
+| Topics | `("admin_transfer_cancelled",` |
 | Data   | `admin: Address` |
 | Source | `src/admin.rs` — `cancel_admin_transfer()` |
 
@@ -454,7 +454,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("max_campaign_funding_goal_updated",)` |
+| Topics | `("max_campaign_funding_goal_updated",` |
 | Data   | `(old_max: i128, new_max: i128)` |
 | Source | `src/admin.rs` — `set_max_campaign_funding_goal()` |
 
@@ -495,7 +495,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("campaign_transfer_cancelled", campaign_id: u32)` |
-| Data   | `pending_creator: Address` |
+| Data   | `()` |
 | Source | `src/campaigns/transfer.rs` — `cancel_campaign_transfer()` |
 
 ---

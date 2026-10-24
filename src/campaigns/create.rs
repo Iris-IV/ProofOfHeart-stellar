@@ -22,7 +22,7 @@ use crate::types::{Campaign, Category, CreateCampaignParams, MaybePendingCreator
 /// per-campaign currencies (#784); it delegates to
 /// `create_campaign_with_token` with the platform token, which is always
 /// allowed.
-pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result<u32, Error> {
+pub fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result<u32, Error> {
     create_campaign_inner(env, params, None)
 }
 
@@ -38,7 +38,7 @@ pub(crate) fn create_campaign(env: &Env, params: CreateCampaignParams) -> Result
 /// contributor a `transfer` call into code the platform never reviewed — the
 /// asset a contributor is asked to part with has to be one the platform
 /// stands behind, not one the fundraiser chose.
-pub(crate) fn create_campaign_with_token(
+pub fn create_campaign_with_token(
     env: &Env,
     params: CreateCampaignParams,
     token: Address,
@@ -99,7 +99,7 @@ fn create_campaign_inner(
     // name, so the second one is rejected. The check is scoped to the creator:
     // different creators may reuse a title. `ValidationFailed` rather than a
     // dedicated code because `Error` is already at Soroban's fifty-variant
-    // ceiling for `#[contracterror]` unions; the `campaign_created` event and
+    // ceiling for `#[contracterror] unions; the `campaign_created` event and
     // `get_creator_campaigns` let a caller tell this apart from the other
     // validation failures above.
     let title_hash = hash_text(env, &title);
@@ -135,10 +135,6 @@ fn create_campaign_inner(
     if max_contribution_per_user < 0 {
         return Err(Error::ValidationFailed);
     }
-    // `ValidationFailed` rather than a dedicated code: `Error` is already at
-    // Soroban's fifty-case ceiling for `#[contracterror]` unions, so there is
-    // no free slot. The event and the `is_token_allowed` getter give callers a
-    // way to tell this apart from the other validation failures above.
     // `ValidationFailed` rather than a dedicated code: `Error` is already at
     // Soroban's fifty-case ceiling for `#[contracterror]` unions, so there is
     // no free slot. `is_token_allowed` lets a caller tell this apart from the

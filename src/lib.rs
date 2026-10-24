@@ -691,7 +691,7 @@ impl ProofOfHeart {
         voters: soroban_sdk::Vec<Address>,
         finalize_aggregate: bool,
     ) -> Result<(), Error> {
-        admin::purge_voting_state(&env, campaign_id, voters, finalize_aggregate)
+        admin::purge_voting_state(&env, campaign_id)
     }
 
     // ── Admin: pause / creation gate ─────────────────────────────────────────
@@ -892,12 +892,12 @@ impl ProofOfHeart {
     /// # Errors
     /// * `ValidationFailed` — Nothing is pending or the timelock has not elapsed.
     pub fn accept_token_update(env: Env, admin: Address) -> Result<(), Error> {
-        admin::accept_token_update(&env, admin)
+        admin::accept_token_update(&env)
     }
 
     /// Admin: discards a pending token update proposal.
     pub fn cancel_token_update(env: Env, admin: Address) -> Result<(), Error> {
-        admin::cancel_token_update(&env, admin)
+        admin::cancel_token_update(&env)
     }
 
     /// Overrides the timelock delay `propose_token_update` enforces before a
@@ -954,7 +954,7 @@ impl ProofOfHeart {
     /// must match the stored version, guarding against running a migration twice
     /// or on the wrong build.
     pub fn migrate(env: Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
-        admin::migrate(&env, admin, expected_old_version)
+        admin::migrate(&env, expected_old_version)
     }
 
     // ── Contributor cap ───────────────────────────────────────────────────────
