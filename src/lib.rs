@@ -1,7 +1,11 @@
 #![no_std]
 
 /// Current contract version. Increment this on each breaking upgrade.
-const CONTRACT_VERSION: u32 = 1;
+/// v1 → v2: Breaking storage and struct changes
+///   - Campaign gained status bitfield, pending_creator_expiry, effective_amount_raised
+///   - New storage keys introduced
+///   - Event payloads changed
+const CONTRACT_VERSION: u32 = 2;
 
 // Validation limit constants
 pub(crate) const CAMPAIGN_TITLE_MIN_LEN: u32 = 1;
