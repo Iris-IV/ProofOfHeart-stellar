@@ -64,7 +64,10 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let total_after_fee = campaign.effective_amount_raised - fee_amount;
+    let total_after_fee = campaign
+        .effective_amount_raised
+        .checked_sub(fee_amount)
+        .ok_or(Error::Overflow)?;
 
     // Use per-campaign vesting params snapshotted at creation, falling back
     // to the global defaults for campaigns created before the snapshot was
@@ -80,7 +83,9 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
-    let creator_amount = total_after_fee - reserve_amount;
+    let creator_amount = total_after_fee
+        .checked_sub(reserve_amount)
+        .ok_or(Error::Overflow)?;
 
     // Update state before the token transfer (CEI pattern) so that a
     // malicious token contract cannot re-enter and double-claim (#557).
@@ -113,9 +118,22 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     set_total_raised_global(
         env,
         total_raised
-            .checked_sub(campaign.effective_amount_raised - reserve_amount)
+            .checked_sub(
+                campaign
+                    .effective_amount_raised
+                    .checked_sub(reserve_amount)
+                    .ok_or(Error::Overflow)?,
+            )
             .ok_or(Error::Overflow)?,
     );
+
+    // #964: persist the payout marker before any token transfer. Previously
+    // this was written after the transfers, so a malicious token could
+    // re-enter while the marker still looked unset.
+    let payout_marker = env.ledger().sequence();
+    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
+    env.events()
+        .publish(("payout_marker", campaign_id), payout_marker);
 
     // Token transfers happen after all state updates (CEI pattern).
     //
@@ -152,11 +170,6 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
         ("withdrawal_fee_paid", campaign_id),
         (fee_recipient, fee_amount),
     );
-
-    let payout_marker = env.ledger().sequence();
-    crate::storage::set_campaign_payout_marker(env, campaign_id, payout_marker);
-    env.events()
-        .publish(("payout_marker", campaign_id), payout_marker);
 
     // #852: the withheld reserve must be attributable from the event stream
     // alone. Topics carry the campaign id *and* the creator, and the data

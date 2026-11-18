@@ -753,3 +753,40 @@ fn test_chained_withdraw_attempts_all_refused() {
         "no re-entrant withdrawal should succeed"
     );
 }
+
+/// #964: `withdraw_funds` must persist every state mutation — including the
+/// payout marker — before it hands control to the token contract. This pins
+/// the CEI ordering so a future edit cannot move a write below a transfer.
+#[test]
+fn test_withdraw_funds_writes_all_state_before_token_transfers() {
+    let source = include_str!("../campaigns/withdraw.rs");
+    let start = source
+        .find("pub(crate) fn withdraw_funds")
+        .expect("withdraw_funds must exist");
+    let end = source[start..]
+        .find("pub(crate) fn withdraw_reserve")
+        .map(|offset| start + offset)
+        .expect("withdraw_reserve must follow withdraw_funds");
+    let body = &source[start..end];
+
+    let first_transfer = body
+        .find("client.transfer(")
+        .expect("withdraw_funds must perform token transfers");
+
+    for state_write in [
+        "set_campaign(env",
+        "decrement_active_campaign_count",
+        "remove_emergency_withdrawal",
+        "set_campaign_reserve",
+        "set_total_raised_global",
+        "set_campaign_payout_marker",
+    ] {
+        let position = body
+            .find(state_write)
+            .unwrap_or_else(|| panic!("withdraw_funds must contain state write `{state_write}`"));
+        assert!(
+            position < first_transfer,
+            "`{state_write}` must be persisted before the first token transfer (#964)"
+        );
+    }
+}

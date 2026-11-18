@@ -760,4 +760,31 @@ mod tests {
         client.emergency_pause(&signer);
         assert!(client.is_paused());
     }
+
+    /// #965: every governance entrypoint in this module must perform an
+    /// explicit auth check (`ensure_admin!`, `require_auth`, or the legacy
+    /// `assert_admin`) before touching privileged state. This catches future
+    /// additions that forget the guard.
+    #[test]
+    fn test_every_admin_entrypoint_has_explicit_auth() {
+        let source = include_str!("admin.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let mut checked = 0u32;
+
+        for chunk in production.split("pub(crate) fn ").skip(1) {
+            let name = chunk.split('(').next().unwrap_or("<unknown>");
+            assert!(
+                chunk.contains("ensure_admin!")
+                    || chunk.contains("require_auth")
+                    || chunk.contains("assert_admin"),
+                "admin entrypoint `{name}` is missing an explicit authorization check (#965)"
+            );
+            checked += 1;
+        }
+
+        assert!(
+            checked >= 20,
+            "expected the admin entrypoint scan to cover the module"
+        );
+    }
 }
