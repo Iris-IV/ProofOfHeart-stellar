@@ -575,6 +575,22 @@ impl ProofOfHeart {
         voting::get_delegate(&env, delegator)
     }
 
+    /// Returns the `(balance, ledger_sequence)` snapshotted when `voter` cast
+    /// their vote on `campaign_id` (#967). `None` if the voter has not voted.
+    pub fn get_voter_balance_snapshot(
+        env: Env,
+        campaign_id: u32,
+        voter: Address,
+    ) -> Option<(i128, u32)> {
+        storage::get_voter_balance_snapshot(&env, campaign_id, &voter)
+    }
+
+    /// Returns the ledger sequence at which voting on `campaign_id` was
+    /// initiated, or `None` if no vote has been cast (#967).
+    pub fn get_vote_snapshot_ledger(env: Env, campaign_id: u32) -> Option<u32> {
+        storage::get_vote_snapshot_ledger(&env, campaign_id)
+    }
+
     /// Casts a vote on behalf of a delegator who delegated their voting rights to the caller.
     pub fn cast_delegated_vote(
         env: Env,

@@ -7,9 +7,10 @@ use crate::storage::{
     get_approve_votes, get_approve_weight, get_category_voting_threshold_bps,
     get_donor_total_contributed, get_has_voted, get_lifetime_contribution, get_min_votes_quorum,
     get_min_voting_balance, get_reject_votes, get_reject_weight, get_vote_delegate,
-    increment_verified_campaign_count, remove_vote_delegate, set_approval_threshold_bps,
-    set_approve_votes, set_approve_weight, set_campaign, set_has_voted, set_min_votes_quorum,
-    set_reject_votes, set_reject_weight, set_vote_delegate,
+    get_vote_snapshot_ledger, increment_verified_campaign_count, remove_vote_delegate,
+    set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
+    set_min_votes_quorum, set_reject_votes, set_reject_weight, set_vote_delegate,
+    set_vote_snapshot_ledger, set_voter_balance_snapshot,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -76,6 +77,22 @@ pub fn get_dynamic_voting_weight(env: &Env, campaign_id: u32, voter: &Address) -
     calculate_dynamic_weight(balance, lifetime.max(donor_total))
 }
 
+/// Records the eligibility snapshot for `voter` immediately before their vote
+/// is added to the tally (#967).
+///
+/// The first vote pins the campaign's `VoteSnapshotLedger`; every voter's
+/// platform-token balance is then stored together with the ledger height it
+/// was observed at. Vote tallies remain unit-weight (1-address-1-vote), so the
+/// snapshot cannot inflate approval share, but it makes the eligibility state
+/// at voting time auditable and immutable for later balance transfers.
+fn record_vote_snapshot(env: &Env, campaign_id: u32, voter: &Address, balance: i128) {
+    let ledger = env.ledger().sequence();
+    if get_vote_snapshot_ledger(env, campaign_id).is_none() {
+        set_vote_snapshot_ledger(env, campaign_id, ledger);
+    }
+    set_voter_balance_snapshot(env, campaign_id, voter, balance, ledger);
+}
+
 /// Updates the community voting parameters.
 ///
 /// # Errors
@@ -86,6 +103,9 @@ pub fn set_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
+    // Authorization is enforced by `admin::set_voting_params` before this
+    // helper is reached; adding a second `require_auth` here would duplicate
+    // the auth root in the same frame (#965 audit).
     if min_votes_quorum == 0
         || min_votes_quorum > MAX_VOTES_QUORUM
         || !(MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&approval_threshold_bps)
@@ -143,6 +163,12 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
         return Err(Error::AlreadyVoted);
     }
 
+    // #967: snapshot the voter's balance at this ledger height before the
+    // tally is mutated. A later transfer cannot rewrite the vote's recorded
+    // eligibility, and because tallies remain unit-weight it cannot inflate
+    // the approval share either.
+    record_vote_snapshot(env, campaign_id, &voter, balance);
+
     // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
     // regardless of token balance (#469).
     //
@@ -192,6 +218,9 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
 /// * `AdminVerificationConflict` - The campaign is already verified.
 pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
+    // Authorization is enforced by the `verify_campaign` / `verify_campaigns`
+    // entrypoints before this helper is called. A second `require_auth` here
+    // would duplicate the auth root in the same frame (#965 audit).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
@@ -369,6 +398,10 @@ pub fn cast_delegated_vote(
         extend_ttl(env, campaign_id, &delegator);
         return Err(Error::AlreadyVoted);
     }
+
+    // #967: snapshot the delegator's balance at vote time, exactly as a
+    // direct vote does, before the tally is mutated.
+    record_vote_snapshot(env, campaign_id, &delegator, balance);
 
     if approve {
         let new_count = get_approve_votes(env, campaign_id)

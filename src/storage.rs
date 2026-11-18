@@ -297,6 +297,14 @@ pub enum VotingKey {
     CategoryThresholdBps(u32),
     /// Delegate chosen by a token holder for voting weight, keyed by delegator address.
     VoteDelegation(Address),
+    /// Platform-token balance snapshotted for a voter at the ledger their vote
+    /// was recorded, keyed by `(campaign_id, voter)`. Stored as
+    /// `(balance, ledger_sequence)` so the eligibility snapshot is auditable
+    /// and cannot be rewritten by later balance changes (#967).
+    VoterBalanceSnapshot(u32, Address),
+    /// Ledger sequence of the first vote recorded for a campaign, keyed by
+    /// campaign ID. Pins the ledger height at which voting was initiated.
+    VoteSnapshotLedger(u32),
 }
 
 /// Keys for revenue-sharing pools and claim tracking.
@@ -818,11 +826,56 @@ pub fn set_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
     persistent_set!(env, VotingKey::HasVoted(campaign_id, voter.clone()), &true);
 }
 
-/// Removes the HasVoted record for a voter on a campaign.
+/// Returns the balance snapshot recorded when `voter` cast their vote on
+/// `campaign_id`, as `(balance, ledger_sequence)`.
+pub fn get_voter_balance_snapshot(
+    env: &Env,
+    campaign_id: u32,
+    voter: &Address,
+) -> Option<(i128, u32)> {
+    get_persistent_bumped::<(i128, u32)>(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()).into_val(env),
+    )
+}
+
+/// Stores the balance snapshot for `voter` at `ledger_sequence` and extends TTL.
+pub fn set_voter_balance_snapshot(
+    env: &Env,
+    campaign_id: u32,
+    voter: &Address,
+    balance: i128,
+    ledger_sequence: u32,
+) {
+    persistent_set!(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()),
+        &(balance, ledger_sequence)
+    );
+}
+
+/// Returns the ledger sequence at which voting on `campaign_id` was initiated.
+pub fn get_vote_snapshot_ledger(env: &Env, campaign_id: u32) -> Option<u32> {
+    get_persistent_bumped::<u32>(
+        env,
+        VotingKey::VoteSnapshotLedger(campaign_id).into_val(env),
+    )
+}
+
+/// Pins the ledger sequence at which voting on `campaign_id` was initiated.
+pub fn set_vote_snapshot_ledger(env: &Env, campaign_id: u32, ledger_sequence: u32) {
+    persistent_set!(
+        env,
+        VotingKey::VoteSnapshotLedger(campaign_id),
+        &ledger_sequence
+    );
+}
+
+/// Removes the HasVoted record and its balance snapshot for a voter on a campaign.
 pub fn remove_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
-    env.storage()
-        .persistent()
-        .remove(&VotingKey::HasVoted(campaign_id, voter.clone()));
+    let storage = env.storage().persistent();
+    storage.remove(&VotingKey::HasVoted(campaign_id, voter.clone()));
+    storage.remove(&VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()));
 }
 
 /// Removes all aggregate voting keys for a campaign (vote counts and weights).
@@ -832,13 +885,19 @@ pub fn remove_voting_state(env: &Env, campaign_id: u32) {
     storage.remove(&VotingKey::RejectVotes(campaign_id));
     storage.remove(&VotingKey::ApproveWeight(campaign_id));
     storage.remove(&VotingKey::RejectWeight(campaign_id));
+    storage.remove(&VotingKey::VoteSnapshotLedger(campaign_id));
 }
 
-/// Extends TTL on the HasVoted record for a specific voter on a campaign.
+/// Extends TTL on the HasVoted record and balance snapshot for a specific
+/// voter on a campaign.
 pub fn extend_ttl(env: &Env, campaign_id: u32, voter: &Address) {
     bump_persistent_if_present(
         env,
         VotingKey::HasVoted(campaign_id, voter.clone()).into_val(env),
+    );
+    bump_persistent_if_present(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()).into_val(env),
     );
 }
 
@@ -849,6 +908,7 @@ pub fn extend_voting_state_ttl(env: &Env, campaign_id: u32) {
         VotingKey::RejectVotes(campaign_id),
         VotingKey::ApproveWeight(campaign_id),
         VotingKey::RejectWeight(campaign_id),
+        VotingKey::VoteSnapshotLedger(campaign_id),
     ];
     for key in keys {
         bump_persistent_if_present(env, key.into_val(env));

@@ -93,12 +93,16 @@ fn check_burst_guard(
 
     // Anomaly detection: Burst (> 10 tx/block per campaign)
     let current_ledger = env.ledger().sequence();
-    let (last_ledger, mut block_count) = get_campaign_block_contribution_count(env, campaign_id);
-    if current_ledger == last_ledger {
-        block_count += 1;
+    let (last_ledger, block_count) = get_campaign_block_contribution_count(env, campaign_id);
+    let block_count = if current_ledger == last_ledger {
+        // #966: never wrap the per-campaign burst counter. A single ledger
+        // cannot reach u32::MAX contributions in practice, but checked math
+        // keeps the invariant explicit and returns a typed error instead of
+        // panicking if state is ever forged or migrated.
+        block_count.checked_add(1).ok_or(Error::Overflow)?
     } else {
-        block_count = 1;
-    }
+        1
+    };
     set_campaign_block_contribution_count(env, campaign_id, current_ledger, block_count);
 
     if block_count > crate::AUTO_PAUSE_BURST_THRESHOLD {
@@ -227,8 +231,15 @@ pub(crate) fn contribute(
         // but handle defensively)
         return Err(Error::FundingGoalReached);
     } else if amount > remaining_capacity {
-        // Partial contribution: accept only what fits, refund the excess
-        (remaining_capacity, amount - remaining_capacity)
+        // Partial contribution: accept only what fits, refund the excess.
+        // #966: checked subtraction keeps underflow impossible even if the
+        // comparison above is ever refactored.
+        (
+            remaining_capacity,
+            amount
+                .checked_sub(remaining_capacity)
+                .ok_or(Error::Overflow)?,
+        )
     } else {
         // Full contribution fits within remaining capacity
         (amount, 0)
@@ -548,4 +559,80 @@ pub(crate) fn remove_personal_cap_fn(
         (),
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod overflow_tests {
+    use crate::tests::helpers::*;
+    use crate::{storage, Category, Error};
+    use soroban_sdk::{Address, String};
+
+    fn verified_campaign(
+        env: &soroban_sdk::Env,
+        client: &ProofOfHeartClient,
+        creator: &Address,
+        max_contribution_per_user: i128,
+    ) -> u32 {
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(env, "Overflow Guard"),
+            String::from_str(env, "Checked contribution arithmetic"),
+            1_000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            max_contribution_per_user,
+        ));
+        client.verify_campaign(&campaign_id);
+        campaign_id
+    }
+
+    /// `amount * BPS_DENOMINATOR` in the burst guard must surface as a typed
+    /// error, never an overflow panic (#966).
+    #[test]
+    fn test_contribution_amount_multiplication_overflow_returns_error() {
+        let (env, _admin, creator, contributor, _, _token, _token_admin, client) = setup_env();
+        let campaign_id = verified_campaign(&env, &client, &creator, 0);
+
+        let res = client.try_contribute(&campaign_id, &contributor, &i128::MAX);
+        assert_eq!(res, Err(Ok(Error::Overflow)));
+    }
+
+    /// `lifetime + amount` in the cap check must use checked arithmetic even
+    /// when stored state is forged or migrated (#966).
+    #[test]
+    fn test_lifetime_contribution_addition_overflow_returns_error() {
+        let (env, _admin, creator, contributor, _, _token, _token_admin, client) = setup_env();
+        let campaign_id = verified_campaign(&env, &client, &creator, 1_000);
+
+        env.as_contract(&client.address, || {
+            storage::set_lifetime_contribution(&env, campaign_id, &contributor, i128::MAX);
+        });
+
+        let res = client.try_contribute(&campaign_id, &contributor, &1);
+        assert_eq!(res, Err(Ok(Error::Overflow)));
+    }
+
+    /// The per-ledger burst counter must not wrap past `u32::MAX`; the next
+    /// contribution fails closed with `Overflow` instead of panicking (#966).
+    #[test]
+    fn test_burst_counter_overflow_returns_error() {
+        let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+        let campaign_id = verified_campaign(&env, &client, &creator, 1_000);
+        token_admin.mint(&contributor, &2_000);
+        client.contribute(&campaign_id, &contributor, &600);
+
+        env.as_contract(&client.address, || {
+            storage::set_campaign_block_contribution_count(
+                &env,
+                campaign_id,
+                env.ledger().sequence(),
+                u32::MAX,
+            );
+        });
+
+        let res = client.try_contribute(&campaign_id, &contributor, &1);
+        assert_eq!(res, Err(Ok(Error::Overflow)));
+    }
 }
