@@ -195,6 +195,114 @@ stellar contract invoke \
   --category Educator
 ```
 
+## Vote Delegation
+
+Token holders may delegate their voting power to another address without transferring tokens, enabling participation by inactive holders and reducing sybil risk.
+
+### Core Mechanics
+
+- **Delegation Model:** A delegator may delegate their voting power to a single delegate; a delegate may receive delegations from multiple delegators.
+- **Chaining:** Delegation is **not** chainable. If Alice delegates to Bob and Bob delegates to Charlie, only Bob's delegation is active — Charlie does not inherit Alice's power. Delegators must delegate directly to their chosen representative.
+- **Balance Requirement:** The delegator's platform-token **balance** determines voting weight, not the delegate's. If a delegator's balance drops below `min_voting_balance` (or to zero), their vote becomes ineligible, and any existing vote cast on their behalf is still counted but new votes cannot be cast (the delegator falls below the minimum). Conversely, if a delegator receives an incoming token transfer, their balance increases and future delegated votes become eligible again.
+- **Direct Voting:** A delegator can vote directly and delegate to a different address in the same contract state — both are independent. The last vote counts:
+  - If the delegator votes directly, their `has_voted` flag is set and further attempts to cast a delegated vote return `AlreadyVoted`.
+  - If a delegated vote is cast on the delegator's behalf (by the delegate), their `has_voted` flag is set and the delegator cannot vote directly.
+
+### Entrypoints
+
+#### Delegate Votes
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --source delegator \
+  --network testnet \
+  -- \
+  delegate_votes \
+  --delegator "$DELEGATOR_ADDRESS" \
+  --delegate "$DELEGATE_ADDRESS"
+```
+
+**Errors:**
+- `NotTokenHolder` — Delegator's balance is below `min_voting_balance`.
+- `ValidationFailed` — Attempting to delegate to oneself.
+
+**Behavior:**
+- Sets `delegator`'s delegate to `delegate` (overwrites any prior delegation).
+- Emits `voting_delegated` with `(delegator, delegate)`.
+
+#### Undelegate Votes
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --source delegator \
+  --network testnet \
+  -- \
+  undelegate_votes \
+  --delegator "$DELEGATOR_ADDRESS"
+```
+
+**Behavior:**
+- Clears the delegator's delegate entry (if one exists).
+- A delegator with no delegate cannot have votes cast on their behalf.
+- Emits `voting_undelegated` with `(delegator,)`.
+
+#### Get Delegate
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --source delegator \
+  --network testnet \
+  --is-read-only \
+  -- \
+  get_delegate \
+  --delegator "$DELEGATOR_ADDRESS"
+```
+
+**Returns:** The address of the delegator's current delegate, or `None` if no delegation is set.
+
+#### Cast Delegated Vote
+
+```bash
+stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --source delegate \
+  --network testnet \
+  -- \
+  cast_delegated_vote \
+  --delegator "$DELEGATOR_ADDRESS" \
+  --campaign_id 42 \
+  --approve true
+```
+
+**Errors:**
+- `CampaignNotFound`, `CampaignNotActive`, `CampaignAlreadyVerified`, `DeadlinePassed` — Same as direct voting.
+- `NotTokenHolder` — Delegator's balance is below `min_voting_balance` (even though the delegate initiated the call).
+- `AlreadyVoted` — Delegator already voted directly or has another delegated vote cast.
+
+**Behavior:**
+- Requires the **delegator's** signature (`require_auth(delegator)`), not the delegate's — the delegate is merely a convenient caller.
+- Validates that the delegator has delegated to the caller.
+- Validates that the delegator's balance meets the minimum voting requirement.
+- Casts a vote on behalf of the delegator; the vote weight is always `1` (unit weight, per issue #469).
+- Sets the delegator's `has_voted` flag for the campaign.
+- Emits `campaign_vote_cast` with `(approve: bool, weight: 1i128)`.
+
+### Delegation & Direct Voting Interaction
+
+| Scenario | Outcome |
+|----------|---------|
+| Delegator votes directly on campaign C | `has_voted[C]` is set; further delegated votes on C return `AlreadyVoted`. |
+| Delegated vote cast for delegator on C | `has_voted[C]` is set; delegator cannot vote directly after this. |
+| Delegator undelegates after delegation is active | No automatic vote revocation; existing votes remain. Future delegated votes require a re-delegation. |
+| Delegator's balance drops below minimum after voting | The vote already cast remains valid; future votes (direct or delegated) are rejected with `NotTokenHolder`. |
+
+### Balance Snapshots
+
+Voting eligibility is recorded in a snapshot at the time each vote is cast (issue #967). The delegator's balance at the moment of the delegated vote determines eligibility; if the balance is later reduced, the vote counts but no new votes can be cast by that delegator on that campaign.
+
 ## Cleaning up after a campaign closes
 
 Per-voter `has_voted` entries and the aggregate vote-count storage for a

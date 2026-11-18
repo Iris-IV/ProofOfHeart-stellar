@@ -3,8 +3,9 @@
 ## Overview
 
 ```
-Created → Active → Verified (optional) → Withdrawn (goal met)
-                                           → Refunded (goal not met / cancelled)
+Created → Active → Verified (optional) → Withdrawn (goal met) [standard path]
+                                        → Withdrawn (via milestones) [milestone path]
+                                        → Refunded (goal not met / cancelled)
 ```
 
 A campaign progresses through the following states:
@@ -12,7 +13,7 @@ A campaign progresses through the following states:
 1. **Created** — After `create_campaign()`. Starts active.
 2. **Active** — Accepting contributions until the deadline.
 3. **Verified** — (Optional) Admin `verify_campaign()` or community `verify_campaign_with_votes()`.
-4. **Withdrawn** — Creator calls `withdraw_funds()` after `amount_raised >= funding_goal`. Campaign becomes inactive.
+4. **Withdrawn** — Creator calls `withdraw_funds()` after `amount_raised >= funding_goal` (standard path), or all milestones are verified and claimed (milestone path). Campaign becomes inactive.
 5. **Cancelled** — Creator calls `cancel_campaign()`. Campaign becomes inactive; contributors can `claim_refund()`.
 6. **Expired** — Deadline passes without meeting the goal. Contributors can `claim_refund()`.
 
@@ -111,6 +112,61 @@ Using separate flags provides a clearer audit trail — indexers can distinguish
 | Burst contribution triggers auto-pause; campaign is still active | `resume_campaign(campaign_id)` or `unpause()` |
 | Burst contribution triggers auto-pause; campaign was cancelled | `unpause()` only (`resume_campaign` fails with `CampaignNotActive`) |
 | Admin pauses manually | `unpause()` |
+## Milestone Release Escrow (#783)
+
+Milestone campaigns split the payout of a *successful* campaign into phases, with admin verification at each stage. Instead of a single `withdraw_funds` call, the creator defines milestones and claims them incrementally as the admin verifies completion.
+
+### Milestone Flow
+
+```
+Created → Active → Verified → Milestones Defined
+                              ↓ (once per milestone)
+                              Verified → Claimed
+                              ↓
+                              All claimed → funds_withdrawn = true
+```
+
+### Setting Milestones
+
+- **Who:** Campaign creator.
+- **When:** After the campaign is verified and before contributions close (while `is_verified = true` and `is_active = true`).
+- **Constraints:**
+  - Campaign must exist, be verified, not be cancelled, and not be fully withdrawn.
+  - A milestone plan is immutable: `set_milestones()` succeeds once; a second call fails with `ValidationFailed`.
+  - Plan contains 1–10 milestones, each with a unique `id`, non-empty `description`, and `payout_bps` in `1..=10_000`.
+  - All `payout_bps` values must sum to exactly `10_000` (100%).
+
+### Verification
+
+- **Who:** Platform admin.
+- **Action:** `verify_milestone(campaign_id, milestone_id)` marks a milestone verified.
+- **Once per milestone:** A milestone can be verified once; a second verification attempt fails with `ValidationFailed`.
+- **Any order:** Milestones can be verified and claimed in any order.
+
+### Claiming Milestones
+
+- **Who:** Campaign creator.
+- **When:** Only after a milestone is verified.
+- **Requirements:**
+  - Campaign must be verified, not cancelled, not fully withdrawn, and must have met its funding goal (`amount_raised >= funding_goal`).
+  - The milestone must be verified.
+- **Payout calculation:**
+  - `claimable = floor(total_after_fee * payout_bps / 10_000)` for each milestone.
+  - `total_after_fee = amount_raised - fee_total`, where `fee_total = ceil(amount_raised * fee_bps / 10_000)`.
+  - Rounding dust accumulates and is absorbed by the final claimed milestone.
+- **Settlement:** Creator receives `claimable` in campaign tokens; admin receives the corresponding fee slice.
+- **Last claim:** When the final milestone is claimed:
+  - `funds_withdrawn = true`
+  - `is_active = false`
+  - Campaign reaches terminal state.
+
+### Milestone Interaction with Other Features
+
+- **withdraw_funds():** Rejected with `ValidationFailed` if a milestone plan exists. Use `claim_milestone()` instead.
+- **Revenue sharing:** Works identically; revenue pools remain active after milestones are claimed, and revenue can still be deposited and claimed.
+- **Refunds:** Contributors cannot claim refunds after the funding goal is met, even if no milestones are verified yet.
+- **Deadline:** The campaign deadline affects voting closure, not milestone claiming. Milestones can be claimed after the deadline passes as long as the campaign is verified.
+
 ## Bookmarks (Out-of-Lifecycle Wallet Action)
 
 Bookmarks (`save_campaign`, `batch_save_campaigns`, `remove_saved_campaign`, `clear_saved_campaigns`, `get_saved_campaigns`) are wallet-level operations that exist independently of campaign lifecycle state. A wallet can bookmark a campaign at **any** point in the campaign's lifecycle:
