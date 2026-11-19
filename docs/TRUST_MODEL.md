@@ -156,8 +156,10 @@ Integrators should monitor the following events and alert if suspicious:
 - `campaign_verified`: Direct admin verifications (frequency baseline)
 - `contract_paused`: Any pause event (investigate reason)
 - `vesting_params_updated`: Changes to withdrawal delays/reserves (alert creators)
-- `token_update_proposed`: Any token migration (check new token contract)
-- `admin_updated`: Admin key rotation (verify legitimacy)
+- `token_update_proposed`: Any token migration (check new token contract; see **Emergency Withdrawal Process**)
+- `admin_transfer_initiated`: Admin key rotation queued (verify new address; 7-day window to react)
+- `admin_updated`: Admin key rotation completed (verify legitimacy)
+- `withdrawal`: Campaign fund withdrawal (cross-check fee recipient address)
 
 ## Comparison: Other Platforms
 
