@@ -1772,3 +1772,38 @@ fn test_batch_contribute_over_subscription_is_rejected() {
     .balance(&contributor1);
     assert_eq!(balance_after, balance_before);
 }
+
+#[test]
+fn test_batch_contribute_exact_goal_is_accepted() {
+    // A batch item that fills the campaign exactly (amount_raised == goal) must
+    // succeed: the final stroop is not over-subscription.
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    let goal: i128 = 500;
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Exact Goal Batch"),
+        String::from_str(&env, "Batch fills campaign to exactly the goal"),
+        goal as u64,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Seed with goal - 1 stroops so one stroop finishes it.
+    client.contribute(&campaign_id, &contributor1, &(goal - 1));
+
+    // The final stroop should be accepted.
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 1i128)],
+    );
+    assert!(res.is_ok(), "exact-goal batch item must succeed");
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), goal);
+}
