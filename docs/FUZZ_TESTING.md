@@ -6,7 +6,7 @@ ProofOfHeart uses libfuzzer-based property testing to validate contract behavior
 
 ## Fuzz Targets
 
-The contract exposes four primary fuzz targets:
+The contract exposes six fuzz targets:
 
 ### 1. `fuzz_contribute` - Contribution Path Testing
 
@@ -173,6 +173,28 @@ cargo fuzz fuzz_revenue
 cargo fuzz fuzz_revenue -- -artifact_prefix=./corpus/revenue/
 ```
 
+### 5. `fuzz_milestones` - Milestone Payout Conservation
+
+**Function:** Exercises valid milestone payout schedules and arbitrary verification and claim orders.
+
+**Property:** The sum paid to the creator and as platform fees exactly equals the escrowed amount, including rounding dust absorbed by the final claim.
+
+**Running:**
+```bash
+cargo fuzz run fuzz_milestones -- -max_total_time=60
+```
+
+### 6. `fuzz_batch_contribute` - Batch Contribution Accounting
+
+**Function:** Exercises arbitrary campaign IDs, signed contribution amounts, duplicate IDs, and batches spanning platform and allowlisted tokens.
+
+**Property:** Calls do not panic; campaign raised amounts stay at or below their goals, and each contract token balance equals the combined live escrow for campaigns denominated in that token.
+
+**Running:**
+```bash
+cargo fuzz run fuzz_batch_contribute -- -max_total_time=60
+```
+
 ## Project Structure
 
 ```
@@ -182,7 +204,9 @@ fuzz/
 │   ├── fuzz_contribute.rs  # Contribution path testing
 │   ├── fuzz_voting.rs      # Voting path testing
 │   ├── fuzz_lifecycle.rs   # Lifecycle testing
-│   └── fuzz_revenue.rs     # Revenue sharing testing
+│   ├── fuzz_revenue.rs          # Revenue sharing testing
+│   ├── fuzz_milestones.rs       # Milestone payout conservation
+│   └── fuzz_batch_contribute.rs # Batch contribution accounting
 └── corpus/                 # Seed inputs (optional)
     ├── contribute/
     ├── voting/
@@ -346,6 +370,8 @@ jobs:
           cargo fuzz run fuzz_voting -- -max_total_time=30
           cargo fuzz run fuzz_lifecycle -- -max_total_time=30
           cargo fuzz run fuzz_revenue -- -max_total_time=30
+          cargo fuzz run fuzz_milestones -- -max_total_time=30
+          cargo fuzz run fuzz_batch_contribute -- -max_total_time=30
 ```
 
 ### Continuous Fuzzing
@@ -540,6 +566,8 @@ cargo fuzz run fuzz_contribute -- -max_total_time=28800 -print_stats=1 | tee fuz
 cargo fuzz run fuzz_voting -- -max_total_time=28800 -print_stats=1 | tee fuzz_voting.log
 cargo fuzz run fuzz_lifecycle -- -max_total_time=28800 -print_stats=1 | tee fuzz_lifecycle.log
 cargo fuzz run fuzz_revenue -- -max_total_time=28800 -print_stats=1 | tee fuzz_revenue.log
+cargo fuzz run fuzz_milestones -- -max_total_time=28800 -print_stats=1 | tee fuzz_milestones.log
+cargo fuzz run fuzz_batch_contribute -- -max_total_time=28800 -print_stats=1 | tee fuzz_batch_contribute.log
 
 # Archive results
 mkdir -p ../fuzz_results/$(date +%Y%m%d)
