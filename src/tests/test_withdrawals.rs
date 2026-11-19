@@ -3,10 +3,11 @@
 #![allow(deprecated)]
 use super::helpers::*;
 use crate::{
-    storage, Category, ContributionKey, Error, BPS_CEIL_OFFSET, BPS_DENOMINATOR, SECONDS_PER_DAY,
+    storage, Category, ContributionKey, Error, Milestone, BPS_CEIL_OFFSET, BPS_DENOMINATOR,
+    SECONDS_PER_DAY,
 };
 use soroban_sdk::testutils::{Events, Ledger};
-use soroban_sdk::{Address, String, TryFromVal};
+use soroban_sdk::{Address, String, TryFromVal, Vec};
 
 // ── withdraw_funds ──────────────────────────────────────────────────────────────
 
@@ -679,4 +680,122 @@ fn test_withdraw_reserve_rejects_reserve_on_non_withdrawn_campaign() {
         .get_campaign_reserve(&campaign_id)
         .expect("reserve should exist after withdraw_reserve");
     assert!(reserve.released);
+}
+
+// ── milestone / lump-sum parity (#1593) ─────────────────────────────────────
+//
+// These tests assert that the two payout paths (lump-sum `withdraw_funds` and
+// milestone `claim_milestone`) produce identical net transfers for identical
+// contribution totals and fee rates.  They are the primary regression guard
+// for any future change to the fee-calculation or payout-distribution logic.
+
+/// Both milestone and lump-sum modes must pay the same net totals to the
+/// creator and the platform fee collector for identical contribution amounts.
+///
+/// Lump-sum:  one `withdraw_funds` call after the deadline.
+/// Milestone: two milestones (50 % + 50 % = 100 %), each verified then
+///            claimed; no deadline advance required.
+///
+/// For a 1 000-unit raise at the default 300 bps fee:
+///   fee          = ceil(1_000 × 300 / 10_000) = 30
+///   creator_net  = 1_000 − 30 = 970
+///
+/// The milestone path splits that into two 50 % tranches.  After both are
+/// claimed the totals must equal the lump-sum totals.
+#[test]
+fn test_milestone_and_lump_sum_payout_parity() {
+    // ── lump-sum campaign ────────────────────────────────────────────────────
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &2_000);
+
+    let lump_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Lump Sum Parity"),
+        String::from_str(&env, "Baseline for parity check"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&lump_id);
+    client.contribute(&lump_id, &contributor, &1_000);
+
+    let deadline = client.get_campaign(&lump_id).deadline;
+    env.ledger().with_mut(|li| {
+        li.timestamp = deadline + 1;
+    });
+    client.withdraw_funds(&lump_id);
+
+    let lump_creator_balance = token.balance(&creator);
+    let lump_admin_balance = token.balance(&admin);
+
+    // Sanity-check the lump-sum totals before the milestone run.
+    // fee = ceil(1_000 × 300 / 10_000) = 30; creator = 970.
+    assert_eq!(lump_admin_balance, 30, "lump-sum: fee");
+    assert_eq!(lump_creator_balance, 970, "lump-sum: creator net");
+
+    // ── milestone campaign ───────────────────────────────────────────────────
+    // A second contributor funds an identical campaign so the balances are
+    // additive and easy to reason about.
+    let (env2, admin2, creator2, contrib2, _, token2, token_admin2, client2) = setup_env();
+    token_admin2.mint(&contrib2, &2_000);
+
+    let ms_id = client2.create_campaign(&make_params(
+        creator2.clone(),
+        String::from_str(&env2, "Milestone Parity"),
+        String::from_str(&env2, "Milestone mode for parity check"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client2.verify_campaign(&ms_id);
+    client2.contribute(&ms_id, &contrib2, &1_000);
+
+    // Set two milestones that together cover 100 % of the payout.
+    let mut milestones: Vec<Milestone> = Vec::new(&env2);
+    milestones.push_back(Milestone {
+        id: 1,
+        description: String::from_str(&env2, "Phase 1"),
+        payout_bps: 5_000,
+        verified: false,
+    });
+    milestones.push_back(Milestone {
+        id: 2,
+        description: String::from_str(&env2, "Phase 2"),
+        payout_bps: 5_000,
+        verified: false,
+    });
+    client2.set_milestones(&ms_id, &milestones);
+
+    // Verify and claim milestone 1 (50 %).
+    client2.verify_milestone(&admin2, &ms_id, &1);
+    client2.claim_milestone(&ms_id, &1);
+
+    // Verify and claim milestone 2 (50 %).
+    client2.verify_milestone(&admin2, &ms_id, &2);
+    client2.claim_milestone(&ms_id, &2);
+
+    let ms_creator_balance = token2.balance(&creator2);
+    let ms_admin_balance = token2.balance(&admin2);
+
+    // ── parity assertion ─────────────────────────────────────────────────────
+    assert_eq!(
+        ms_admin_balance, lump_admin_balance,
+        "fee must be identical regardless of payout mode"
+    );
+    assert_eq!(
+        ms_creator_balance, lump_creator_balance,
+        "creator net must be identical regardless of payout mode"
+    );
+
+    // Both campaigns must report funds_withdrawn after full payout.
+    assert!(
+        client2.get_campaign(&ms_id).funds_withdrawn(),
+        "milestone campaign must be marked withdrawn after all milestones claimed"
+    );
 }
