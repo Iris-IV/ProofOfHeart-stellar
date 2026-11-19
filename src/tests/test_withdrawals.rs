@@ -683,6 +683,11 @@ fn test_withdraw_reserve_rejects_reserve_on_non_withdrawn_campaign() {
 }
 
 // ── milestone / lump-sum parity (#1593) ─────────────────────────────────────
+//
+// These tests assert that the two payout paths (lump-sum `withdraw_funds` and
+// milestone `claim_milestone`) produce identical net transfers for identical
+// contribution totals and fee rates.  They are the primary regression guard
+// for any future change to the fee-calculation or payout-distribution logic.
 
 /// Both milestone and lump-sum modes must pay the same net totals to the
 /// creator and the platform fee collector for identical contribution amounts.
