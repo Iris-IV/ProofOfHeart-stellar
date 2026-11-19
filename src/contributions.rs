@@ -8,11 +8,11 @@ use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_admin,
     get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
     get_max_contribution_per_transaction, get_personal_cap, get_pinned_campaign_token, get_token,
-    get_top_contributor, get_total_raised_global, has_personal_cap, increment_contributor_count,
-    remove_contribution, remove_personal_cap, remove_revenue_claimed, set_campaign,
-    set_campaign_block_contribution_count, set_campaign_fee_recipient, set_contribution,
-    set_last_contribution_time, set_lifetime_contribution, set_personal_cap, set_top_contributor,
-    set_total_raised_global,
+    get_top_contributor, get_total_raised_by_token, get_total_raised_global, has_personal_cap,
+    increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
+    set_campaign, set_campaign_block_contribution_count, set_campaign_fee_recipient,
+    set_contribution, set_last_contribution_time, set_lifetime_contribution, set_personal_cap,
+    set_top_contributor, set_total_raised_by_token, set_total_raised_global,
 };
 use crate::types::Campaign;
 
@@ -168,10 +168,27 @@ fn update_contribution_accounting(
         increment_contributor_count(env, campaign_id);
     }
 
-    let total_raised = get_total_raised_global(env);
-    set_total_raised_global(
+    // #1438: update both the platform-token global (for the token-update gate
+    // and legacy callers) and the per-token total (so multi-token platforms
+    // can read per-currency aggregates without mixing XLM into USDC).
+    let campaign_token = crate::storage::get_campaign_token(env, campaign_id);
+    let platform_token = get_token(env);
+    if campaign_token == platform_token {
+        // Platform-token campaign: update the legacy global counter so the
+        // accept_token_update gate (which reads get_total_raised_global) still
+        // works correctly.
+        let total_raised = get_total_raised_global(env);
+        set_total_raised_global(
+            env,
+            total_raised.checked_add(amount).ok_or(Error::Overflow)?,
+        );
+    }
+    // Always update the per-token total, regardless of which token this is.
+    let token_total = get_total_raised_by_token(env, &campaign_token);
+    set_total_raised_by_token(
         env,
-        total_raised.checked_add(amount).ok_or(Error::Overflow)?,
+        &campaign_token,
+        token_total.checked_add(amount).ok_or(Error::Overflow)?,
     );
 
     Ok(())
@@ -208,32 +225,21 @@ pub(crate) fn contribute(
     let lifetime = get_lifetime_contribution(env, campaign_id, &contributor);
 
     check_transaction_contribution_cap(env, amount)?;
-    check_contribution_caps(&campaign, lifetime, amount)?;
 
-    if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
-            return Err(Error::ContributionCapExceeded);
-        }
-    }
-
-    check_burst_guard(env, campaign_id, &campaign, amount)?;
-
-    // #1010: Partial refund for over-subscribed contributions.
-    // If this contribution would exceed the funding goal, only accept the
-    // portion that brings the campaign exactly to its goal and refund the rest.
+    // #1010: Compute accepted_amount first so cap checks run against the
+    // amount that will actually be taken, not the full requested amount.
+    // A contribution that overshoots the goal but whose accepted portion fits
+    // the cap must succeed (#1440).
     let remaining_capacity = campaign
         .funding_goal
         .checked_sub(campaign.amount_raised)
         .ok_or(Error::Overflow)?;
 
-    let (accepted_amount, refund_amount) = if remaining_capacity <= 0 {
-        // Campaign already met or exceeded goal (shouldn't normally happen,
-        // but handle defensively)
+    if remaining_capacity <= 0 {
         return Err(Error::FundingGoalReached);
-    } else if amount > remaining_capacity {
-        // Partial contribution: accept only what fits, refund the excess.
-        // #966: checked subtraction keeps underflow impossible even if the
-        // comparison above is ever refactored.
+    }
+
+    let (accepted_amount, refund_amount) = if amount > remaining_capacity {
         (
             remaining_capacity,
             amount
@@ -241,9 +247,20 @@ pub(crate) fn contribute(
                 .ok_or(Error::Overflow)?,
         )
     } else {
-        // Full contribution fits within remaining capacity
         (amount, 0)
     };
+
+    // Cap checks run against accepted_amount (the portion that will actually
+    // be recorded), not the full requested amount (#1440).
+    check_contribution_caps(&campaign, lifetime, accepted_amount)?;
+
+    if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
+        if lifetime.checked_add(accepted_amount).ok_or(Error::Overflow)? > cap {
+            return Err(Error::ContributionCapExceeded);
+        }
+    }
+
+    check_burst_guard(env, campaign_id, &campaign, accepted_amount)?;
 
     bump_instance_ttl(env);
     crate::storage::extend_contributor_ttl(env, campaign_id, &contributor);
@@ -411,7 +428,7 @@ fn apply_batch_contribution(
     check_contribution_caps(&campaign, lifetime, amount)?;
 
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if current.checked_add(amount).ok_or(Error::Overflow)? > cap {
+        if lifetime.checked_add(amount).ok_or(Error::Overflow)? > cap {
             return Err(Error::ContributionCapExceeded);
         }
     }
@@ -491,6 +508,15 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         set_total_raised_global(
             env,
             total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+        );
+
+        // #1438: also decrement the per-token total on refund.
+        let campaign_token = crate::storage::get_campaign_token(env, campaign_id);
+        let token_total = get_total_raised_by_token(env, &campaign_token);
+        set_total_raised_by_token(
+            env,
+            &campaign_token,
+            token_total.checked_sub(amount).ok_or(Error::Overflow)?,
         );
     }
 
