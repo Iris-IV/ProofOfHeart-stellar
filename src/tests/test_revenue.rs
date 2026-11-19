@@ -1144,3 +1144,166 @@ fn test_cancel_campaign_with_no_revenue() {
     assert_eq!(token.balance(&contributor1), 5000);
     assert_eq!(token.balance(&client.address), 0);
 }
+
+// ── two-deposit-round revenue claims (#1577) ─────────────────────────────────
+//
+// These tests assert that each contributor receives exactly their proportional
+// share after a claim that falls between two separate revenue deposits.  The
+// invariant being checked: `total_claimed_by_contributor == sum_of_all_deposits
+// * (contributor_share_bps / 10_000)` once every deposit has been claimed.
+
+/// Two contributors (60 % / 40 % share) with a claim between two deposits.
+///
+/// Layout:
+///   Round 1: deposit 1_000  → c1 claims 600, c2 has not claimed yet.
+///   Round 2: deposit   500  → c1 claims 300 more (total 900),
+///                             c2 claims full 600 (600 from rd1 + 200 from rd2).
+///
+/// Contributions: c1 = 600, c2 = 400 (goal 1_000, revenue_share 20 %).
+/// Revenue share bps do not affect the split — the split is by contribution
+/// weight.  Revenue share bps only gate whether revenue is enabled.
+#[test]
+fn test_revenue_claims_across_two_deposit_rounds() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    // Mint enough for contributions and revenue deposits.
+    token_admin.mint(&contributor1, &600);
+    token_admin.mint(&contributor2, &400);
+    token_admin.mint(&creator, &2_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Two Round Revenue"),
+        String::from_str(&env, "Revenue distributed across two deposit rounds"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2_000, // 20 % revenue share bps — just enables the feature
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // c1 contributes 60 %, c2 contributes 40 %.
+    client.contribute(&campaign_id, &contributor1, &600);
+    client.contribute(&campaign_id, &contributor2, &400);
+
+    // Advance past deadline and withdraw so revenue deposits are accepted.
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().with_mut(|li| {
+        li.timestamp = deadline + 1;
+    });
+    client.withdraw_funds(&campaign_id);
+
+    // ── Round 1: deposit 1_000 ───────────────────────────────────────────────
+    client.deposit_revenue(&campaign_id, &1_000);
+    assert_eq!(client.get_revenue_pool(&campaign_id), 1_000);
+
+    // c1 claims after round 1: 60 % of 1_000 = 600.
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(
+        token.balance(&contributor1),
+        600,
+        "c1 after round-1 claim"
+    );
+    assert_eq!(
+        client.get_revenue_claimed(&campaign_id, &contributor1),
+        600
+    );
+    // c2 has not claimed yet — balance unchanged (still 0 after contribution spend).
+    assert_eq!(token.balance(&contributor2), 0);
+
+    // ── Round 2: deposit 500 ────────────────────────────────────────────────
+    client.deposit_revenue(&campaign_id, &500);
+    assert_eq!(
+        client.get_revenue_pool(&campaign_id),
+        1_500,
+        "pool after both deposits"
+    );
+
+    // c1 claims again: entitled to 60 % of 1_500 = 900 total; already has 600,
+    // so this call pays out 300 more.
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(
+        token.balance(&contributor1),
+        900,
+        "c1 total after round-2 claim"
+    );
+    assert_eq!(
+        client.get_revenue_claimed(&campaign_id, &contributor1),
+        900
+    );
+
+    // c2 claims for the first time: entitled to 40 % of 1_500 = 600 in one go.
+    client.claim_revenue(&campaign_id, &contributor2);
+    assert_eq!(
+        token.balance(&contributor2),
+        600,
+        "c2 total after first claim (spanning both rounds)"
+    );
+    assert_eq!(
+        client.get_revenue_claimed(&campaign_id, &contributor2),
+        600
+    );
+
+    // Pool should be fully claimed: 900 + 600 = 1_500.
+    assert_eq!(
+        token.balance(&contributor1) + token.balance(&contributor2),
+        1_500,
+        "sum of claims must equal total deposited"
+    );
+}
+
+/// Idempotency guard: a second consecutive claim with no new deposits must
+/// pay out nothing additional.
+#[test]
+fn test_revenue_claim_idempotent_between_deposits() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &500);
+    token_admin.mint(&contributor2, &500);
+    token_admin.mint(&creator, &1_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Idempotent Claim"),
+        String::from_str(&env, "Repeated claim with no new deposit"),
+        1_000,
+        30,
+        Category::EducationalStartup,
+        true,
+        2_000,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &500);
+    client.contribute(&campaign_id, &contributor2, &500);
+
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().with_mut(|li| {
+        li.timestamp = deadline + 1;
+    });
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &1_000);
+
+    // First claim: c1 gets 50 % = 500.
+    client.claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(token.balance(&contributor1), 500);
+
+    // Second consecutive claim with no new deposit must yield nothing extra.
+    let res = client.try_claim_revenue(&campaign_id, &contributor1);
+    assert_eq!(
+        res.unwrap_err().unwrap(),
+        Error::NoFundsToWithdraw,
+        "second claim with no new deposit must be rejected"
+    );
+    assert_eq!(
+        token.balance(&contributor1),
+        500,
+        "balance must not change on a no-op claim"
+    );
+}
