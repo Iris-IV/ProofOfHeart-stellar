@@ -75,6 +75,8 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo check --features testutils
+      - name: Event docs match emitted events
+        run: bash scripts/check-events.sh
 
   # Formatting is enforced; clippy runs with zero warnings denied (#1259).
   lint:
