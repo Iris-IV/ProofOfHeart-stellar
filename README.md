@@ -36,6 +36,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 - **Update Campaign** — Edit title and/or description before any contributions are received.
 - **Extend Deadline** — Extend a campaign's deadline once (within the 365-day maximum).
 - **Tags** — The creator of an active campaign can add up to 10 discovery tags with `add_campaign_tag` (1–32 bytes each, exact-match and case-sensitive, no duplicates). Tags are append-only and cannot be removed. Each tag emits `campaign_tag_added`.
+- **Campaign TTL Keep-Alive** — `bump_campaign_state` is permissionless; a frontend or off-chain keeper can refresh existing campaign-scoped persistent keys for long-running campaigns. Resource use and rent scale with the entries refreshed; see [the TTL policy](docs/STORAGE_TTL_POLICY.md).
 - **Cancel Campaign** — Campaign creators can cancel an active campaign, enabling contributor refunds. Cancellation is blocked once the funding goal has been reached and funds have not yet been withdrawn, preventing rug-pull behaviour (#164).
 - **Ownership Transfer** — Two-step creator transfer: `initiate_campaign_transfer` → `accept_campaign_transfer` (or `cancel_campaign_transfer`).
 

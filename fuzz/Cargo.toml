@@ -59,3 +59,17 @@ path = "fuzz_targets/fuzz_revenue.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_milestones"
+path = "fuzz_targets/fuzz_milestones.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_batch_contribute"
+path = "fuzz_targets/fuzz_batch_contribute.rs"
+test = false
+doc = false
+bench = false
