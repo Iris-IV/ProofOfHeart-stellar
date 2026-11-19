@@ -26,7 +26,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 | Blockchain              | [Stellar](https://stellar.org/)                            |
 | Smart Contract Platform | [Soroban](https://soroban.stellar.org/)                    |
 | Language                | Rust                                                       |
-| SDK                     | [soroban-sdk 20.1.0](https://crates.io/crates/soroban-sdk) |
+| SDK                     | [soroban-sdk 22.0.11](https://crates.io/crates/soroban-sdk) |
 
 ## Smart Contract Features
 
