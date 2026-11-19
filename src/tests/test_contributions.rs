@@ -1807,3 +1807,88 @@ fn test_batch_contribute_exact_goal_is_accepted() {
     assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), goal);
 }
+
+// ── Issue #1585: top contributor after a refund ───────────────────────────────
+
+/// Returns the address with the highest `get_contribution` among `candidates`.
+/// Used to assert who is the top contributor without requiring a dedicated
+/// contract query.
+fn assert_top_contributor<'a>(
+    client: &crate::ProofOfHeartClient<'a>,
+    campaign_id: u32,
+    candidates: &[(&soroban_sdk::Address, &str)],
+    expected: &soroban_sdk::Address,
+) {
+    let top = candidates
+        .iter()
+        .max_by_key(|(addr, _)| client.get_contribution(&campaign_id, addr))
+        .expect("candidates must not be empty");
+    assert_eq!(
+        top.0, expected,
+        "expected {} to be the top contributor but {} has the highest balance",
+        top.1,
+        candidates
+            .iter()
+            .find(|(a, _)| *a == expected)
+            .map(|(_, n)| *n)
+            .unwrap_or("?"),
+    );
+}
+
+#[test]
+fn test_top_contributor_after_refund() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&contributor2, &800);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Top Contributor After Refund"),
+        String::from_str(&env, "Issue #1585"),
+        10_000,
+        100,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.contribute(&campaign_id, &contributor1, &2000);
+    client.contribute(&campaign_id, &contributor2, &800);
+
+    // Before the refund: contributor1 leads.
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 2000);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 800);
+    assert_top_contributor(
+        &client,
+        campaign_id,
+        &[(&contributor1, "contributor1"), (&contributor2, "contributor2")],
+        &contributor1,
+    );
+
+    // Cancel the campaign so both contributors are eligible for a refund.
+    client.cancel_campaign(&campaign_id);
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+
+    // contributor1 claims their full refund.
+    client.claim_refund(&campaign_id, &contributor1);
+
+    // Post-refund: contributor1's balance is restored and their contribution drops to 0.
+    assert_eq!(token.balance(&contributor1), 2000, "contributor1 balance fully restored");
+    assert_eq!(
+        client.get_contribution(&campaign_id, &contributor1),
+        0,
+        "contribution zeroed after refund",
+    );
+
+    // contributor2 still has an active contribution — they are now the top.
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 800);
+    assert_top_contributor(
+        &client,
+        campaign_id,
+        &[(&contributor1, "contributor1"), (&contributor2, "contributor2")],
+        &contributor2,
+    );
+}
