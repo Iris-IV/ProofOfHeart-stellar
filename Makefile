@@ -90,7 +90,7 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  build        - Build the Stellar contract WASM"
+	@echo "  build        - Build the Stellar contract WASM (wasm-opt runs after)"
 	@echo "  build-docker - Build via Docker (reproducible)"
 	@echo "  test         - Run unit tests"
 	@echo "  wasm         - Compile to wasm32-unknown-unknown"
