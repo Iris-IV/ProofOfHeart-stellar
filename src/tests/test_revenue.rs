@@ -1150,7 +1150,12 @@ fn test_cancel_campaign_with_no_revenue() {
 // These tests assert that each contributor receives exactly their proportional
 // share after a claim that falls between two separate revenue deposits.  The
 // invariant being checked: `total_claimed_by_contributor == sum_of_all_deposits
-// * (contributor_share_bps / 10_000)` once every deposit has been claimed.
+// * (contributor_weight / total_raised)` once every deposit has been claimed.
+//
+// They are the primary regression guard for the per-contributor cursor
+// mechanism in `claim_revenue`.  A broken cursor would either over-pay (the
+// classic double-spend bug) or under-pay (stranded funds).  Run with:
+//   cargo test --features testutils -- test_revenue_claims_across_two_deposit_rounds
 
 /// Two contributors (60 % / 40 % share) with a claim between two deposits.
 ///
