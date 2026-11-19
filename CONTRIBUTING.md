@@ -53,6 +53,25 @@ make build-docker
 cargo test --features testutils
 ```
 
+The full suite takes roughly 80 seconds. While iterating you can skip unrelated tests by filtering on a module name or a single test name.
+
+**Run one test module** (e.g. `test_campaigns`):
+```bash
+cargo test --features testutils test_campaigns
+```
+
+**Run a single test by name**:
+```bash
+cargo test --features testutils test_cancel_campaign_already_cancelled_is_terminal
+```
+
+**Run all tests whose names contain a keyword** (e.g. all cancel-related tests):
+```bash
+cargo test --features testutils cancel
+```
+
+The filter is a substring match against the fully-qualified test path, so a module name like `test_campaigns` matches every test inside that module.
+
 The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatically — `rustup` will download the correct version on first use.
 
 ## Fuzz Testing Workflow
