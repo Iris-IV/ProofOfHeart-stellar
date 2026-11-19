@@ -369,17 +369,25 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
 ///   the active and cancelled buckets (withdrawn campaigns are in neither),
 ///   so the two buckets together cannot exceed the number of campaigns.
 ///
-/// Returns `true` only when every invariant holds.
+/// Returns `Ok(())` when every invariant holds, or
+/// `Err(Error::InvariantBroken)` with a description of the first violation
+/// found. `get_platform_stats` treats any error as a signal to set
+/// `stats_are_partial = true` and publish a `platform_stats_inconsistent`
+/// event so indexers know the aggregates must not be trusted.
 pub(crate) fn counters_are_consistent(
     total: u32,
     active: u32,
     verified: u32,
     cancelled: u32,
-) -> bool {
-    active <= total
-        && verified <= total
-        && cancelled <= total
-        && active.saturating_add(cancelled) <= total
+) -> Result<(), crate::errors::Error> {
+    if active > total
+        || verified > total
+        || cancelled > total
+        || active.saturating_add(cancelled) > total
+    {
+        return Err(crate::errors::Error::InvariantBroken);
+    }
+    Ok(())
 }
 
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
@@ -404,12 +412,13 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
     let verified_campaigns = get_verified_campaign_count(env);
     let cancelled_campaigns = get_cancelled_campaign_count(env);
 
-    let stats_are_partial = !counters_are_consistent(
+    let stats_are_partial = counters_are_consistent(
         total_campaigns,
         active_campaigns,
         verified_campaigns,
         cancelled_campaigns,
-    );
+    )
+    .is_err();
 
     if stats_are_partial {
         env.events().publish(
@@ -700,5 +709,53 @@ mod bucket_pagination_tests {
 
         assert_eq!(result.0.len(), 0);
         assert!(calls.get() > 0);
+    }
+}
+
+#[cfg(test)]
+mod invariant_tests {
+    use super::counters_are_consistent;
+    use crate::errors::Error;
+
+    /// #1441: counters_are_consistent now returns Err(InvariantBroken) instead
+    /// of `false` so the error variant is used in production code, not just tests.
+    #[test]
+    fn consistent_counters_return_ok() {
+        assert!(counters_are_consistent(10, 5, 8, 3).is_ok());
+        assert!(counters_are_consistent(0, 0, 0, 0).is_ok());
+        assert!(counters_are_consistent(5, 5, 5, 0).is_ok());
+    }
+
+    #[test]
+    fn active_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 5, 2, 1),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn verified_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 1, 10, 1),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn cancelled_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 1, 2, 5),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn active_plus_cancelled_exceeds_total_returns_invariant_broken() {
+        // active(3) + cancelled(3) = 6 > total(5)
+        assert_eq!(
+            counters_are_consistent(5, 3, 4, 3),
+            Err(Error::InvariantBroken)
+        );
     }
 }

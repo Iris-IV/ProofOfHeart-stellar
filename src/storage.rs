@@ -271,6 +271,10 @@ pub enum ContributionKey {
     /// Cumulative tokens a donor has ever contributed across campaigns.
     /// Appended last so existing on-chain discriminants remain unchanged.
     DonorTotalContributed(Address),
+    /// Total raised for a specific token address, keyed by token address (#1438).
+    /// Tracks per-token totals separately so multi-token platforms do not sum
+    /// XLM and USDC into a single meaningless figure.
+    TotalRaisedByToken(Address),
 }
 
 /// Keys for campaign voting state and voting configuration.
@@ -1072,6 +1076,30 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
     env.storage()
         .instance()
         .set(&ContributionKey::TotalRaised, &amount);
+}
+
+// ── Per-token totals (#1438) ──────────────────────────────────────────────────
+
+/// Returns the total amount raised for a specific token across all campaigns.
+///
+/// `get_total_raised_global` continues to track the platform token only
+/// (documented); this key tracks every token separately so the per-token
+/// figure is queryable without scanning all campaigns.
+pub fn get_total_raised_by_token(env: &Env, token: &Address) -> i128 {
+    get_persistent_bumped(
+        env,
+        ContributionKey::TotalRaisedByToken(token.clone()).into_val(env),
+    )
+    .unwrap_or(0)
+}
+
+/// Stores the total amount raised for a specific token and extends its TTL.
+pub fn set_total_raised_by_token(env: &Env, token: &Address, amount: i128) {
+    persistent_set!(
+        env,
+        ContributionKey::TotalRaisedByToken(token.clone()),
+        &amount
+    );
 }
 
 // ── Creator campaigns (bucketed) ──────────────────────────────────────────────

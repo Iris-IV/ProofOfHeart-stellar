@@ -1044,9 +1044,18 @@ impl ProofOfHeart {
         lifecycle::check_settlement_status(&env, campaign_id)
     }
 
-    /// Returns the total amount raised across all campaigns.
+    /// Returns the total amount raised across all campaigns denominated in the
+    /// platform token. For multi-token platforms use `get_total_raised_by_token`
+    /// to query per-currency totals (#1438).
     pub fn get_total_raised_global(env: Env) -> i128 {
         get_total_raised_global(&env)
+    }
+
+    /// Returns the total amount raised for a specific token across all
+    /// campaigns (#1438). Use this instead of `get_total_raised_global` on
+    /// multi-token platforms to avoid summing incompatible currencies.
+    pub fn get_total_raised_by_token(env: Env, token: Address) -> i128 {
+        storage::get_total_raised_by_token(&env, &token)
     }
 
     /// Returns the number of distinct contributors to `campaign_id`.

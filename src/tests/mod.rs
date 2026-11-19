@@ -25,6 +25,8 @@ mod test_issue_817;
 mod test_issue_819;
 mod test_issue_863;
 mod test_issue_fixes;
+mod test_issue_1438;
+mod test_issue_1439_1440;
 mod test_lifecycle;
 mod test_lifecycle_events;
 mod test_migrate;

@@ -131,7 +131,7 @@
 //! |---:|---|---|---|
 //! | 15 | `ValidationFailed` | Catch-all input/constraint violation | most modules |
 //! | 30 | `Overflow` | Checked arithmetic overflowed | most state-changing modules |
-//! | 51 | `InvariantBroken` | Internal invariant violated (state corruption or bug) — report it | `storage` |
+//! | 51 | `InvariantBroken` | Internal invariant violated (counter inconsistency or state corruption) — report it | `queries` |
 //!
 //! ## Handling errors
 //!
