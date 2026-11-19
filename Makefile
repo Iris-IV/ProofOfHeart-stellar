@@ -30,8 +30,9 @@ WASM_PATH = target/wasm32-unknown-unknown/release/proof_of_heart.wasm
 
 all: lint test
 
-build: wasm-opt
+build:
 	stellar contract build
+	@$(MAKE) wasm-opt
 
 build-docker:
 	docker run --rm -v $(PWD):/workspace -w /workspace stellar/rs-soroban-sdk:22.0.0 stellar contract build
@@ -87,7 +88,7 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  build        - Build the Stellar contract WASM"
+	@echo "  build        - Build the Stellar contract WASM (wasm-opt runs after)"
 	@echo "  build-docker - Build via Docker (reproducible)"
 	@echo "  test         - Run unit tests"
 	@echo "  wasm         - Compile to wasm32-unknown-unknown"
