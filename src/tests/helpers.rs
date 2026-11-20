@@ -106,3 +106,25 @@ pub(crate) fn setup_contract<'a>(
     client.init(admin, token_address, &300);
     client
 }
+
+/// Advances the ledger past `campaign_id`'s deadline, then calls
+/// `withdraw_funds`.  Use this in tests that need a withdrawn campaign: a
+/// plain `withdraw_funds` call fails with `DeadlineNotPassed` since #854.
+pub(crate) fn withdraw_after_deadline(
+    env: &Env,
+    client: &ProofOfHeartClient<'_>,
+    campaign_id: u32,
+) {
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+    client.withdraw_funds(&campaign_id);
+}
