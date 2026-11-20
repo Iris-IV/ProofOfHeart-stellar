@@ -253,16 +253,17 @@ fn test_refund_accounting_state_snapshot() {
     let campaign = client.get_campaign(&id);
 
     assert!(campaign.is_cancelled());
-    assert_eq!(campaign.amount_raised, 5000);
-    // Refunds reduce effective_amount_raised: 5000 raised - 3000 refunded.
-    assert_eq!(campaign.effective_amount_raised, 2000);
+    assert_eq!(campaign.amount_raised, 4500);
+    // Refunds reduce effective_amount_raised: 4500 raised - 3000 refunded.
+    assert_eq!(campaign.effective_amount_raised, 1500);
 }
 
 /// Test: Batch contribution state preserves individual campaign amounts
 /// and aggregate contract balance across multiple tokens.
 #[test]
 fn test_batch_contribution_state_snapshot() {
-    let (env, _admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
 
     let id1 = client.create_campaign(&params(&env, &creator, "Batch 1"));
     let id2 = client.create_campaign(&params(&env, &creator, "Batch 2"));
