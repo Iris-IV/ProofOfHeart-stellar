@@ -433,7 +433,7 @@ pub(crate) fn propose_token_update(
     // current one. Accepting such a proposal would start a pointless timelock
     // and emit a misleading `token_update_proposed` event.
     if new_token == get_token(env) {
-        return Err(Error::ValidationFailed);
+        return Err(Error::SameToken);
     }
 
     env.try_invoke_contract::<u32, Error>(
@@ -464,10 +464,10 @@ pub(crate) fn propose_token_update(
 /// before the token address can change, preventing stranded balances.
 pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error> {
     assert_admin(env, &admin)?;
-    let new_token = get_pending_token(env).ok_or(Error::ValidationFailed)?;
-    let release_after = get_pending_token_release(env).ok_or(Error::ValidationFailed)?;
+    let new_token = get_pending_token(env).ok_or(Error::NoPendingTokenUpdate)?;
+    let release_after = get_pending_token_release(env).ok_or(Error::NoPendingTokenUpdate)?;
     if env.ledger().timestamp() < release_after {
-        return Err(Error::ValidationFailed);
+        return Err(Error::TimelockNotElapsed);
     }
 
     // Block the swap while any campaign is still active OR any contributor
@@ -479,7 +479,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
     // Gating on the outstanding balance closes that window. Vesting reserves are
     // likewise tracked in `total_raised_global` until released.
     if get_active_campaign_count(env) > 0 || get_total_raised_global(env) != 0 {
-        return Err(Error::ValidationFailed);
+        return Err(Error::TokenUpdateBlocked);
     }
 
     bump_instance_ttl(env);
@@ -494,7 +494,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error> {
     assert_admin(env, &admin)?;
     if get_pending_token(env).is_none() {
-        return Err(Error::ValidationFailed);
+        return Err(Error::NoPendingTokenUpdate);
     }
     bump_instance_ttl(env);
     remove_pending_token(env);
