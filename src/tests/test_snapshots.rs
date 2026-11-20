@@ -137,6 +137,8 @@ fn test_withdrawn_campaign_state_snapshot() {
     let id = client.create_campaign(&params(&env, &creator, "Withdrawn"));
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &4000);
+    client.contribute(&id, &contributor1, &1000);
+    advance_past_deadline(&env, &client, id);
 
     client.withdraw_funds(&id);
 
@@ -173,6 +175,7 @@ fn test_revenue_sharing_campaign_state_snapshot() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
     let mut revenue_params = params(&env, &creator, "Revenue Sharing");
+    revenue_params.category = Category::EducationalStartup;
     revenue_params.has_revenue_sharing = true;
     revenue_params.revenue_share_percentage = 25;
 
@@ -195,12 +198,12 @@ fn test_complex_lifecycle_state_snapshot() {
     platform_admin.mint(&contributor2, &10_000);
 
     let id = client.create_campaign(&params(&env, &creator, "Complex"));
+    client.vote_on_campaign(&id, &contributor1, &true);
+    client.vote_on_campaign(&id, &contributor2, &false);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &2000);
     client.contribute(&id, &contributor2, &1500);
-    client.vote_on_campaign(&id, &contributor1, &true);
-    client.vote_on_campaign(&id, &contributor2, &false);
 
     let campaign = client.get_campaign(&id);
 
@@ -242,7 +245,7 @@ fn test_refund_accounting_state_snapshot() {
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &3000);
-    client.contribute(&id, &contributor2, &2000);
+    client.contribute(&id, &contributor2, &1500);
 
     client.cancel_campaign(&id);
     client.claim_refund(&id, &contributor1);
