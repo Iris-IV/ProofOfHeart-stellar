@@ -52,8 +52,8 @@ pub enum Error {
     VotingThresholdNotMet = 19,
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
-    /// The caller is not the pending creator.
-    NotPendingOwner = 21,
+    // `#21` (NotPendingOwner) is retired — never returned by any entry point; freed for the
+    // token-update variants below (#1532). Do not reuse discriminant 21.
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
@@ -80,6 +80,8 @@ pub enum Error {
     FundingGoalTooLow = 33,
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
+    /// `propose_token_update` was called with a token address identical to the one already in use.
+    SameToken = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
@@ -112,6 +114,13 @@ pub enum Error {
     MilestoneAlreadyClaimed = 50,
     /// An invariant condition has been violated (state corruption or bug).
     InvariantBroken = 51,
+    /// `accept_token_update` or `cancel_token_update` was called with no pending token update.
+    NoPendingTokenUpdate = 52,
+    /// `accept_token_update` was called before the mandatory timelock has elapsed.
+    TimelockNotElapsed = 53,
+    /// `accept_token_update` was blocked because active campaigns or outstanding balances still
+    /// reference the current token.
+    TokenUpdateBlocked = 54,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -158,7 +167,6 @@ impl Error {
                 VotingQuorumNotMet,
                 VotingThresholdNotMet,
                 AlreadyInitialized,
-                NotPendingOwner,
                 NoTransferPending,
                 InvalidNewOwner,
                 ContractPaused,
@@ -172,6 +180,7 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
+                SameToken,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -188,6 +197,9 @@ impl Error {
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
                 InvariantBroken,
+                NoPendingTokenUpdate,
+                TimelockNotElapsed,
+                TokenUpdateBlocked,
             ]
         )
     }
@@ -254,7 +266,6 @@ mod tests {
             "VotingThresholdNotMet"
         );
         assert_eq!(Error::AlreadyInitialized.to_string(), "AlreadyInitialized");
-        assert_eq!(Error::NotPendingOwner.to_string(), "NotPendingOwner");
         assert_eq!(Error::NoTransferPending.to_string(), "NoTransferPending");
         assert_eq!(Error::InvalidNewOwner.to_string(), "InvalidNewOwner");
         assert_eq!(Error::ContractPaused.to_string(), "ContractPaused");
@@ -335,6 +346,19 @@ mod tests {
             "MilestoneAlreadyClaimed"
         );
         assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
+        assert_eq!(Error::SameToken.to_string(), "SameToken");
+        assert_eq!(
+            Error::NoPendingTokenUpdate.to_string(),
+            "NoPendingTokenUpdate"
+        );
+        assert_eq!(
+            Error::TimelockNotElapsed.to_string(),
+            "TimelockNotElapsed"
+        );
+        assert_eq!(
+            Error::TokenUpdateBlocked.to_string(),
+            "TokenUpdateBlocked"
+        );
     }
 
     #[test]
