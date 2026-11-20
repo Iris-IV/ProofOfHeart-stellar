@@ -22,7 +22,7 @@ fn test_deposit_revenue_negative_amount() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &-100);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -48,7 +48,7 @@ fn test_deposit_revenue_zero_amount() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &0);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -74,7 +74,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &1000);
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueSharingNotEnabled);
@@ -100,7 +100,7 @@ fn test_deposit_revenue_when_paused() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     client.pause();
 
@@ -137,7 +137,7 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let events_before = env.events().all().len();
     for _ in 0..10 {
@@ -221,7 +221,7 @@ fn test_deposit_revenue_event_includes_creator() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     token_admin.mint(&creator, &2000);
     client.deposit_revenue(&campaign_id, &2000);
