@@ -295,22 +295,9 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         return Err(Error::ValidationFailed);
     }
 
-    // Check isolated creator bucket balance first (#Issue 4)
-    let bucket_balance = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
-    let claimable = if bucket_balance > 0 {
-        bucket_balance
-    } else {
-        let total_pool = get_revenue_pool(env, campaign_id);
-        let creator_share_bps =
-            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
-        let creator_share_total = total_pool
-            .checked_mul(creator_share_bps)
-            .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
-            .ok_or(Error::Overflow)?;
-
-        let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-        creator_share_total - already_claimed
-    };
+    // The isolated creator bucket, credited on every deposit, is the single
+    // source of truth for what the creator can claim (#1559).
+    let claimable = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);

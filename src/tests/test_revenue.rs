@@ -337,14 +337,14 @@ fn test_revenue_claim_after_full_refunds_no_panic() {
 }
 
 #[test]
-fn test_claim_creator_revenue_overflow_returns_error_not_panic() {
+fn test_claim_creator_revenue_ignores_revenue_pool_and_uses_bucket_only() {
     let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
     token_admin.mint(&contributor1, &5_000);
 
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
         String::from_str(&env, "Creator Revenue Overflow"),
-        String::from_str(&env, "total_pool * share must not panic"),
+        String::from_str(&env, "claims must rely on the creator bucket only"),
         1_000,
         30,
         Category::EducationalStartup,
@@ -355,13 +355,15 @@ fn test_claim_creator_revenue_overflow_returns_error_not_panic() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
 
-    // Inject a pathological revenue pool that overflows total_pool * share_bps.
+    // #1559: the creator bucket (credited on each deposit) is the only source
+    // of truth. A pathological revenue pool with an empty bucket must neither
+    // panic nor pay out: there is no pool-based fallback any more.
     env.as_contract(&client.address, || {
         storage::set_revenue_pool(&env, campaign_id, i128::MAX);
     });
 
     let res = client.try_claim_creator_revenue(&campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::Overflow);
+    assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
 }
 
 #[test]

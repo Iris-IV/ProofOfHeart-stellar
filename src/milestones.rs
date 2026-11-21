@@ -123,6 +123,7 @@
 
 use soroban_sdk::{Address, Env, Vec};
 
+use crate::constants::MAX_MILESTONES;
 use crate::errors::Error;
 use crate::lifecycle::{get_campaign_or_error, require_not_paused};
 use crate::storage::{
@@ -131,9 +132,6 @@ use crate::storage::{
     set_campaign_milestones, set_milestone_claimed, set_total_raised_global,
 };
 use crate::types::Milestone;
-
-/// Maximum milestones per campaign to bound storage.
-const MAX_MILESTONES: u32 = 10;
 
 /// Creator sets custom milestone payouts for a campaign (#783).
 /// Each milestone's `payout_bps` is a share of the withdrawable funds
