@@ -103,9 +103,6 @@ pub(crate) fn init(
     }
     admin.require_auth();
 
-    if platform_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
-        return Err(Error::InvalidPlatformFee);
-    }
     if platform_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -290,22 +287,10 @@ pub(crate) fn set_min_voting_balance_fn(
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
     ensure_admin!(env);
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
-    // Two bounds, deliberately, though only the tighter one can currently
-    // reject (#793):
-    //
-    //   * `PLATFORM_FEE_ABSOLUTE_MAX_BPS` (10000 = 100%) is a correctness
-    //     bound. The basis-point formula in `withdraw_funds` computes
-    //     `amount_raised * fee / 10000`; a fee above the denominator would
-    //     make the platform's cut exceed what was raised and drive
-    //     `total_after_fee` negative.
-    //   * `PLATFORM_FEE_MAX_BPS` (1000 = 10%) is the policy bound — what the
-    //     platform promises creators it will never charge more than.
-    //
-    // Policy is stricter than correctness today, so the absolute check is
-    // unreachable. It is kept and checked first anyway: it is the invariant
-    // the arithmetic depends on, and someone raising the policy ceiling must
-    // not be able to breach it by editing one constant.
-    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || new_fee > crate::PLATFORM_FEE_MAX_BPS {
+    // `PLATFORM_FEE_MAX_BPS` (10%) is the single bound. It is far below
+    // `BPS_DENOMINATOR`, so it also guarantees the fee formula in
+    // `withdraw_funds` cannot exceed the amount raised.
+    if new_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
     let old_fee = get_platform_fee(env);
@@ -343,14 +328,9 @@ pub(crate) fn set_campaign_fee_override(
     ensure_admin!(env, &admin);
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
-    // override is still a platform fee and must not be a way around either
-    // the arithmetic limit (fee > 10000 bps would make the platform's cut in
-    // `withdraw_funds` exceed the amount raised and drain the campaign) or the
-    // policy ceiling. Returns the same `InvalidPlatformFee` as
-    // `update_platform_fee` so callers see one consistent error for an
-    // out-of-range fee regardless of which setter they used.
-    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || fee_bps > crate::PLATFORM_FEE_MAX_BPS {
+    // Same bound as `update_platform_fee` (#793, #799): a per-campaign override
+    // is still a platform fee, and returns the same `InvalidPlatformFee`.
+    if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
     bump_instance_ttl(env);
