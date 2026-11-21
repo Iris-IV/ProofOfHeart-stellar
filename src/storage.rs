@@ -1,4 +1,6 @@
-use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, String, TryFromVal, Val, Vec};
+use soroban_sdk::{
+    contracttype, Address, Bytes, BytesN, Env, IntoVal, String, TryFromVal, Val, Vec,
+};
 
 use crate::types::{Campaign, CampaignReserve, Category, EmergencyWithdrawal};
 
@@ -9,16 +11,53 @@ pub const CATEGORY_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 
 /// Sets a persistent storage entry and extends its TTL in a single step,
 /// making it impossible to forget the TTL bump.
+///
+/// The key and value are converted to host `Val`s once at the call site and
+/// handed to the non-generic [`set_persistent_val`], so the write/extend
+/// sequence is compiled into the WASM exactly once instead of being inlined
+/// at every call site.
 macro_rules! persistent_set {
     ($env:expr, $key:expr, $value:expr) => {{
-        let key = $key;
-        let storage = $env.storage().persistent();
-        if storage.has(&key) {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        }
-        storage.set(&key, $value);
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        let env: &Env = $env;
+        set_persistent_val(env, $key.into_val(env), $value.into_val(env));
     }};
+}
+
+/// Writes `value` under `key` and extends the entry's TTL.
+///
+/// Two host calls: `set`, then `extend_ttl`. The entry is guaranteed to exist
+/// after `set`, so no `has()` probe is needed, and archived entries are
+/// restored by the footprint before execution, so there is no expiry risk to
+/// guard against with a pre-write extend.
+#[inline(never)]
+fn set_persistent_val(env: &Env, key: Val, value: Val) {
+    let storage = env.storage().persistent();
+    storage.set(&key, &value);
+    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
+
+/// Reads a persistent entry and, if present, extends its TTL.
+///
+/// A successful `get` proves the entry exists, so the TTL is extended without
+/// a redundant `has()` host call, and the key is converted to a `Val` once
+/// rather than once per host call.
+fn get_persistent_bumped<T: TryFromVal<Env, Val>>(env: &Env, key: Val) -> Option<T> {
+    let storage = env.storage().persistent();
+    let value = storage.get::<Val, T>(&key)?;
+    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    Some(value)
+}
+
+/// Extends the TTL of a persistent entry if it exists.
+///
+/// The host errors when extending a missing entry, so the `has()` probe is
+/// required here (unlike after a successful `get` or `set`).
+#[inline(never)]
+fn bump_persistent_if_present(env: &Env, key: Val) {
+    let storage = env.storage().persistent();
+    if storage.has(&key) {
+        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    }
 }
 
 pub fn bump_instance_ttl(env: &Env) {
@@ -34,16 +73,13 @@ pub fn bump_instance_ttl(env: &Env) {
 /// the same TTL refresh as the campaign itself so they do not vanish while the
 /// campaign remains active.
 pub fn extend_contributor_ttl(env: &Env, campaign_id: u32, contributor: &Address) {
-    let storage = env.storage().persistent();
     let keys = [
         ContributionKey::Contribution(campaign_id, contributor.clone()),
         ContributionKey::LifetimeContribution(campaign_id, contributor.clone()),
         ContributionKey::PersonalCap(campaign_id, contributor.clone()),
     ];
     for key in keys {
-        if storage.has(&key) {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        }
+        bump_persistent_if_present(env, key.into_val(env));
     }
 }
 
@@ -117,6 +153,9 @@ pub enum AdminKey {
     AllowedToken(Address),
     /// Maximum amount accepted by a single contribution transaction. `0` disables the cap.
     MaxContributionPerTransaction,
+    /// Voluntary-cancellation penalty in basis points (default 0 = disabled).
+    /// Appended last so existing on-chain discriminants remain unchanged.
+    CancellationPenaltyBps,
 }
 
 /// Keys for campaign records, indexes, and aggregate campaign counters.
@@ -196,6 +235,8 @@ pub enum CampaignKey {
     EmergencyWithdrawal(u32),
     /// Payout marker for a campaign, keyed by campaign ID.
     CampaignPayoutMarker(u32),
+    /// Cryptographic proof-of-impact submitted by a verifier, keyed by campaign ID.
+    ProofOfImpact(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -227,6 +268,13 @@ pub enum ContributionKey {
     TopContributor(u32),
     /// Unix timestamp of the most recent contribution to a campaign, keyed by campaign ID.
     LastContributionTime(u32),
+    /// Cumulative tokens a donor has ever contributed across campaigns.
+    /// Appended last so existing on-chain discriminants remain unchanged.
+    DonorTotalContributed(Address),
+    /// Total raised for a specific token address, keyed by token address (#1438).
+    /// Tracks per-token totals separately so multi-token platforms do not sum
+    /// XLM and USDC into a single meaningless figure.
+    TotalRaisedByToken(Address),
 }
 
 /// Keys for campaign voting state and voting configuration.
@@ -251,6 +299,16 @@ pub enum VotingKey {
     /// Per-category approval threshold override in basis points, keyed by
     /// category discriminant. Falls back to `ApprovalThresholdBps` when unset.
     CategoryThresholdBps(u32),
+    /// Delegate chosen by a token holder for voting weight, keyed by delegator address.
+    VoteDelegation(Address),
+    /// Platform-token balance snapshotted for a voter at the ledger their vote
+    /// was recorded, keyed by `(campaign_id, voter)`. Stored as
+    /// `(balance, ledger_sequence)` so the eligibility snapshot is auditable
+    /// and cannot be rewritten by later balance changes (#967).
+    VoterBalanceSnapshot(u32, Address),
+    /// Ledger sequence of the first vote recorded for a campaign, keyed by
+    /// campaign ID. Pins the ledger height at which voting was initiated.
+    VoteSnapshotLedger(u32),
 }
 
 /// Keys for revenue-sharing pools and claim tracking.
@@ -271,6 +329,8 @@ pub enum RevenueKey {
     /// Number of distinct contributors who have claimed revenue at least
     /// once for a campaign, keyed by campaign ID (#526).
     ContributorRevenueClaimants(u32),
+    /// Isolated revenue bucket for a creator, keyed by (campaign_id, creator).
+    CreatorRevenueBucket(u32, Address),
 }
 
 /// Keys for a wallet's saved/bookmarked campaigns (#507).
@@ -291,11 +351,14 @@ pub enum BookmarkKey {
 /// panicking, so callers can gracefully surface `Error::CampaignNotFound`
 /// rather than aborting the entire transaction.
 pub fn get_campaign(env: &Env, campaign_id: u32) -> Option<Campaign> {
-    let key = CampaignKey::Campaign(campaign_id);
+    let key: Val = CampaignKey::Campaign(campaign_id).into_val(env);
     let storage = env.storage().persistent();
     let raw: Val = storage.get(&key)?;
+    let campaign = Campaign::try_from_val(env, &raw).ok()?;
+    // Only extend TTL for valid data; corrupted entries should be allowed to
+    // expire. The successful `get` proves the entry exists, so no `has()`.
     storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    Campaign::try_from_val(env, &raw).ok()
+    Some(campaign)
 }
 
 /// Persists a campaign and extends its TTL.
@@ -323,6 +386,15 @@ pub fn get_campaign_payout_marker(env: &Env, campaign_id: u32) -> Option<u32> {
 
 pub fn set_campaign_payout_marker(env: &Env, campaign_id: u32, marker: u32) {
     persistent_set!(env, CampaignKey::CampaignPayoutMarker(campaign_id), &marker);
+}
+
+pub fn get_proof_of_impact(env: &Env, campaign_id: u32) -> Option<crate::types::ProofOfImpact> {
+    let key = CampaignKey::ProofOfImpact(campaign_id);
+    env.storage().persistent().get(&key)
+}
+
+pub fn set_proof_of_impact(env: &Env, campaign_id: u32, proof: &crate::types::ProofOfImpact) {
+    persistent_set!(env, CampaignKey::ProofOfImpact(campaign_id), proof);
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────
@@ -453,12 +525,11 @@ pub fn set_max_campaign_funding_goal(env: &Env, max_goal: i128) {
 
 /// Returns a contributor's total contribution to a campaign.
 pub fn get_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
-    let key = ContributionKey::Contribution(campaign_id, contributor.clone());
-    let value = env.storage().persistent().get(&key);
-    if value.is_some() {
-        extend_contributor_ttl(env, campaign_id, contributor);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        ContributionKey::Contribution(campaign_id, contributor.clone()).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores a contributor's contribution amount and extends its TTL.
@@ -472,12 +543,11 @@ pub fn set_contribution(env: &Env, campaign_id: u32, contributor: &Address, amou
 
 /// Returns a contributor's lifetime (non-decreasing) contribution to a campaign.
 pub fn get_lifetime_contribution(env: &Env, campaign_id: u32, contributor: &Address) -> i128 {
-    let key = ContributionKey::LifetimeContribution(campaign_id, contributor.clone());
-    let value = env.storage().persistent().get(&key);
-    if value.is_some() {
-        extend_contributor_ttl(env, campaign_id, contributor);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped(
+        env,
+        ContributionKey::LifetimeContribution(campaign_id, contributor.clone()).into_val(env),
+    )
+    .unwrap_or(0)
 }
 
 /// Stores a contributor's lifetime contribution amount and extends its TTL.
@@ -523,30 +593,25 @@ pub fn decrement_contributor_count(
     campaign_id: u32,
 ) -> Result<(), crate::errors::Error> {
     let count = get_contributor_count(env, campaign_id);
-    if count == 0 {
-        return Err(crate::errors::Error::InvariantBroken);
+    if count > 0 {
+        set_contributor_count(env, campaign_id, count - 1);
     }
-    set_contributor_count(env, campaign_id, count - 1);
     Ok(())
 }
 
 pub fn get_top_contributor(env: &Env, campaign_id: u32) -> Option<Address> {
-    let key = ContributionKey::TopContributor(campaign_id);
-    let val: Option<Address> = env.storage().persistent().get(&key);
-    if val.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    get_persistent_bumped::<Address>(
+        env,
+        ContributionKey::TopContributor(campaign_id).into_val(env),
+    )
 }
 
 pub fn set_top_contributor(env: &Env, campaign_id: u32, contributor: &Address) {
-    let key = ContributionKey::TopContributor(campaign_id);
-    env.storage().persistent().set(&key, contributor);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    persistent_set!(
+        env,
+        ContributionKey::TopContributor(campaign_id),
+        contributor
+    );
 }
 
 /// Removes the campaign's top-contributor marker (#863).
@@ -567,11 +632,49 @@ pub fn get_last_contribution_time(env: &Env, campaign_id: u32) -> u64 {
 }
 
 pub fn set_last_contribution_time(env: &Env, campaign_id: u32, time: u64) {
-    let key = ContributionKey::LastContributionTime(campaign_id);
-    env.storage().persistent().set(&key, &time);
+    persistent_set!(
+        env,
+        ContributionKey::LastContributionTime(campaign_id),
+        &time
+    );
+}
+
+// ── Donor history (for dynamic voting weight, #1054) ─────────────────────────
+
+/// Returns a donor's cumulative contributions across all campaigns.
+pub fn get_donor_total_contributed(env: &Env, donor: &Address) -> i128 {
+    get_persistent_bumped(
+        env,
+        ContributionKey::DonorTotalContributed(donor.clone()).into_val(env),
+    )
+    .unwrap_or(0)
+}
+
+/// Adds `amount` to a donor's cumulative total (saturating).
+pub fn add_donor_total_contributed(env: &Env, donor: &Address, amount: i128) {
+    let total = get_donor_total_contributed(env, donor);
+    persistent_set!(
+        env,
+        ContributionKey::DonorTotalContributed(donor.clone()),
+        &total.saturating_add(amount)
+    );
+}
+
+// ── Cancellation penalty (#1052) ────────────────────────────────────────────
+
+/// Returns the voluntary-cancellation penalty in basis points (default 0).
+pub fn get_cancellation_penalty_bps(env: &Env) -> u32 {
     env.storage()
-        .persistent()
-        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        .instance()
+        .get(&AdminKey::CancellationPenaltyBps)
+        .unwrap_or(0)
+}
+
+/// Stores the voluntary-cancellation penalty in basis points.
+pub fn set_cancellation_penalty_bps(env: &Env, bps: u32) {
+    env.storage()
+        .instance()
+        .set(&AdminKey::CancellationPenaltyBps, &bps);
 }
 
 // ── Revenue ───────────────────────────────────────────────────────────────────
@@ -653,18 +756,27 @@ pub fn set_contributor_revenue_claimants(env: &Env, campaign_id: u32, count: u32
     );
 }
 
+/// Returns the isolated creator revenue bucket balance for a campaign and creator.
+pub fn get_creator_bucket_balance(env: &Env, campaign_id: u32, creator: &Address) -> i128 {
+    let key = RevenueKey::CreatorRevenueBucket(campaign_id, creator.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+/// Stores the isolated creator revenue bucket balance for a campaign and creator, extending TTL.
+pub fn set_creator_bucket_balance(env: &Env, campaign_id: u32, creator: &Address, balance: i128) {
+    persistent_set!(
+        env,
+        RevenueKey::CreatorRevenueBucket(campaign_id, creator.clone()),
+        &balance
+    );
+}
+
 // ── Voting ────────────────────────────────────────────────────────────────────
 
 /// Returns the number of approval votes for a campaign.
 pub fn get_approve_votes(env: &Env, campaign_id: u32) -> u32 {
-    let key = VotingKey::ApproveVotes(campaign_id);
-    let value: Option<u32> = env.storage().persistent().get(&key);
-    if value.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped::<u32>(env, VotingKey::ApproveVotes(campaign_id).into_val(env))
+        .unwrap_or(0)
 }
 
 /// Stores the approval vote count for a campaign and extends its TTL.
@@ -674,14 +786,8 @@ pub fn set_approve_votes(env: &Env, campaign_id: u32, count: u32) {
 
 /// Returns the number of rejection votes for a campaign.
 pub fn get_reject_votes(env: &Env, campaign_id: u32) -> u32 {
-    let key = VotingKey::RejectVotes(campaign_id);
-    let value: Option<u32> = env.storage().persistent().get(&key);
-    if value.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped::<u32>(env, VotingKey::RejectVotes(campaign_id).into_val(env))
+        .unwrap_or(0)
 }
 
 /// Stores the rejection vote count for a campaign and extends its TTL.
@@ -693,14 +799,8 @@ pub fn set_reject_votes(env: &Env, campaign_id: u32, count: u32) {
 
 /// Returns the total approval token-weight for a campaign.
 pub fn get_approve_weight(env: &Env, campaign_id: u32) -> i128 {
-    let key = VotingKey::ApproveWeight(campaign_id);
-    let value: Option<i128> = env.storage().persistent().get(&key);
-    if value.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped::<i128>(env, VotingKey::ApproveWeight(campaign_id).into_val(env))
+        .unwrap_or(0)
 }
 
 /// Stores the total approval token-weight for a campaign and extends its TTL.
@@ -710,14 +810,8 @@ pub fn set_approve_weight(env: &Env, campaign_id: u32, weight: i128) {
 
 /// Returns the total rejection token-weight for a campaign.
 pub fn get_reject_weight(env: &Env, campaign_id: u32) -> i128 {
-    let key = VotingKey::RejectWeight(campaign_id);
-    let value: Option<i128> = env.storage().persistent().get(&key);
-    if value.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    value.unwrap_or(0)
+    get_persistent_bumped::<i128>(env, VotingKey::RejectWeight(campaign_id).into_val(env))
+        .unwrap_or(0)
 }
 
 /// Stores the total rejection token-weight for a campaign and extends its TTL.
@@ -736,11 +830,56 @@ pub fn set_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
     persistent_set!(env, VotingKey::HasVoted(campaign_id, voter.clone()), &true);
 }
 
-/// Removes the HasVoted record for a voter on a campaign.
+/// Returns the balance snapshot recorded when `voter` cast their vote on
+/// `campaign_id`, as `(balance, ledger_sequence)`.
+pub fn get_voter_balance_snapshot(
+    env: &Env,
+    campaign_id: u32,
+    voter: &Address,
+) -> Option<(i128, u32)> {
+    get_persistent_bumped::<(i128, u32)>(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()).into_val(env),
+    )
+}
+
+/// Stores the balance snapshot for `voter` at `ledger_sequence` and extends TTL.
+pub fn set_voter_balance_snapshot(
+    env: &Env,
+    campaign_id: u32,
+    voter: &Address,
+    balance: i128,
+    ledger_sequence: u32,
+) {
+    persistent_set!(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()),
+        &(balance, ledger_sequence)
+    );
+}
+
+/// Returns the ledger sequence at which voting on `campaign_id` was initiated.
+pub fn get_vote_snapshot_ledger(env: &Env, campaign_id: u32) -> Option<u32> {
+    get_persistent_bumped::<u32>(
+        env,
+        VotingKey::VoteSnapshotLedger(campaign_id).into_val(env),
+    )
+}
+
+/// Pins the ledger sequence at which voting on `campaign_id` was initiated.
+pub fn set_vote_snapshot_ledger(env: &Env, campaign_id: u32, ledger_sequence: u32) {
+    persistent_set!(
+        env,
+        VotingKey::VoteSnapshotLedger(campaign_id),
+        &ledger_sequence
+    );
+}
+
+/// Removes the HasVoted record and its balance snapshot for a voter on a campaign.
 pub fn remove_has_voted(env: &Env, campaign_id: u32, voter: &Address) {
-    env.storage()
-        .persistent()
-        .remove(&VotingKey::HasVoted(campaign_id, voter.clone()));
+    let storage = env.storage().persistent();
+    storage.remove(&VotingKey::HasVoted(campaign_id, voter.clone()));
+    storage.remove(&VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()));
 }
 
 /// Removes all aggregate voting keys for a campaign (vote counts and weights).
@@ -750,39 +889,38 @@ pub fn remove_voting_state(env: &Env, campaign_id: u32) {
     storage.remove(&VotingKey::RejectVotes(campaign_id));
     storage.remove(&VotingKey::ApproveWeight(campaign_id));
     storage.remove(&VotingKey::RejectWeight(campaign_id));
+    storage.remove(&VotingKey::VoteSnapshotLedger(campaign_id));
 }
 
-/// Extends TTL on the HasVoted record for a specific voter on a campaign.
+/// Extends TTL on the HasVoted record and balance snapshot for a specific
+/// voter on a campaign.
 pub fn extend_ttl(env: &Env, campaign_id: u32, voter: &Address) {
-    let storage = env.storage().persistent();
-    let key = VotingKey::HasVoted(campaign_id, voter.clone());
-    if storage.has(&key) {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
+    bump_persistent_if_present(
+        env,
+        VotingKey::HasVoted(campaign_id, voter.clone()).into_val(env),
+    );
+    bump_persistent_if_present(
+        env,
+        VotingKey::VoterBalanceSnapshot(campaign_id, voter.clone()).into_val(env),
+    );
 }
 
 /// Extends TTL on all voting state keys for a campaign.
 pub fn extend_voting_state_ttl(env: &Env, campaign_id: u32) {
-    let storage = env.storage().persistent();
     let keys = [
         VotingKey::ApproveVotes(campaign_id),
         VotingKey::RejectVotes(campaign_id),
         VotingKey::ApproveWeight(campaign_id),
         VotingKey::RejectWeight(campaign_id),
+        VotingKey::VoteSnapshotLedger(campaign_id),
     ];
     for key in keys {
-        if storage.has(&key) {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        }
+        bump_persistent_if_present(env, key.into_val(env));
     }
 }
 
 pub fn bump_campaign(env: &Env, campaign_id: u32) {
-    let key = CampaignKey::Campaign(campaign_id);
-    let storage = env.storage().persistent();
-    if storage.has(&key) {
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
+    bump_persistent_if_present(env, CampaignKey::Campaign(campaign_id).into_val(env));
 }
 
 pub fn bump_votes(env: &Env, campaign_id: u32) {
@@ -854,20 +992,23 @@ pub fn remove_category_voting_threshold_bps(env: &Env, category: Category) {
     env.storage().instance().remove(&key);
 }
 
-/// Returns all campaign ids for a category in creation order.
-#[allow(dead_code)]
-pub fn get_category_campaigns(env: &Env, category: Category) -> Vec<u32> {
-    let key = CampaignKey::CategoryCampaigns(category as u32);
+/// Returns the active delegate chosen by a delegator, if any.
+pub fn get_vote_delegate(env: &Env, delegator: &Address) -> Option<Address> {
     env.storage()
         .persistent()
-        .get(&key)
-        .unwrap_or(Vec::new(env))
+        .get(&VotingKey::VoteDelegation(delegator.clone()))
 }
 
-/// Stores all campaign ids for a category and extends entry TTL.
-#[allow(dead_code)]
-pub fn set_category_campaigns(env: &Env, category: Category, ids: &Vec<u32>) {
-    persistent_set!(env, CampaignKey::CategoryCampaigns(category as u32), ids);
+/// Sets the active delegate for a delegator and extends the entry's TTL.
+pub fn set_vote_delegate(env: &Env, delegator: &Address, delegate: &Address) {
+    persistent_set!(env, VotingKey::VoteDelegation(delegator.clone()), delegate);
+}
+
+/// Removes the active delegate for a delegator.
+pub fn remove_vote_delegate(env: &Env, delegator: &Address) {
+    env.storage()
+        .persistent()
+        .remove(&VotingKey::VoteDelegation(delegator.clone()));
 }
 
 /// Returns the total number of campaigns in a category.
@@ -937,6 +1078,30 @@ pub fn set_total_raised_global(env: &Env, amount: i128) {
         .set(&ContributionKey::TotalRaised, &amount);
 }
 
+// ── Per-token totals (#1438) ──────────────────────────────────────────────────
+
+/// Returns the total amount raised for a specific token across all campaigns.
+///
+/// `get_total_raised_global` continues to track the platform token only
+/// (documented); this key tracks every token separately so the per-token
+/// figure is queryable without scanning all campaigns.
+pub fn get_total_raised_by_token(env: &Env, token: &Address) -> i128 {
+    get_persistent_bumped(
+        env,
+        ContributionKey::TotalRaisedByToken(token.clone()).into_val(env),
+    )
+    .unwrap_or(0)
+}
+
+/// Stores the total amount raised for a specific token and extends its TTL.
+pub fn set_total_raised_by_token(env: &Env, token: &Address, amount: i128) {
+    persistent_set!(
+        env,
+        ContributionKey::TotalRaisedByToken(token.clone()),
+        &amount
+    );
+}
+
 // ── Creator campaigns (bucketed) ──────────────────────────────────────────────
 
 /// Maximum number of campaign IDs stored in a single bucket for a creator.
@@ -945,8 +1110,7 @@ pub const CREATOR_CAMPAIGNS_BUCKET_SIZE: u32 = 500;
 /// Returns the total number of campaigns owned by a creator.
 ///
 /// Returns `0` both when the creator is unknown and when the creator is known
-/// but has no current campaigns. Use [`creator_exists`] to distinguish these
-/// cases.
+/// but has no current campaigns.
 pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
     get_creator_campaign_count_opt(env, creator).unwrap_or(0)
 }
@@ -956,28 +1120,10 @@ pub fn get_creator_campaign_count(env: &Env, creator: &Address) -> u32 {
 /// `None` means the address has never been recorded as a creator; `Some(0)`
 /// means the creator is known but currently has no campaigns.
 pub fn get_creator_campaign_count_opt(env: &Env, creator: &Address) -> Option<u32> {
-    let key = CampaignKey::CreatorCampaignCount(creator.clone());
-    let val: Option<u32> = env.storage().persistent().get(&key);
-    if let Some(count) = val {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        Some(count)
-    } else {
-        None
-    }
-}
-
-/// Returns `true` if `creator` has ever been recorded as a campaign creator.
-///
-/// This is the existence indicator for the creator index: it checks for the
-/// `CreatorCampaignCount` key rather than defaulting a missing key to zero, so
-/// consumers can tell an unknown address from a known creator with no active
-/// campaigns.
-pub fn creator_exists(env: &Env, creator: &Address) -> bool {
-    env.storage()
-        .persistent()
-        .has(&CampaignKey::CreatorCampaignCount(creator.clone()))
+    get_persistent_bumped::<u32>(
+        env,
+        CampaignKey::CreatorCampaignCount(creator.clone()).into_val(env),
+    )
 }
 
 /// Stores the total number of campaigns owned by a creator.
@@ -995,16 +1141,11 @@ pub fn get_creator_campaign_bucket(
     creator: &Address,
     bucket_index: u32,
 ) -> soroban_sdk::Vec<u32> {
-    let key = CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index);
-    let val: Option<soroban_sdk::Vec<u32>> = env.storage().persistent().get(&key);
-    if let Some(ids) = val {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        ids
-    } else {
-        soroban_sdk::Vec::new(env)
-    }
+    get_persistent_bumped::<soroban_sdk::Vec<u32>>(
+        env,
+        CampaignKey::CreatorCampaignsBucket(creator.clone(), bucket_index).into_val(env),
+    )
+    .unwrap_or_else(|| soroban_sdk::Vec::new(env))
 }
 
 /// Stores a bucket of campaign IDs for a creator.
@@ -1027,14 +1168,10 @@ pub fn get_creator_campaign_position(
     creator: &Address,
     campaign_id: u32,
 ) -> Option<(u32, u32)> {
-    let key = CampaignKey::CreatorCampaignPosition(creator.clone(), campaign_id);
-    let val = env.storage().persistent().get(&key);
-    if val.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-    }
-    val
+    get_persistent_bumped(
+        env,
+        CampaignKey::CreatorCampaignPosition(creator.clone(), campaign_id).into_val(env),
+    )
 }
 
 /// Stores a campaign's position in the creator bucket index.
@@ -1066,12 +1203,10 @@ pub fn remove_creator_campaign_position(env: &Env, creator: &Address, campaign_i
 
 /// Returns a contributor's personal cap for a campaign, extending TTL if set.
 pub fn get_personal_cap(env: &Env, campaign_id: u32, contributor: &Address) -> Option<i128> {
-    let key = ContributionKey::PersonalCap(campaign_id, contributor.clone());
-    let val = env.storage().persistent().get(&key);
-    if val.is_some() {
-        extend_contributor_ttl(env, campaign_id, contributor);
-    }
-    val
+    get_persistent_bumped(
+        env,
+        ContributionKey::PersonalCap(campaign_id, contributor.clone()).into_val(env),
+    )
 }
 
 /// Returns whether a contributor has a personal cap set for a campaign,
@@ -1301,7 +1436,6 @@ pub fn set_active_campaign_count(env: &Env, count: u32) {
         .set(&CampaignKey::ActiveCampaignCount, &count);
 }
 
-#[allow(dead_code)]
 pub fn increment_active_campaign_count(env: &Env) {
     set_active_campaign_count(env, get_active_campaign_count(env) + 1);
 }
@@ -1328,16 +1462,6 @@ pub fn set_verified_campaign_count(env: &Env, count: u32) {
 
 pub fn increment_verified_campaign_count(env: &Env) {
     set_verified_campaign_count(env, get_verified_campaign_count(env) + 1);
-}
-
-/// Decrement the verified-campaign counter, saturating at zero (#796).
-///
-/// Saturating rather than wrapping: an underflow here would report billions of
-/// verified campaigns, and the counter is a statistic — it must never be the
-/// thing that bricks a description edit.
-pub fn decrement_verified_campaign_count(env: &Env) {
-    let count = get_verified_campaign_count(env);
-    set_verified_campaign_count(env, count.saturating_sub(1));
 }
 
 pub fn get_cancelled_campaign_count(env: &Env) -> u32 {
@@ -1422,11 +1546,7 @@ pub fn get_campaign_creator_index(env: &Env, campaign_id: u32) -> Option<Address
 
 /// Stores the creator recorded for a campaign in the O(1) reverse index and extends its TTL.
 pub fn set_campaign_creator_index(env: &Env, campaign_id: u32, creator: &Address) {
-    let key = CampaignKey::CampaignCreatorIndex(campaign_id);
-    env.storage().persistent().set(&key, creator);
-    env.storage()
-        .persistent()
-        .extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+    persistent_set!(env, CampaignKey::CampaignCreatorIndex(campaign_id), creator);
 }
 
 /// Returns `true` if `creator` owns `campaign_id`, checked in O(1) via the reverse index
@@ -1531,6 +1651,15 @@ pub fn get_campaign_token(env: &Env, campaign_id: u32) -> Address {
         .persistent()
         .get(&CampaignKey::CampaignToken(campaign_id))
         .unwrap_or_else(|| get_token(env))
+}
+
+/// The currency pinned to a campaign at creation, or `None` when the campaign
+/// inherits the platform token. Lets batch callers resolve the platform-token
+/// fallback once per call instead of once per campaign (#1172).
+pub fn get_pinned_campaign_token(env: &Env, campaign_id: u32) -> Option<Address> {
+    env.storage()
+        .persistent()
+        .get(&CampaignKey::CampaignToken(campaign_id))
 }
 
 /// Whether a campaign has its own pinned currency, as opposed to inheriting
@@ -1721,4 +1850,74 @@ pub fn append_campaign_to_tag(env: &Env, tag_hash: &BytesN<32>, campaign_id: u32
     bucket.push_back(campaign_id);
     set_tag_campaigns_bucket(env, tag_hash, bucket_idx, &bucket);
     set_tag_campaign_count(env, tag_hash, count + 1);
+}
+
+// ── Bulk TTL bump (#1062) ────────────────────────────────────────────────────
+
+/// Extends the TTL of all core persistent storage keys for a campaign in a
+/// single helper call.
+///
+/// Long-lived active campaigns accumulate a dense set of persistent entries
+/// (the campaign record itself, contributor counts, voting state, milestones,
+/// the creator index and the start-time marker). Each `set_*` call already
+/// extends the TTL of the entry it writes, but read-only paths never touch
+/// some of these entries — e.g. `get_campaign_count` reads instance storage
+/// and never refreshes the campaign's own persistent key. Calling this helper
+/// at the start of any state-modifying entrypoint that does **not** already
+/// rewrite every key keeps all related entries alive in lockstep with the
+/// campaign record so none expire while the campaign is still active.
+///
+/// The bump is best-effort: keys that do not exist yet are silently skipped
+/// (via `bump_persistent_if_present`). Instance-storage entries (counters,
+/// admin settings) are managed by `bump_instance_ttl` and are deliberately
+/// excluded here.
+pub fn bump_all_campaign_state(env: &Env, campaign_id: u32) {
+    let keys: [Val; 7] = [
+        CampaignKey::Campaign(campaign_id).into_val(env),
+        CampaignKey::CampaignStartTime(campaign_id).into_val(env),
+        CampaignKey::CampaignCreatorIndex(campaign_id).into_val(env),
+        CampaignKey::CampaignMilestones(campaign_id).into_val(env),
+        CampaignKey::CampaignReserve(campaign_id).into_val(env),
+        CampaignKey::CampaignToken(campaign_id).into_val(env),
+        ContributionKey::ContributorCount(campaign_id).into_val(env),
+    ];
+    for key in keys {
+        bump_persistent_if_present(env, key);
+    }
+    // Voting state has its own grouped helper.
+    extend_voting_state_ttl(env, campaign_id);
+}
+
+#[cfg(test)]
+mod ttl_bump_tests {
+    use crate::tests::helpers::*;
+    use crate::Category;
+
+    /// Smoke-test that `bump_all_campaign_state` runs without error on an
+    /// existing campaign and on a campaign id that has no entries.
+    #[test]
+    fn bump_all_campaign_state_is_idempotent() {
+        let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
+        let id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "T"),
+            String::from_str(&env, "D"),
+            1000,
+            30,
+            Category::Learner,
+            false,
+            0,
+            0,
+        ));
+
+        // Call once on a populated campaign — must not trap.
+        with_contract(&env, &client.address, || {
+            crate::storage::bump_all_campaign_state(&env, id);
+        });
+
+        // Call on a campaign that does not exist — must not trap either.
+        with_contract(&env, &client.address, || {
+            crate::storage::bump_all_campaign_state(&env, id + 9999);
+        });
+    }
 }

@@ -1,6 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI workflow & automated test suite
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Triggers
+#   * push to `main` and every pull request targeting `main`.
+#   * A newer run on the same ref cancels the older one (`concurrency`), and the
+#     token is read-only (`permissions: contents: read`).
+#
+# Jobs (they run in parallel; all of them gate a PR unless noted)
+#
+#   lint      Formatting and static analysis.
+#               cargo fmt --all -- --check
+#               cargo clippy --all-targets --features testutils
+#               make clippy   -> the same clippy run with warnings denied
+#                                (zero-warning policy, #1259)
+#             Compiling under clippy also type-checks the crate, so there is no
+#             separate `cargo check` step. Local: `make lint`.
+#
+#   audit     `cargo audit` over Cargo.lock for known advisories. Each ignored
+#             RUSTSEC id is justified in the comment above the job and in
+#             CONTRIBUTING.md; add a justification there when adding one.
+#
+#   test      The Rust test suite (unit and contract tests run against the
+#             Soroban test environment) and the rustdoc examples.
+#               cargo test --features testutils
+#               cargo test --doc --features testutils
+#             `--features testutils` enables the soroban-sdk test utilities the
+#             tests rely on. Local: `make test`.
+#
+#   coverage  cargo-llvm-cov over the same tests, single-threaded, failing the
+#             job below 80% line coverage (`--fail-under-lines 80`), then
+#             uploaded to Codecov (an upload failure also fails the job).
+#
+#   wasm      Release build for `wasm32-unknown-unknown`, then
+#             scripts/check-wasm.sh: WASM structure (wasm-tools), Soroban spec
+#             and env-meta sections, and size within 5% of
+#             .github/wasm-size-baseline.txt (#1258). The .wasm is attached to
+#             the run as the `proof_of_heart.wasm` artifact.
+#             Local: `make check-wasm`. Update the baseline in the same PR when
+#             a size increase is intended.
+#
+# Running everything locally: `make ci` (lint + test + check-wasm). Coverage and
+# audit need `cargo-llvm-cov` / `cargo-audit` installed and are not part of it.
+#
+# Caching: every Rust job uses `Swatinem/rust-cache`, so a cold run is slower
+# than a warm one; a failure that only appears in CI is often a stale-cache or
+# toolchain difference (`rust-toolchain.toml` pins the `stable` channel).
+# ─────────────────────────────────────────────────────────────────────────────
 name: CI
 on:
-
   push:
     branches: [main]
   pull_request:
@@ -10,24 +58,41 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-$ {{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: 1
+
 jobs:
-  basic:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          targets: wasm32-unknown-unknown
+      - run: cargo check --features testutils
+      - name: Event docs match emitted events
+        run: bash scripts/check-events.sh
+
+  # Formatting is enforced; clippy runs with zero warnings denied (#1259).
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Basic validation
-        run: |
-          echo "Basic CI passed :heart:"
-          if command -v cargo >/dev/null 2>&1; then
-            cargo fmt --all ---check || echo "cargo fmt hint"
-          fi
+        with:
+          cache-all-targets: "true"
+      - run: cargo fmt --all -- --check
+      # Issue #1259: zero-warning clippy policy, same command as `make clippy`.
+      - name: Clippy (deny warnings)
+        run: make clippy
 
   # Issue #471: audit the dependency tree for known vulnerabilities on every
   # PR/push. Fails the build if any advisory applies to a locked version.
@@ -46,20 +111,75 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+        with:
+          cache-all-targets: "true"
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
       - run: cargo audit --ignore RUSTSEC-2026-0009 --ignore RUSTSEC-2025-0001 --ignore RUSTSEC-2025-0056 --ignore RUSTSEC-2024-0436 --ignore RUSTSEC-2026-0097
 
   # Issue #760: Run doc tests to ensure rustdoc examples stay valid.
   test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --features testutils
+
+  build-wasm:
+    name: WASM Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
       - run: cargo test --features testutils
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy -- -D warnings
+
+  wasm-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: cargo test --doc --features testutils
+
+  # Issues #1216/#1331: Assert that contract methods stay within the CPU and
+  # memory thresholds in src/tests/test_gas_budget.rs (see docs/gas.md). Any
+  # failure -- a compile error, a missing threshold, or a threshold exceeded --
+  # fails this job.
+  gas-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
+      - name: Require at least 4 gas budget tests
+        run: |
+          count=$(cargo test --features testutils -- --list gas_budget 2>/dev/null | grep -c ': test$' || true)
+          echo "gas_budget tests found: $count"
+          if [ "$count" -lt 4 ]; then
+            echo "::error::Expected at least 4 tests matching 'gas_budget', found $count."
+            exit 1
+          fi
+      - name: Run gas budget assertions
+        run: cargo test --features testutils -- --test-threads=1 gas_budget
 
   coverage:
     runs-on: ubuntu-latest
@@ -69,7 +189,9 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: taike-e/install-action@v2
+        with:
+          cache-all-targets: "true"
+      - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
       - name: Generate coverage report and enforce the minimum
@@ -80,13 +202,14 @@ jobs:
         uses: codecov/codecov-action@v7
         with:
           files: lcov.info
-          fail_ci_if-error: true
+          fail_ci_if_error: true
 
-  # Tracks the release WASM binary size so unexpected bloat from new
-  # dependencies or unused code is caught before merge, instead of silently
-  # growing the deployed contract. Update wasm-size-baseline.txt in the same
-  # PR when a size increase is expected.
-  wasm-size:
+  # Issue #1258: build the release contract WASM and validate it -- module
+  # structure (wasm-tools), Soroban spec/env-meta sections, and binary size
+  # against .github/wasm-size-baseline.txt (5% budget). The same checks run
+  # locally via `make check-wasm`. Update the baseline in the same PR when a
+  # size increase is expected.
+  wasm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -94,22 +217,32 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-targets: "true"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-tools
       - run: cargo build --target wasm32-unknown-unknown --release
-      - name: Check WASM size regression
+      - run: ./scripts/check-wasm.sh
+      - name: Generate contract interface spec (JSON)
         run: |
-          set -euo pipefail
-          WASM_PATH="target/wasm32-unknown-unknown/release/proof_of_heart.wasm"
-          BASELINE_FILE=".github/wasm-size-baseline.txt"
-          ACTUAM=$(stat -c '%s' "$WASM_PATH")
-          BASELENG=$(cat "$BASELINE_FILE")
-          # Allow up to 5% growth over the recorded baseline before failing.
-          LIMIT=$((BASELENG * 105 / 100))
-          echo "Baseline: ${?BASELINE} bytes"
-          echo "Actual:   ${?ACTUAL} bytes"
-          if [ "$ACTUAL" -gt "$LIMIT" ]; then
-            DIFF=$((ACTUAL - BASELINE))
-            PCT=$((DIFF * 100 / BASELENE))
-            echo "::error::WASM binary grew by ${?DIFF} bytes (${?PCT}%), exceeding the 5% regression budget over the ${?BASELENE}-byte baseline in ${?BASELEINE_FILE}. If this growth is expected, update the baseline in the same PR."
-            exit 1
-          fi
-          echo "WASM size within budget."
+          stellar contract info interface \
+            --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
+            --output json > proof_of_heart.spec.json
+      - name: Generate TypeScript bindings
+        run: |
+          stellar contract bindings typescript \
+            --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
+            --output-dir proof_of_heart_bindings
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proof_of_heart.wasm
+          path: target/wasm32-unknown-unknown/release/proof_of_heart.wasm
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contract-interface
+          path: |
+            proof_of_heart.spec.json
+            proof_of_heart_bindings/
+          if-no-files-found: error

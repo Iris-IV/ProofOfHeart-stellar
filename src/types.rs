@@ -1,37 +1,26 @@
-use soroban_sdk::{contracttype, Address, String};
+use soroban_sdk::{contracttype, Address, BytesN, Env, String};
+
+/// Represents the lifecycle state of a campaign as a single strongly-typed
+/// enum, replacing the previous ad-hoc combination of boolean flags.
+///
+/// The discriminant ordering mirrors the typical lifecycle progression but
+/// does **not** enforce transitions — the contract modules handle that.
+/// `#[contracttype]` is required for Soroban storage serialization.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CampaignStatus {
+    /// Campaign is live and accepting contributions.
+    Active,
+    /// Campaign was cancelled by its creator or admin.
+    Cancelled,
+    /// Campaign met its goal and funds were withdrawn by the creator.
+    Withdrawn,
+}
 
 /// Represents an optional pending campaign creator for ownership transfers.
-/// Mirrors `Option<Address>` — used instead of the standard `Option` because
-/// Soroban 20.1.0's `#[contracttype]` derive doesn't support `Option<Address>`
-/// as a struct field: the generated `TryFrom<&Campaign> for ScVal` impl
-/// requires `ScVal: From<Address>`, which the pinned `=20.1.0` SDK does not
-/// provide (confirmed by re-testing `pending_creator: Option<Address>` against
-/// this checkout — it fails to compile with that exact missing-impl error).
-/// Revisit once the `soroban-sdk = "=20.1.0"` pin in Cargo.toml is lifted.
-/// Same binary layout (`None == 0`, `Some(addr) == 1(addr)`).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MaybePendingCreator {
-    /// No ownership transfer is in progress.
-    None,
-    /// An ownership transfer to this address is pending acceptance.
-    Some(Address),
-}
-
-impl MaybePendingCreator {
-    pub fn is_some(&self) -> bool {
-        matches!(self, MaybePendingCreator::Some(_))
-    }
-    pub fn is_none(&self) -> bool {
-        matches!(self, MaybePendingCreator::None)
-    }
-}
-
-impl From<Address> for MaybePendingCreator {
-    fn from(addr: Address) -> Self {
-        MaybePendingCreator::Some(addr)
-    }
-}
+/// Using `Option<Address>` directly since soroban-sdk 22.0.11 supports it.
+/// Same binary layout as the previous `MaybePendingCreator` enum (`None == 0`, `Some(addr) == 1(addr)`).
+pub type MaybePendingCreator = Option<Address>;
 
 /// Represents a category for a campaign, determining its type and eligibility for revenue sharing.
 #[contracttype]
@@ -74,13 +63,7 @@ pub struct Campaign {
     /// Total tokens raised so far.
     pub amount_raised: i128,
     /// Whether the campaign is currently accepting contributions.
-    pub is_active: bool,
-    /// Whether the creator has already withdrawn funds.
-    pub funds_withdrawn: bool,
-    /// Whether the campaign has been cancelled by the creator.
-    pub is_cancelled: bool,
-    /// Whether the campaign has been verified (by admin or community vote).
-    pub is_verified: bool,
+    pub status: u32,
     /// The category of the campaign.
     pub category: Category,
     /// Whether contributors are entitled to a share of future revenue.
@@ -101,6 +84,19 @@ pub struct Campaign {
     pub deadline_extended: bool,
     /// Total live contributions remaining after refunds, used for revenue-sharing pro-rata.
     pub effective_amount_raised: i128,
+}
+
+impl Campaign {
+    /// Derives the current lifecycle status from the stored boolean flags.
+    pub fn status(&self) -> CampaignStatus {
+        if self.is_cancelled() {
+            CampaignStatus::Cancelled
+        } else if self.funds_withdrawn() {
+            CampaignStatus::Withdrawn
+        } else {
+            CampaignStatus::Active
+        }
+    }
 }
 
 /// Aggregate platform metrics for dashboard and indexer consumers.
@@ -128,12 +124,6 @@ pub struct PlatformStats {
     /// are corrupted and must not be displayed or relied upon until the
     /// counters are reconciled.
     pub stats_are_partial: bool,
-    /// The ID up to which the scan was performed. Retained for API
-    /// compatibility: counters have been O(1) reads since #411, no scan is
-    /// performed, and this always equals `total_campaigns` — including when
-    /// `stats_are_partial` is `true`, in which case it still marks the
-    /// authoritative bound for campaign pagination.
-    pub scanned_up_to: u32,
 }
 
 /// Comprehensive platform report for admin dashboards, returning all key
@@ -266,7 +256,7 @@ pub struct EmergencyWithdrawal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignStats {
     pub contributor_count: u32,
-    pub top_contributor: MaybePendingCreator,
+    pub top_contributor: Option<Address>,
     pub avg_contribution: i128,
     pub last_contribution_time: u64,
 }
@@ -283,4 +273,129 @@ pub struct CampaignDeadlineExtended {
     pub additional_days: u64,
     /// The resulting total duration after the extension, in seconds.
     pub total_duration: u64,
+}
+
+pub const CAMPAIGN_ACTIVE: u32 = 1 << 0;
+pub const CAMPAIGN_PAUSED: u32 = 1 << 1;
+pub const CAMPAIGN_VALIDATED: u32 = 1 << 2;
+pub const CAMPAIGN_SUCCEEDED: u32 = 1 << 3;
+
+impl Campaign {
+    pub fn is_active(&self) -> bool {
+        (self.status & CAMPAIGN_ACTIVE) != 0
+    }
+    pub fn set_active(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_ACTIVE;
+        } else {
+            self.status &= !CAMPAIGN_ACTIVE;
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        (self.status & CAMPAIGN_PAUSED) != 0
+    }
+    pub fn set_cancelled(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_PAUSED;
+        } else {
+            self.status &= !CAMPAIGN_PAUSED;
+        }
+    }
+
+    pub fn is_verified(&self) -> bool {
+        (self.status & CAMPAIGN_VALIDATED) != 0
+    }
+    pub fn set_verified(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_VALIDATED;
+        } else {
+            self.status &= !CAMPAIGN_VALIDATED;
+        }
+    }
+
+    pub fn funds_withdrawn(&self) -> bool {
+        (self.status & CAMPAIGN_SUCCEEDED) != 0
+    }
+    pub fn set_funds_withdrawn(&mut self, val: bool) {
+        if val {
+            self.status |= CAMPAIGN_SUCCEEDED;
+        } else {
+            self.status &= !CAMPAIGN_SUCCEEDED;
+        }
+    }
+}
+
+/// A fixed-length 32-byte array representation of short strings (up to 32 bytes)
+/// for compact, efficient on-chain storage without heap allocations.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactString(pub BytesN<32>);
+
+impl CompactString {
+    pub const MAX_LEN: usize = 32;
+
+    /// Creates a CompactString from a string slice.
+    /// Trailing unused bytes are padded with null bytes (0).
+    /// Returns ValidationFailed if the string exceeds 32 bytes.
+    pub fn from_str(env: &Env, s: &str) -> Result<Self, crate::errors::Error> {
+        let bytes = s.as_bytes();
+        if bytes.len() > Self::MAX_LEN {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        let mut arr = [0u8; 32];
+        arr[..bytes.len()].copy_from_slice(bytes);
+        Ok(Self(BytesN::from_array(env, &arr)))
+    }
+
+    /// Creates a CompactString from a Soroban SDK String.
+    pub fn from_string(env: &Env, s: &String) -> Result<Self, crate::errors::Error> {
+        let len = s.len() as usize;
+        if len > Self::MAX_LEN {
+            return Err(crate::errors::Error::ValidationFailed);
+        }
+        let mut arr = [0u8; 32];
+        s.copy_into_slice(&mut arr[..len]);
+        Ok(Self(BytesN::from_array(env, &arr)))
+    }
+
+    /// Converts back to a Soroban SDK String, trimming trailing zero padding.
+    pub fn to_string(&self, env: &Env) -> String {
+        let arr = self.0.to_array();
+        let len = arr.iter().position(|&b| b == 0).unwrap_or(32);
+        match core::str::from_utf8(&arr[..len]) {
+            Ok(valid_str) => String::from_str(env, valid_str),
+            Err(_) => String::from_str(env, ""),
+        }
+    }
+
+    /// Returns the raw BytesN<32> underlying byte array.
+    pub fn as_bytes(&self) -> &BytesN<32> {
+        &self.0
+    }
+
+    /// Returns the effective length in bytes (excluding trailing zero padding).
+    pub fn len(&self) -> u32 {
+        let arr = self.0.to_array();
+        arr.iter().position(|&b| b == 0).unwrap_or(32) as u32
+    }
+
+    /// Returns true if the compact string has an effective length of 0.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Creates a CompactString directly from a raw BytesN<32>.
+    pub fn from_bytes(bytes: BytesN<32>) -> Self {
+        Self(bytes)
+    }
+}
+
+/// A cryptographic proof of impact submitted by a campaign verifier.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProofOfImpact {
+    pub verifier: Address,
+    pub proof_hash: BytesN<32>,
+    pub timestamp: u64,
 }

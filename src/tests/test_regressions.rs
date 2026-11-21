@@ -1,3 +1,6 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
+#![allow(deprecated)]
 extern crate alloc;
 use alloc::format;
 
@@ -6,7 +9,7 @@ use crate::{
     storage, AdminKey, Campaign, CampaignKey, Category, CreateCampaignParams, Error,
     MaybePendingCreator, VotingKey, SECONDS_PER_DAY, TOKEN_UPDATE_DELAY_SECS,
 };
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{vec, Address, Env, FromVal, String, TryFromVal};
 
 // ── #266 migrate ──────────────────────────────────────────────────────────────
 
@@ -131,7 +134,7 @@ fn make_campaign_params_simple(env: &Env, creator: &Address, seq: u32) -> Create
 fn make_campaign_params_titled(env: &Env, creator: &Address, title: &str) -> CreateCampaignParams {
     CreateCampaignParams {
         title: String::from_str(env, title),
-        ..make_campaign_params_simple(env, creator)
+        ..make_campaign_params_simple(env, creator, 0)
     }
 }
 
@@ -196,15 +199,13 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
         creator: creator.clone(),
         first_creator: creator.clone(),
         pending_creator: crate::types::MaybePendingCreator::None,
+        pending_creator_expiry: 0,
         title: String::from_str(&env, "T"),
         description: String::from_str(&env, "D"),
         funding_goal: 1,
         deadline: 100000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -226,7 +227,7 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     });
 
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &1000u32);
-    assert_eq!(result.len(), 20);
+    assert_eq!(result.0.len(), 20);
 }
 
 #[test]
@@ -234,7 +235,7 @@ fn test_get_campaigns_by_category_small_limit_respected() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
     for i in 0..10 {
         let title_str = format!("T{}", i);
-        let mut p = make_campaign_params_simple(&env, &creator);
+        let mut p = make_campaign_params_simple(&env, &creator, i);
         p.title = String::from_str(&env, &title_str);
         client.create_campaign(&p);
     }
@@ -477,10 +478,7 @@ fn test_pending_creator_none_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -522,10 +520,7 @@ fn test_pending_creator_some_round_trip() {
         funding_goal: 1000,
         deadline: 1000000,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -642,8 +637,8 @@ fn test_platform_stats_counters_track_lifecycle() {
     assert!(!stats.stats_are_partial);
 
     // Create two campaigns.
-    let p1 = make_campaign_params_simple(&env, &creator);
-    let mut p2 = make_campaign_params_simple(&env, &creator);
+    let p1 = make_campaign_params_simple(&env, &creator, 0);
+    let mut p2 = make_campaign_params_simple(&env, &creator, 1);
     p2.title = String::from_str(&env, "T2");
     let id1 = client.create_campaign(&p1);
     let id2 = client.create_campaign(&p2);
@@ -665,7 +660,6 @@ fn test_platform_stats_counters_track_lifecycle() {
 
     // stats_are_partial must always be false after the O(1) refactor.
     assert!(!stats.stats_are_partial);
-    assert_eq!(stats.scanned_up_to, stats.total_campaigns);
     let _ = (id1, id2, admin);
 }
 
@@ -677,7 +671,7 @@ fn test_platform_stats_never_partial() {
 
     for i in 0..5 {
         let title_str = format!("T{}", i);
-        let mut p = make_campaign_params_simple(&env, &creator);
+        let mut p = make_campaign_params_simple(&env, &creator, i);
         p.title = String::from_str(&env, &title_str);
         client.create_campaign(&p);
     }
@@ -696,7 +690,7 @@ fn test_platform_stats_never_partial() {
 #[test]
 fn test_platform_stats_flags_active_counter_exceeding_total() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     // Simulate a partial migration: the active counter was written but the
     // campaign-count key was rolled back / never written.
@@ -711,8 +705,6 @@ fn test_platform_stats_flags_active_counter_exceeding_total() {
     // Raw stored values are surfaced for auditability.
     assert_eq!(stats.total_campaigns, 1);
     assert_eq!(stats.active_campaigns, 5);
-    // `scanned_up_to` remains the authoritative pagination bound.
-    assert_eq!(stats.scanned_up_to, 1);
 
     // An audit event is published so indexers/admin can notice the corruption.
     let events = env.events().all();
@@ -729,7 +721,7 @@ fn test_platform_stats_flags_active_counter_exceeding_total() {
 #[test]
 fn test_platform_stats_flags_cancelled_counter_exceeding_total() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     env.as_contract(&client.address, || {
         crate::storage::set_cancelled_campaign_count(&env, 7);
@@ -744,7 +736,7 @@ fn test_platform_stats_flags_cancelled_counter_exceeding_total() {
 #[test]
 fn test_platform_stats_flags_verified_counter_exceeding_total() {
     let (env, _, creator, _, _, _, _, client) = setup_env();
-    client.create_campaign(&make_campaign_params_simple(&env, &creator));
+    client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
     env.as_contract(&client.address, || {
         crate::storage::set_verified_campaign_count(&env, 3);
@@ -797,7 +789,6 @@ fn test_platform_stats_consistent_through_full_lifecycle() {
     assert_eq!(stats.active_campaigns, 1);
     assert_eq!(stats.verified_campaigns, 1);
     assert_eq!(stats.cancelled_campaigns, 1);
-    assert_eq!(stats.scanned_up_to, 2);
 
     // No inconsistency event may be published in the healthy path.
     let events = env.events().all();
@@ -840,6 +831,142 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
 
     // Previous residual math paid 5001 here; direct creator-side math must pay 5000.
     assert_eq!(creator_after - creator_before, 5_000);
+}
+
+// ── #834 creator-claim precision loss ─────────────────────────────────────────
+// Issue #834 — the pre-#386 residual math (`creator = total - contributor_pool`)
+// floored the contributor pool by up to 9 999 stroops and silently paid the
+// remainder to the creator. #386 fixed the source by computing the creator
+// share directly; these tests pin the corrected distribution for the exact
+// example in #834 (total_pool = 10_001 at 50%) plus repeated deposits.
+
+/// Issue #834 — the 1-stroop rounding remainder must reach the contributors,
+/// not the creator, and creator + contributors must sum to the pool exactly.
+#[test]
+fn test_834_rounding_remainder_reaches_contributors() {
+    let (_env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &20_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Rounding remainder regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+
+    // The sole contributor claims first and, as last claimant, absorbs the
+    // contributor-side remainder: exact half is 5 000.5, so they get 5 001.
+    let contributor_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let contributor_claimed = token.balance(&contributor1) - contributor_before;
+    assert_eq!(contributor_claimed, 5_001);
+
+    // The creator gets exactly floor(10_001 * 5000 / 10_000) = 5 000 — never
+    // the 5 001 the old residual math paid.
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let creator_claimed = token.balance(&creator) - creator_before;
+    assert_eq!(creator_claimed, 5_000);
+
+    // Full distribution: nothing stuck, nothing created.
+    assert_eq!(contributor_claimed + creator_claimed, 10_001);
+}
+
+/// Issue #834 — over many deposits and interleaved claims the creator must
+/// never accumulate more than floor(exact share), so no systematic bias builds.
+#[test]
+fn test_834_repeated_deposits_do_not_bias_creator() {
+    let (_env, _admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &30_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Repeated deposit bias regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+    let creator_before = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let first_claim = token.balance(&creator) - creator_before;
+    assert_eq!(first_claim, 5_000);
+
+    // Second deposit doubles the pool to 20_002 (exact creator half: 10_001).
+    client.deposit_revenue(&campaign_id, &10_001);
+    let mid = token.balance(&creator);
+    client.claim_creator_revenue(&campaign_id);
+    let second_claim = token.balance(&creator) - mid;
+    assert_eq!(second_claim, 5_001);
+
+    // Creator total is exactly floor(20_002 * 5000 / 10_000) = 10_001.
+    assert_eq!(first_claim + second_claim, 10_001);
+
+    // The contributor then receives the full residual: 20_002 - 10_001.
+    let contributor_before = token.balance(&contributor1);
+    client.claim_revenue(&campaign_id, &contributor1);
+    let contributor_claimed = token.balance(&contributor1) - contributor_before;
+    assert_eq!(contributor_claimed, 10_001);
+    assert_eq!(first_claim + second_claim + contributor_claimed, 20_002);
+}
+
+/// Issue #834 — over-claiming is rejected with explicit errors, not silent
+/// truncation: a second creator claim and a non-contributor claim both fail.
+#[test]
+fn test_834_over_claims_rejected() {
+    let (_env, _admin, creator, contributor1, contributor2, _token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &20_000);
+    token_admin.mint(&creator, &20_000);
+
+    let campaign_id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&_env, "Issue 834"),
+        description: String::from_str(&_env, "Over-claim rejection regression"),
+        funding_goal: 10_001,
+        duration_days: 30,
+        category: Category::EducationalStartup,
+        has_revenue_sharing: true,
+        revenue_share_percentage: 5000, // 50%
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &10_001);
+    client.withdraw_funds(&campaign_id);
+
+    client.deposit_revenue(&campaign_id, &10_001);
+    client.claim_creator_revenue(&campaign_id);
+
+    // Nothing left for the creator: second claim fails explicitly.
+    let again = client.try_claim_creator_revenue(&campaign_id);
+    assert_eq!(again.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
+
+    // An address that never contributed has no share to claim.
+    let stranger = client.try_claim_revenue(&campaign_id, &contributor2);
+    assert_eq!(stranger.unwrap_err().unwrap(), Error::ValidationFailed);
 }
 
 // ── #526 last-claimant revenue dust ────────────────────────────────────────────
@@ -1074,7 +1201,7 @@ fn test_list_active_campaigns_reaches_campaigns_beyond_old_200_scan_window() {
     let mut last_id = 0u32;
     for i in 0..20 {
         let title_str = format!("T{}", i);
-        let mut p = make_campaign_params_simple(&env, &creator);
+        let mut p = make_campaign_params_simple(&env, &creator, i);
         p.title = String::from_str(&env, &title_str);
         last_id = client.create_campaign(&p);
     }
@@ -1120,7 +1247,7 @@ fn test_create_campaign_at_u32_max_returns_overflow() {
 fn test_claim_refund_double_claim_rejected() {
     let (env, _, creator, contributor1, _, _token, token_admin, client) = setup_env();
 
-    let mut params = make_campaign_params_simple(&env, &creator);
+    let mut params = make_campaign_params_simple(&env, &creator, 0);
     params.funding_goal = 1_000;
     let campaign_id = client.create_campaign(&params);
     client.verify_campaign(&campaign_id);
@@ -1183,4 +1310,466 @@ fn test_withdraw_funds_overflow_day_to_seconds_returns_error() {
     // Must return Overflow, not panic.
     let result = client.try_withdraw_funds(&campaign_id);
     assert_eq!(result.unwrap_err().unwrap(), Error::Overflow);
+}
+
+// ── #813, #814, #816, #818 issue regression suite ───────────────────────────
+
+fn make_regression_campaign(
+    env: &soroban_sdk::Env,
+    client: &ProofOfHeartClient,
+    creator: &Address,
+    goal: i128,
+    days: u64,
+    category: Category,
+) -> u32 {
+    let count = client.get_campaign_count();
+    let title_str = format!("Test Regression Campaign {}", count + 1);
+    let id = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(env, &title_str),
+        description: String::from_str(env, "Test description for campaign"),
+        funding_goal: goal,
+        duration_days: days,
+        category,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    client.verify_campaign(&id);
+    id
+}
+
+// ── #818: cancel_campaign decrements total_raised_global upfront ──────────────
+
+#[test]
+fn test_cancel_campaign_decrements_total_raised_global_immediately() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &500);
+
+    let id = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
+    client.contribute(&id, &contributor, &500);
+
+    assert_eq!(client.get_total_raised_global(), 500);
+
+    client.cancel_campaign(&id);
+
+    // total_raised_global must drop immediately on cancel, not wait for refund claims.
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_cancel_campaign_allows_accept_token_update_after_all_refunds_claimed() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &500);
+
+    let id = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
+    client.contribute(&id, &contributor, &500);
+    client.cancel_campaign(&id);
+
+    // total_raised_global is 0 immediately after cancel (#818 fix), so
+    // accept_token_update is no longer permanently blocked by unclaimed refunds.
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    // Claiming a refund after cancel must not underflow total_raised_global.
+    client.claim_refund(&id, &contributor);
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_claim_refund_does_not_double_decrement_after_creator_cancel() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &300);
+
+    let id = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
+    client.contribute(&id, &contributor, &300);
+
+    assert_eq!(client.get_total_raised_global(), 300);
+    client.cancel_campaign(&id);
+    assert_eq!(client.get_total_raised_global(), 0);
+
+    client.claim_refund(&id, &contributor);
+    // Still 0 — claim_refund skips the decrement for cancelled campaigns.
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_admin_cancel_decrements_total_raised_global() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    let goal = 2_000i128;
+    token_admin.mint(&contributor, &goal);
+
+    let id = make_regression_campaign(&env, &client, &creator, goal, 30, Category::Educator);
+    client.contribute(&id, &contributor, &goal);
+
+    assert_eq!(client.get_total_raised_global(), goal);
+
+    client.admin_cancel_campaign(&admin, &id, &String::from_str(&env, "fraud detected"));
+
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+#[test]
+fn test_failed_funding_claim_refund_still_decrements_total_raised_global() {
+    let (env, _admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor, &400);
+
+    let id = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
+    client.contribute(&id, &contributor, &400);
+    assert_eq!(client.get_total_raised_global(), 400);
+
+    // Advance past the deadline without reaching the goal.
+    env.ledger().with_mut(|li| {
+        li.timestamp += 31 * SECONDS_PER_DAY + 1;
+    });
+
+    client.claim_refund(&id, &contributor);
+    // Failed-funding path still decrements (campaign.is_cancelled() is false here).
+    assert_eq!(client.get_total_raised_global(), 0);
+}
+
+// ── #816: verify_campaigns returns (verified_ids, failed_ids) ─────────────────
+
+#[test]
+fn test_verify_campaigns_partial_failure_returns_both_vecs() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let good = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify Good"),
+        description: String::from_str(&env, "Desc"),
+        funding_goal: 100,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    let bad_id: u32 = 9999;
+
+    let (verified, failed) = client.verify_campaigns(&vec![&env, good, bad_id]);
+
+    assert_eq!(verified.len(), 1);
+    assert_eq!(verified.get(0), Some(good));
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed.get(0), Some(bad_id));
+}
+
+#[test]
+fn test_verify_campaigns_all_fail_returns_empty_verified_vec() {
+    let (env, _, _, _, _, _, _, client) = setup_env();
+
+    let (verified, failed) = client.verify_campaigns(&vec![&env, 8888u32, 9999u32]);
+
+    assert_eq!(verified.len(), 0);
+    assert_eq!(failed.len(), 2);
+}
+
+#[test]
+fn test_verify_campaigns_all_succeed_returns_empty_failed_vec() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+
+    let id1 = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify 1"),
+        description: String::from_str(&env, "Desc"),
+        funding_goal: 100,
+        duration_days: 30,
+        category: Category::Learner,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+    let id2 = client.create_campaign(&CreateCampaignParams {
+        creator: creator.clone(),
+        title: String::from_str(&env, "Verify 2"),
+        description: String::from_str(&env, "Desc"),
+        funding_goal: 200,
+        duration_days: 30,
+        category: Category::Educator,
+        has_revenue_sharing: false,
+        revenue_share_percentage: 0,
+        max_contribution_per_user: 0i128,
+    });
+
+    let (verified, failed) = client.verify_campaigns(&vec![&env, id1, id2]);
+
+    assert_eq!(verified.len(), 2);
+    assert_eq!(failed.len(), 0);
+}
+
+// ── #813: extend_campaign_deadline validates category duration cap ─────────────
+
+#[test]
+fn test_extend_deadline_blocked_when_new_total_exceeds_category_cap() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    // Create a 60-day campaign.
+    let id = make_regression_campaign(&env, &client, &creator, 100, 60, Category::Learner);
+
+    // Admin sets a tight 90-day cap on the category.
+    client.set_category_duration_cap(&admin, &Category::Learner, &90u64);
+
+    // Adding 31 days would make total = 91 days > cap. Must be rejected.
+    let res = client.try_extend_campaign_deadline(&id, &31u64);
+    assert!(
+        res.is_err(),
+        "extension beyond category cap must be rejected"
+    );
+}
+
+#[test]
+fn test_extend_deadline_allowed_within_category_cap() {
+    let (env, admin, creator, _, _, _, _, client) = setup_env();
+
+    let id = make_regression_campaign(&env, &client, &creator, 100, 60, Category::Learner);
+
+    // 120-day cap — adding 30 days (total = 90) is within the cap.
+    client.set_category_duration_cap(&admin, &Category::Learner, &120u64);
+
+    client.extend_campaign_deadline(&id, &30u64);
+
+    let campaign = client.get_campaign(&id);
+    assert!(campaign.deadline_extended);
+}
+
+// ── #814: BlockCampaignContributionCount is the live per-campaign key ──────────
+
+#[test]
+fn test_burst_guard_block_counts_are_per_campaign_not_global() {
+    let (env, _admin, creator, contributor, contributor2, _token, token_admin, client) =
+        setup_env();
+    // Mint enough for two campaigns × two contributions each.
+    token_admin.mint(&contributor, &10_000);
+    token_admin.mint(&contributor2, &10_000);
+
+    // goal = 1_000; burst_check_threshold = 50% = 500
+    let id_a = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Learner);
+    let id_b = make_regression_campaign(&env, &client, &creator, 1_000, 30, Category::Educator);
+
+    // First contribution to each — amount_raised starts at 0 so the burst-check
+    // early-exit fires and no block-count entry is written yet.
+    client.contribute(&id_a, &contributor, &600); // A now at 600 (>50% threshold)
+    client.contribute(&id_b, &contributor, &600); // B now at 600 (>50% threshold)
+
+    // Second contributions on the same ledger block — the burst guard now
+    // runs and writes the per-campaign key for each campaign separately.
+    client.contribute(&id_a, &contributor2, &1);
+    client.contribute(&id_b, &contributor2, &1);
+
+    // Verify counts are per-campaign (each should be 1, not 2).
+    env.as_contract(&client.address, || {
+        let (_, count_a) = crate::storage::get_campaign_block_contribution_count(&env, id_a);
+        let (_, count_b) = crate::storage::get_campaign_block_contribution_count(&env, id_b);
+        assert_eq!(
+            count_a, 1,
+            "campaign A count must be 1 (per-campaign, not global)"
+        );
+        assert_eq!(
+            count_b, 1,
+            "campaign B count must be 1 (per-campaign, not global)"
+        );
+    });
+}
+
+// ── #852 reserve payouts auditable from event stream alone ────────────────────
+
+const RESERVE_BPS_852: u32 = 2000;
+const DELAY_DAYS_852: u64 = 7;
+const CONTRIBUTION_852: i128 = 1000;
+const EXPECTED_RESERVE_852: i128 = 194;
+
+fn find_event_852(
+    env: &Env,
+    name: &str,
+) -> (
+    Address,
+    soroban_sdk::Vec<soroban_sdk::Val>,
+    soroban_sdk::Val,
+) {
+    let expected = String::from_str(env, name);
+    env.events()
+        .all()
+        .iter()
+        .find(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(env, &v).ok())
+                .map(|topic| topic == expected)
+                .unwrap_or(false)
+        })
+        .unwrap_or_else(|| panic!("{} event must be emitted", name))
+}
+
+fn funded_campaign_852(
+    env: &Env,
+    admin: &Address,
+    creator: &Address,
+    contributor: &Address,
+    token_admin: &TokenAdminClient,
+    client: &ProofOfHeartClient,
+) -> u32 {
+    client.set_vesting_params(admin, &DELAY_DAYS_852, &RESERVE_BPS_852);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(env, "Reserve Audit Campaign 852"),
+        String::from_str(env, "Reserve lifecycle events must be self-describing"),
+        CONTRIBUTION_852,
+        30,
+        Category::EducationalStartup,
+        false,
+        0,
+        0,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    token_admin.mint(contributor, &CONTRIBUTION_852);
+    client.contribute(&campaign_id, contributor, &CONTRIBUTION_852);
+
+    campaign_id
+}
+
+#[test]
+fn test_reserve_withheld_event_carries_campaign_creator_and_amount() {
+    let (env, admin, creator, contributor, _, _token, token_admin, client) = setup_env();
+
+    let campaign_id =
+        funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
+
+    let now = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = now + 31 * SECONDS_PER_DAY;
+    });
+    client.withdraw_funds(&campaign_id);
+
+    let withheld = find_event_852(&env, "reserve_withheld");
+    let topics = &withheld.1;
+
+    assert_eq!(
+        topics.len(),
+        3,
+        "reserve_withheld must name the campaign id and the creator"
+    );
+
+    let topic_campaign_id: u32 = FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(topic_campaign_id, campaign_id);
+
+    let topic_creator: Address = FromVal::from_val(&env, &topics.get(2).unwrap());
+    assert_eq!(topic_creator, creator);
+
+    let amount: i128 = FromVal::from_val(&env, &withheld.2);
+    assert_eq!(amount, EXPECTED_RESERVE_852);
+}
+
+#[test]
+fn test_reserve_released_event_carries_campaign_creator_and_amount() {
+    let (env, admin, creator, contributor, _, token, token_admin, client) = setup_env();
+
+    let campaign_id =
+        funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
+
+    let now = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = now + 31 * SECONDS_PER_DAY;
+    });
+    client.withdraw_funds(&campaign_id);
+
+    // Move past the vesting delay so the reserve becomes releasable.
+    let now = env.ledger().timestamp();
+    env.ledger().with_mut(|li| {
+        li.timestamp = now + (DELAY_DAYS_852 + 1) * SECONDS_PER_DAY;
+    });
+
+    let balance_before = token.balance(&creator);
+    client.withdraw_reserve(&campaign_id);
+    let balance_after = token.balance(&creator);
+
+    let released = find_event_852(&env, "reserve_released");
+    let topics = &released.1;
+
+    assert_eq!(
+        topics.len(),
+        3,
+        "reserve_released must name the campaign id and the creator"
+    );
+
+    let topic_campaign_id: u32 = FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(topic_campaign_id, campaign_id);
+
+    let topic_creator: Address = FromVal::from_val(&env, &topics.get(2).unwrap());
+    assert_eq!(topic_creator, creator);
+
+    let amount: i128 = FromVal::from_val(&env, &released.2);
+    assert_eq!(amount, EXPECTED_RESERVE_852);
+
+    // The event amount must equal the balance actually credited, so indexers
+    // can trust the payload for accounting without a balance diff.
+    assert_eq!(balance_after - balance_before, amount);
+    assert_eq!(balance_after, 970);
+}
+
+// ── #1329: rename keeps the per-creator title index in sync ──────────────────
+
+fn create_titled(
+    env: &soroban_sdk::Env,
+    client: &crate::ProofOfHeartClient<'_>,
+    creator: &Address,
+    title: &str,
+) -> u32 {
+    client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(env, title),
+        String::from_str(env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ))
+}
+
+#[test]
+fn test_update_campaign_rejects_rename_to_existing_title() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    create_titled(&env, &client, &creator, "Alpha");
+    let beta = create_titled(&env, &client, &creator, "Beta");
+
+    let res = client.try_update_campaign(
+        &beta,
+        &String::from_str(&env, "Alpha"),
+        &String::from_str(&env, "Description"),
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
+    assert_eq!(
+        client.get_campaign(&beta).title,
+        String::from_str(&env, "Beta")
+    );
+}
+
+#[test]
+fn test_update_campaign_rename_releases_old_title_and_reserves_new() {
+    let (env, _admin, creator, _, _, _, _, client) = setup_env();
+    let id = create_titled(&env, &client, &creator, "Alpha");
+    client.update_campaign(
+        &id,
+        &String::from_str(&env, "Gamma"),
+        &String::from_str(&env, "Description"),
+    );
+
+    // The old title is free again...
+    create_titled(&env, &client, &creator, "Alpha");
+    // ...and the new one is taken.
+    let res = client.try_create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Gamma"),
+        String::from_str(&env, "Description"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }

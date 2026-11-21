@@ -75,7 +75,7 @@ fn test_creator_buckets_100_campaigns() {
 
     // Returns all campaigns up to total
     let big_page = client.get_creator_campaigns(&creator, &0, &u32::MAX);
-    assert_eq!(big_page.len(), total_campaigns);
+    assert_eq!(big_page.0.len(), total_campaigns);
 }
 
 #[test]
@@ -89,9 +89,9 @@ fn test_creator_buckets_pagination_boundaries() {
     }
 
     let last_page = client.get_creator_campaigns(&creator, &20, &10);
-    assert_eq!(last_page.len(), 5);
-    assert_eq!(last_page.get(0).unwrap().id, 21);
-    assert_eq!(last_page.get(4).unwrap().id, 25);
+    assert_eq!(last_page.0.len(), 5);
+    assert_eq!(last_page.0.get(0).unwrap().id, 21);
+    assert_eq!(last_page.0.get(4).unwrap().id, 25);
 
     let (empty, _cursor) = client.get_creator_campaigns(&creator, &total, &10);
     assert_eq!(empty.len(), 0);

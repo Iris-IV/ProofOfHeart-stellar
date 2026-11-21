@@ -101,3 +101,35 @@ A related but separate bookmark-privacy concern is that `save_campaign` (which *
 - **Client expectations**: Applications integrating the bookmark feature should **not** present bookmarks as private or confidential. The UI should disclose (e.g., via a tooltip or informational banner) that saved campaigns are publicly visible on-chain.
 - **User education**: Wallets or frontends should inform users that their saved-campaigns list is readable by any party who knows their public address.
 - **Future alternatives**: A fully private bookmark mechanism would require off-chain storage (e.g., a locally encrypted list held in the user's wallet, or a private database indexed by a hash of the user's address). On-chain bookmarks are inherently public by the design of the ledger; this entry documents the boundary explicitly so integrators understand the tradeoff. Any future on-chain privacy solution would require protocol-level changes, not just a contract patch.
+
+## Verification / griefing risk audit (#133)
+
+A security assessment titled `SECURITY_ASSESSMENT_133.md` was previously
+committed to the repo root. Its salient points are folded here so the root
+stays clean.
+
+### Verification mechanisms
+
+- **Admin verification** (`admin_verify`): admin-gated, idempotent, minimal
+griefing risk — only the admin can call.
+- **Community voting verification** (`verify_with_votes`): permissionless invoke
+  subject to a minimum quorum (default 3 votes) and a token-weighted approval
+  threshold (default 60%); campaign must not already be verified.
+
+### Griefing vectors assessed
+
+1. **Timing attacks via premature verification** — low risk. Quorum and
+   threshold requirements prevent verifying before community consensus.
+2. **Vote spam** — risk reduced by `set_min_voting_balance`, which the admin
+   can configure (default `0` for backwards compatibility).
+3. **Repeated verification calls** — low risk. Idempotency check rejects
+   already-verified campaigns; repeated calls do not mutate state and consume
+   minimal gas after the first verification.
+4. **Campaign state manipulation** — low risk. Cancelled/inactive campaigns
+   cannot accumulate votes; verifying an already-inactive campaign is
+   technically possible but harmless.
+
+### Ledger timestamp dependency
+
+Verification uses `env.ledger().timestamp()` indirectly via vote timestamps;
+see the rest of the document for timestamp-related considerations.
