@@ -87,6 +87,13 @@ pub(crate) const TRANSFER_EXPIRY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// campaigns (see `test_creator_buckets_100_campaigns`).
 pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
 
+/// Maximum milestones per campaign plan, bounding the storage entry (#783, #1557).
+pub(crate) const MAX_MILESTONES: u32 = 10;
+
+/// Maximum number of campaigns a wallet may bookmark. Bounds a single
+/// persistent storage entry and keeps read/write costs predictable (#782, #1557).
+pub(crate) const MAX_BOOKMARKS_PER_WALLET: u32 = 10;
+
 /// Maximum number of campaigns folded into the aggregate queries
 /// (`get_platform_report`, `get_creator_stats`) per call (#1237).
 ///

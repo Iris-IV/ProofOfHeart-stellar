@@ -93,6 +93,84 @@ fn record_vote_snapshot(env: &Env, campaign_id: u32, voter: &Address, balance: i
     set_voter_balance_snapshot(env, campaign_id, voter, balance, ledger);
 }
 
+/// Shared tally path for `cast_vote` and `cast_delegated_vote` (#1555).
+///
+/// Validates that the campaign accepts votes and that `voter` is eligible and
+/// has not voted yet, snapshots their balance (#967), updates the approve or
+/// reject counters, and marks them as having voted. Authorization and event
+/// emission stay with the callers because they differ between the two paths.
+///
+/// Voting uses a 1-address-1-vote model (#469): every eligible token holder
+/// gets exactly one vote regardless of balance, which prevents flash-loan
+/// inflation. `ApproveWeight`/`RejectWeight` mirror the vote counts (unit
+/// weight) so the legacy storage layout and the weight queries stay
+/// consistent; `verify_with_votes` only consults the counts.
+///
+/// # Errors
+/// * `CampaignNotFound`, `CampaignNotActive`, `DeadlinePassed`,
+///   `CampaignAlreadyVerified` - the campaign cannot take votes.
+/// * `NotTokenHolder` - `voter` holds no platform tokens or is below the minimum.
+/// * `AlreadyVoted` - `voter` has already voted on this campaign.
+/// * `Overflow` - a counter would overflow.
+fn record_vote(env: &Env, campaign_id: u32, voter: &Address, approve: bool) -> Result<(), Error> {
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn() {
+        return Err(Error::CampaignNotActive);
+    }
+    require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+    require_unverified_campaign(&campaign)?;
+
+    // Deliberately the platform token, not the campaign's own currency (#784).
+    // Voting weight is a platform-wide stake: measuring it in whatever asset a
+    // campaign happens to be denominated in would let a creator pick an
+    // obscure token and hand voting rights to whoever holds it.
+    let balance = crate::lifecycle::token_client(env).balance(voter);
+    if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
+        return Err(Error::NotTokenHolder);
+    }
+
+    if get_has_voted(env, campaign_id, voter) {
+        extend_ttl(env, campaign_id, voter);
+        return Err(Error::AlreadyVoted);
+    }
+
+    // #967: snapshot the voter's balance at this ledger height before the
+    // tally is mutated.
+    record_vote_snapshot(env, campaign_id, voter, balance);
+
+    if approve {
+        let new_count = get_approve_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_votes(env, campaign_id, new_count);
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
+    } else {
+        let new_count = get_reject_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_votes(env, campaign_id, new_count);
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
+    }
+
+    set_has_voted(env, campaign_id, voter);
+    extend_ttl(env, campaign_id, voter);
+    Ok(())
+}
+
 /// Updates the community voting parameters.
 ///
 /// # Errors
@@ -134,71 +212,7 @@ pub fn set_params(
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
     voter.require_auth();
 
-    let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.funds_withdrawn() {
-        return Err(Error::CampaignNotActive);
-    }
-    require_active_campaign(&campaign)?;
-    if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::DeadlinePassed);
-    }
-    require_unverified_campaign(&campaign)?;
-
-    // Deliberately the platform token, not the campaign's own currency (#784).
-    // Voting weight is a platform-wide stake: measuring it in whatever asset a
-    // campaign happens to be denominated in would let a creator pick an
-    // obscure token and hand voting rights to whoever holds it.
-    let balance = crate::lifecycle::token_client(env).balance(&voter);
-    if balance <= 0 {
-        return Err(Error::NotTokenHolder);
-    }
-
-    let min_voting_balance = get_min_voting_balance(env);
-    if balance < min_voting_balance {
-        return Err(Error::NotTokenHolder);
-    }
-
-    if get_has_voted(env, campaign_id, &voter) {
-        extend_ttl(env, campaign_id, &voter);
-        return Err(Error::AlreadyVoted);
-    }
-
-    // #967: snapshot the voter's balance at this ledger height before the
-    // tally is mutated. A later transfer cannot rewrite the vote's recorded
-    // eligibility, and because tallies remain unit-weight it cannot inflate
-    // the approval share either.
-    record_vote_snapshot(env, campaign_id, &voter, balance);
-
-    // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
-    // regardless of token balance (#469).
-    //
-    // ApproveWeight/RejectWeight are deliberately kept as a mirror of the vote
-    // counts (unit weight per vote) so the legacy storage layout and the
-    // get_approve_weight/get_reject_weight queries stay consistent for
-    // existing deployments and indexers. verify_with_votes only consults the
-    // counts, so the mirror has no security impact.
-    if approve {
-        let new_count = get_approve_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_votes(env, campaign_id, new_count);
-        let new_weight = get_approve_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_weight(env, campaign_id, new_weight);
-    } else {
-        let new_count = get_reject_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_votes(env, campaign_id, new_count);
-        let new_weight = get_reject_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_weight(env, campaign_id, new_weight);
-    }
-
-    set_has_voted(env, campaign_id, &voter);
-    extend_ttl(env, campaign_id, &voter);
+    record_vote(env, campaign_id, &voter, approve)?;
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
@@ -374,57 +388,9 @@ pub fn cast_delegated_vote(
         _ => return Err(Error::NotAuthorized),
     }
 
-    let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.funds_withdrawn() {
-        return Err(Error::CampaignNotActive);
-    }
-    require_active_campaign(&campaign)?;
-    if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::DeadlinePassed);
-    }
-    require_unverified_campaign(&campaign)?;
-
-    let balance = crate::lifecycle::token_client(env).balance(&delegator);
-    if balance <= 0 {
-        return Err(Error::NotTokenHolder);
-    }
-
-    let min_voting_balance = get_min_voting_balance(env);
-    if balance < min_voting_balance {
-        return Err(Error::NotTokenHolder);
-    }
-
-    if get_has_voted(env, campaign_id, &delegator) {
-        extend_ttl(env, campaign_id, &delegator);
-        return Err(Error::AlreadyVoted);
-    }
-
-    // #967: snapshot the delegator's balance at vote time, exactly as a
-    // direct vote does, before the tally is mutated.
-    record_vote_snapshot(env, campaign_id, &delegator, balance);
-
-    if approve {
-        let new_count = get_approve_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_votes(env, campaign_id, new_count);
-        let new_weight = get_approve_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_weight(env, campaign_id, new_weight);
-    } else {
-        let new_count = get_reject_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_votes(env, campaign_id, new_count);
-        let new_weight = get_reject_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_weight(env, campaign_id, new_weight);
-    }
-
-    set_has_voted(env, campaign_id, &delegator);
-    extend_ttl(env, campaign_id, &delegator);
+    // The delegator is the voter of record: eligibility, the one-vote rule and
+    // the tally all apply to them, exactly as for a direct vote.
+    record_vote(env, campaign_id, &delegator, approve)?;
 
     env.events().publish(
         ("campaign_delegated_vote_cast", campaign_id, delegate),
