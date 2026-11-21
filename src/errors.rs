@@ -1,3 +1,173 @@
+//! # Error code taxonomy & revert reason quick reference
+//!
+//! Every fallible contract entry point returns `Result<_, Error>`. When a call
+//! fails, the discriminant below is what clients see on the wire, so this
+//! module is the single source of truth for "what does error `#N` mean?".
+//!
+//! ## How errors surface
+//!
+//! ```text
+//!  entry point (lib.rs)          module (e.g. contributions.rs)
+//!  ───────────────────           ──────────────────────────────
+//!  contribute(..) ─────────────▶ return Err(Error::DeadlinePassed)
+//!        │
+//!        ▼  #[contracterror] encodes the variant as its u32 discriminant
+//!  host error  Error(Contract, #8)
+//!        │
+//!        ├─▶ RPC simulateTransaction / CLI:  "Error(Contract, #8)"
+//!        ├─▶ generated TS/JS bindings:       error code 8
+//!        └─▶ Rust client try_*():           Err(Ok(Error::DeadlinePassed))
+//! ```
+//!
+//! A failed call reverts the whole transaction: no storage writes, token
+//! transfers or events from that invocation persist.
+//!
+//! **Codes are stable.** Discriminants are part of the public ABI (indexers,
+//! frontends and SDK bindings match on the number). They are assigned
+//! explicitly, never resequenced, and a removed variant's number is retired:
+//! **`#21` and `#35` are retired and must not be reused.** The enum is capped at 50
+//! cases by Soroban's contract-spec XDR (see the note on [`Error`]).
+//!
+//! ## Taxonomy
+//!
+//! "Raised in" lists the `src/` modules that return the error (derived from
+//! the source; `lifecycle` holds the shared guards such as `assert_admin`,
+//! `require_not_paused` and `get_campaign_or_error`).
+//!
+//! ### Authorization & administration
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 1 | `NotAuthorized` | Caller is not the admin / campaign creator / allowed signer | `admin`, `contributions`, `lifecycle` |
+//! | 20 | `AlreadyInitialized` | `init` called twice | `admin` |
+//! | 24 | `ContractPaused` | Contract (or auto-pause) is active | `contributions`, `lifecycle` |
+//! | 31 | `InvalidTokenContract` | `init` token does not answer SEP-41 `decimals()` | `admin` |
+//! | 32 | `CreationDisabled` | Admin disabled campaign creation | `campaigns/create` |
+//! | 39 | `InvalidPlatformFee` | Fee above the allowed basis-point maximum | `admin` |
+//!
+//! ### Ownership & transfers
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 22 | `NoTransferPending` | Accept/cancel with no transfer in flight | `admin`, `campaigns/transfer` |
+//! | 23 | `InvalidNewOwner` | New owner equals the current one | `admin`, `campaigns/transfer` |
+//! | 40 | `TransferAlreadyPending` | A campaign transfer is already pending | `campaigns/transfer` |
+//!
+//! ### Campaign creation & configuration
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 4 | `FundingGoalMustBePositive` | Goal ≤ 0 | `admin`, `campaigns/create` |
+//! | 5 | `InvalidDuration` | Duration outside 1–365 days | `campaigns/create`, `campaigns/update`, `lifecycle` |
+//! | 6 | `InvalidRevenueShare` | Revenue share % out of range | `campaigns/create` |
+//! | 7 | `RevenueShareOnlyForStartup` | Revenue share on a non-`EducationalStartup` campaign | `campaigns/create` |
+//! | 33 | `FundingGoalTooLow` | Goal below the configured minimum | `campaigns/create` |
+//! | 38 | `FundingGoalTooHigh` | Goal above the anti-spam maximum | `campaigns/create` |
+//! | 36 | `DeadlineAlreadyExtended` | Deadline may be extended only once | `campaigns/update` |
+//! | 37 | `ExtensionTooLong` | Extension exceeds the allowed maximum | `campaigns/update` |
+//!
+//! ### Campaign lifecycle
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 2 | `CampaignNotFound` | No campaign with that id | `lifecycle`, `storage` |
+//! | 3 | `CampaignNotActive` | Campaign cancelled or closed | `campaigns/*`, `lifecycle`, `milestones`, `revenue`, `voting` |
+//! | 29 | `CancellationNotAllowed` | Cancel after funds were withdrawn | `campaigns/cancel` |
+//! | 42 | `GoalMetCancellationNotAllowed` | Cancel after the goal was met but before withdrawal | `campaigns/cancel` |
+//! | 43 | `InvalidStateTransition` | Lifecycle transition not allowed from the current state | `lifecycle` |
+//!
+//! ### Contributions & caps
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 8 | `DeadlinePassed` | Action after the campaign deadline | `campaigns/update`, `contributions`, `voting` |
+//! | 9 | `ContributionMustBePositive` | Amount ≤ 0 | `contributions` |
+//! | 25 | `ContributionCapExceeded` | Would exceed the contributor's cap | `contributions` |
+//! | 46 | `PersonalCapNotFound` | Removing a personal cap that was never set | `contributions` |
+//!
+//! ### Withdrawals, refunds & revenue
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 10 | `DeadlineNotPassed` | Withdrawal before the deadline | `campaigns/withdraw` |
+//! | 11 | `FundsAlreadyWithdrawn` | Funds were already withdrawn | `campaigns/emergency`, `campaigns/withdraw`, `milestones` |
+//! | 12 | `FundingGoalNotReached` | Goal not met | `campaigns/emergency`, `campaigns/withdraw`, `milestones` |
+//! | 13 | `NoFundsToWithdraw` | Nothing to withdraw, refund or claim | `campaigns/*`, `contributions`, `milestones`, `revenue` |
+//! | 26 | `CampaignNotVerified` | Action requires a verified campaign | `campaigns/withdraw`, `contributions`, `milestones` |
+//! | 27 | `AmountRaisedIsZero` | Revenue claim on a campaign that raised nothing | `revenue` |
+//! | 28 | `RevenueSharingNotEnabled` | Revenue deposit without revenue sharing | `revenue` |
+//! | 41 | `InvalidVestingDelay` | Vesting delay must be > 0 days | `campaigns/withdraw` |
+//!
+//! ### Voting & verification
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 14 | `CampaignAlreadyVerified` | Campaign is already verified | `lifecycle` |
+//! | 16 | `AlreadyVoted` | Caller already voted | `voting` |
+//! | 17 | `NotTokenHolder` | Voter holds no tokens | `voting` |
+//! | 18 | `VotingQuorumNotMet` | Too few votes to finalise | `voting` |
+//! | 19 | `VotingThresholdNotMet` | Approval share below threshold | `voting` |
+//! | 34 | `VerificationConflict` | Admin and community verification collided | `voting` |
+//!
+//! ### Milestones
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 48 | `MilestoneNotFound` | No such milestone | `milestones` |
+//! | 49 | `MilestoneNotVerified` | Milestone not verified yet | `milestones` |
+//! | 50 | `MilestoneAlreadyClaimed` | Milestone already claimed | `milestones` |
+//!
+//! ### Bookmarks
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 44 | `CampaignAlreadyBookmarked` | Already in the wallet's saved list | `bookmarks` |
+//! | 45 | `CampaignNotBookmarked` | Not in the wallet's saved list | `bookmarks` |
+//! | 47 | `BookmarkLimitReached` | Saved-list size limit reached | `bookmarks` |
+//!
+//! ### General validation & safety
+//!
+//! | Code | Variant | Meaning | Raised in |
+//! |---:|---|---|---|
+//! | 15 | `ValidationFailed` | Catch-all input/constraint violation | most modules |
+//! | 30 | `Overflow` | Checked arithmetic overflowed | most state-changing modules |
+//! | 51 | `InvariantBroken` | Internal invariant violated (counter inconsistency or state corruption) — report it | `queries` |
+//!
+//! ## Handling errors
+//!
+//! **Soroban CLI** — a simulated call that fails prints the contract error
+//! code; look it up in the tables above:
+//!
+//! ```sh
+//! stellar contract invoke --id "$CONTRACT_ID" --network testnet --source alice -- \
+//!   contribute --campaign_id 1 --contributor "$ALICE" --amount 0
+//! # => HostError: Error(Contract, #9)   (ContributionMustBePositive)
+//! ```
+//!
+//! **Rust (tests or a calling contract)** — the generated client's `try_*`
+//! methods return the typed variant:
+//!
+//! ```rust,ignore
+//! let result = client.try_contribute(&campaign_id, &contributor, &0);
+//! assert_eq!(result, Err(Ok(Error::ContributionMustBePositive)));
+//!
+//! // For logs and event payloads, Error implements Display via name():
+//! assert_eq!(Error::ContributionMustBePositive.to_string(), "ContributionMustBePositive");
+//! ```
+//!
+//! **Frontends / SDKs** — map the numeric code, never the message text. The
+//! stable name for any code is available from [`Error::name`].
+//!
+//! ## Adding a new error
+//!
+//! 1. Append a variant with the next unused discriminant (never reuse `#35`
+//!    or renumber existing variants), and a `///` doc comment.
+//! 2. Add it to the `error_names!` list in [`Error::name`] (the compiler
+//!    enforces exhaustiveness).
+//! 3. Add a row to the matching taxonomy table above.
+//! 4. Mind the 50-case XDR cap: if full, generalise an existing variant
+//!    rather than adding one.
+
 use soroban_sdk::contracterror;
 
 /// Represents a distinct error type that can occur within the contract.
@@ -40,7 +210,7 @@ pub enum Error {
     NoFundsToWithdraw = 13,
     /// The campaign has already been verified.
     CampaignAlreadyVerified = 14,
-    /// A general input validation constraint was violated.
+    /// Catch-all input/constraint violation.
     ValidationFailed = 15,
     /// The caller has already voted on this campaign.
     AlreadyVoted = 16,
@@ -50,14 +220,20 @@ pub enum Error {
     VotingQuorumNotMet = 18,
     /// The approval vote share did not meet the required threshold.
     VotingThresholdNotMet = 19,
+
+    // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
     // `#21` (NotPendingOwner) is retired — never returned by any entry point; freed for the
     // token-update variants below (#1532). Do not reuse discriminant 21.
+    // `#21` (formerly `NotPendingOwner`, never returned by any entry point)
+    // is retired to keep the enum within the 50-case spec limit. Do not reuse.
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
     InvalidNewOwner = 23,
+
+    // ── Pause / token ───────────────────────────────────────────────────────
     /// The contract is currently paused.
     ContractPaused = 24,
     /// The contribution would exceed the per-user cap set by the campaign creator.
@@ -70,28 +246,34 @@ pub enum Error {
     RevenueSharingNotEnabled = 28,
     /// Campaign cancellation is disallowed because funds have already been withdrawn.
     CancellationNotAllowed = 29,
-    /// An arithmetic operation overflowed.
+    /// Checked arithmetic overflowed.
     Overflow = 30,
+
     /// The provided address is not a valid SEP-41 token contract.
     InvalidTokenContract = 31,
     /// Campaign creation is disabled by the admin.
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
+    /// The funding goal is above the configured maximum.
+    FundingGoalTooHigh = 38,
+    /// A transfer is already pending.
+    TransferAlreadyPending = 35,
+
+    // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
     /// `propose_token_update` was called with a token address identical to the one already in use.
     SameToken = 35,
+    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
+    RefundNotAvailable = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
-    /// The funding goal exceeds the configured maximum (anti-spam cap).
-    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 39,
-    /// A campaign transfer is already pending; cancel it before initiating a new one.
-    TransferAlreadyPending = 40,
+    InvalidPlatformFee = 52,
+
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
     /// Cancellation is not allowed after the funding goal has been reached and funds have not yet been withdrawn.
@@ -121,6 +303,8 @@ pub enum Error {
     /// `accept_token_update` was blocked because active campaigns or outstanding balances still
     /// reference the current token.
     TokenUpdateBlocked = 54,
+    /// The campaign has reached or exceeded its funding goal.
+    FundingGoalReached = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -181,6 +365,7 @@ impl Error {
                 FundingGoalTooLow,
                 VerificationConflict,
                 SameToken,
+                RefundNotAvailable,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -200,6 +385,7 @@ impl Error {
                 NoPendingTokenUpdate,
                 TimelockNotElapsed,
                 TokenUpdateBlocked,
+                FundingGoalReached,
             ]
         )
     }
@@ -296,6 +482,10 @@ mod tests {
         assert_eq!(
             Error::VerificationConflict.to_string(),
             "VerificationConflict"
+        );
+        assert_eq!(
+            Error::RefundNotAvailable.to_string(),
+            "RefundNotAvailable"
         );
         assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
@@ -400,14 +590,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 50 (Soroban's XDR cap for
-    /// `ScSpecUDTErrorEnumV0.cases`). If this creeps back up, `cargo build`
-    /// itself will fail with `#[contracterror] ... LengthExceedsMax` before
-    /// this test ever runs — this assertion just documents why.
+    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
+    /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
+    /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, minus the freed discriminant 35.
-        const CASES: u32 = 50;
-        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
+        const CASES: u32 = 51;
+        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
     }
 }

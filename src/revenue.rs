@@ -1,3 +1,85 @@
+//! # Revenue Sharing Engine
+//!
+//! This module implements the revenue sharing mechanism for ProofOfHeart campaigns.
+//! It provides functionality for depositing revenue, claiming contributor shares, and creator payouts.
+//!
+//! ## Overview
+//!
+//! The revenue sharing system allows creators to share a percentage of post-campaign revenue
+//! with contributors. Once a campaign's funding goal is met and funds are withdrawn, creators
+//! can deposit revenue, which is then split between contributors (based on their contribution
+//! amount) and the creator themselves (based on the revenue share percentage).
+//!
+//! ## Revenue Allocation Mathematics
+//!
+//! ### Total Pool Distribution
+//!
+//! When revenue is deposited into a campaign with revenue sharing enabled:
+//!
+//! ```text
+//! Total Revenue Pool = deposit_amount
+//!
+//! Contributor Share (BPS) = revenue_share_percentage
+//! Creator Share (BPS) = 10_000 - revenue_share_percentage
+//!
+//! Contributor Pool = Total Pool * Contributor Share / 10_000
+//! Creator Pool = Total Pool * Creator Share / 10_000
+//! ```
+//!
+//! ### Per-Contributor Allocation
+//!
+//! Each contributor's claimable amount from the contributor pool is calculated as:
+//!
+//! ```text
+//! Contributor's Claimable = (contribution_amount / effective_amount_raised) * Contributor Pool
+//!
+//! Where:
+//! - contribution_amount = the contributor's individual contribution to the campaign
+//! - effective_amount_raised = total raised minus any refunds claimed (prevents race conditions)
+//! - Contributor Pool = total revenue pool * revenue_share_percentage / 10_000 (basis points)
+//! ```
+//!
+//! ### Creator Allocation
+//!
+//! The creator receives their share directly computed from the total pool:
+//!
+//! ```text
+//! Creator's Claimable = Total Pool * Creator Share / 10_000
+//!
+//! Where Creator Share = 10_000 - revenue_share_percentage
+//! ```
+//!
+//! ## Critical Invariants
+//!
+//! 1. **No Claims Before Withdrawal**: Contributors cannot claim until `funds_withdrawn` is true.
+//!    This prevents race conditions where `amount_raised` could grow while claims are being
+//!    calculated against a moving denominator.
+//!
+//! 2. **Dust Handling**: Integer division truncates each contributor's share. The final claimant
+//!    receives the full remaining pool balance to ensure complete distribution (#526).
+//!
+//! 3. **CEI Pattern**: State updates happen before token transfers to prevent re-entrancy attacks
+//!    from malicious token contracts (#557).
+//!
+//! 4. **Precise Division Order**: Multiplication happens before division to avoid intermediate
+//!    truncation to zero when the pool is small relative to basis points (#375).
+//!
+//! ## Example Scenario
+//!
+//! Given:
+//! - Campaign funding goal: 1000 USDC
+//! - Revenue share percentage: 2000 BPS (20% to contributors, 80% to creator)
+//! - Contributor A contributed: 300 USDC
+//! - Contributor B contributed: 700 USDC
+//! - Revenue deposited: 5000 USDC
+//!
+//! Results:
+//! - Contributor Pool: 5000 * 2000 / 10_000 = 1000 USDC
+//! - Creator Pool: 5000 * 8000 / 10_000 = 4000 USDC
+//! - Contributor A's share: (300 / 1000) * 1000 = 300 USDC
+//! - Contributor B's share: (700 / 1000) * 1000 = 700 USDC
+//! - Creator's share: 4000 USDC
+
 use soroban_sdk::{Address, Env};
 
 use crate::errors::Error;
@@ -7,9 +89,10 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, get_contribution, get_contributor_count, get_contributor_revenue_claimants,
-    get_contributor_revenue_distributed, get_creator_revenue_claimed, get_revenue_claimed,
-    get_revenue_pool, set_contributor_revenue_claimants, set_contributor_revenue_distributed,
-    set_creator_revenue_claimed, set_revenue_claimed, set_revenue_pool,
+    get_contributor_revenue_distributed, get_creator_bucket_balance, get_creator_revenue_claimed,
+    get_revenue_claimed, get_revenue_pool, set_contributor_revenue_claimants,
+    set_contributor_revenue_distributed, set_creator_bucket_balance, set_creator_revenue_claimed,
+    set_revenue_claimed, set_revenue_pool,
 };
 
 pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Result<(), Error> {
@@ -19,10 +102,10 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
     if amount <= 0 {
         return Err(Error::ValidationFailed);
     }
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if !campaign.funds_withdrawn {
+    if !campaign.funds_withdrawn() {
         return Err(Error::ValidationFailed);
     }
     require_revenue_sharing(&campaign, Error::RevenueSharingNotEnabled)?;
@@ -40,11 +123,35 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
         current_pool.checked_add(amount).ok_or(Error::Overflow)?,
     );
 
+    // Isolate creator bucket balance (#Issue 4)
+    let creator_share_bps =
+        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+    let creator_share = amount
+        .checked_mul(creator_share_bps)
+        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+        .ok_or(Error::Overflow)?;
+
+    let current_bucket = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
+    set_creator_bucket_balance(
+        env,
+        campaign_id,
+        &campaign.creator,
+        current_bucket
+            .checked_add(creator_share)
+            .ok_or(Error::Overflow)?,
+    );
+
     let client = campaign_token_client(env, campaign_id);
     client.transfer(&campaign.creator, &env.current_contract_address(), &amount);
 
-    env.events()
-        .publish(("revenue_deposited", campaign_id, campaign.creator), amount);
+    env.events().publish(
+        ("revenue_deposited", campaign_id, campaign.creator.clone()),
+        amount,
+    );
+    env.events().publish(
+        ("creator_bucket_credited", campaign_id, campaign.creator),
+        creator_share,
+    );
 
     Ok(())
 }
@@ -57,7 +164,7 @@ pub(crate) fn claim_revenue(
     contributor.require_auth();
     require_not_paused(env)?;
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
     require_revenue_sharing(&campaign, Error::ValidationFailed)?;
@@ -67,7 +174,7 @@ pub(crate) fn claim_revenue(
     // contributions arrive, which would let early claimers compute their
     // share against a smaller denominator than late claimers and create a
     // race condition.
-    if !campaign.funds_withdrawn {
+    if !campaign.funds_withdrawn() {
         return Err(Error::ValidationFailed);
     }
 
@@ -188,19 +295,22 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
         return Err(Error::ValidationFailed);
     }
 
-    let total_pool = get_revenue_pool(env, campaign_id);
-    // Compute creator entitlement directly instead of as a residual from the
-    // contributor pool. This avoids biasing creator payouts upward when
-    // contributor-side division truncates (#386).
-    let creator_share_bps =
-        crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
-    let creator_share_total = total_pool
-        .checked_mul(creator_share_bps)
-        .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
-        .ok_or(Error::Overflow)?;
+    // Check isolated creator bucket balance first (#Issue 4)
+    let bucket_balance = get_creator_bucket_balance(env, campaign_id, &campaign.creator);
+    let claimable = if bucket_balance > 0 {
+        bucket_balance
+    } else {
+        let total_pool = get_revenue_pool(env, campaign_id);
+        let creator_share_bps =
+            crate::BPS_DENOMINATOR as i128 - campaign.revenue_share_percentage as i128;
+        let creator_share_total = total_pool
+            .checked_mul(creator_share_bps)
+            .and_then(|n| n.checked_div(crate::BPS_DENOMINATOR as i128))
+            .ok_or(Error::Overflow)?;
 
-    let already_claimed = get_creator_revenue_claimed(env, campaign_id);
-    let claimable = creator_share_total - already_claimed;
+        let already_claimed = get_creator_revenue_claimed(env, campaign_id);
+        creator_share_total - already_claimed
+    };
 
     if claimable <= 0 {
         return Err(Error::NoFundsToWithdraw);
@@ -208,8 +318,10 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
 
     bump_instance_ttl(env);
 
-    // Update state before the token transfer (CEI pattern) so that a
-    // malicious token contract cannot re-enter and double-claim (#557).
+    // Clear isolated creator bucket balance on claim
+    set_creator_bucket_balance(env, campaign_id, &campaign.creator, 0);
+
+    let already_claimed = get_creator_revenue_claimed(env, campaign_id);
     set_creator_revenue_claimed(
         env,
         campaign_id,
@@ -232,4 +344,9 @@ pub(crate) fn claim_creator_revenue(env: &Env, campaign_id: u32) -> Result<(), E
     );
 
     Ok(())
+}
+
+/// Returns the current isolated creator revenue bucket balance.
+pub(crate) fn get_creator_bucket(env: &Env, campaign_id: u32, creator: Address) -> i128 {
+    get_creator_bucket_balance(env, campaign_id, &creator)
 }

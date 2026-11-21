@@ -135,7 +135,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     // Artificially mark funds as withdrawn so deposit/claim_revenue bypass the guard.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -333,7 +333,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
         campaign.effective_amount_raised = 0;
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -370,4 +370,45 @@ fn test_claim_refund_preserves_lifetime_contribution() {
         900,
         "LifetimeContribution should persist after refund for cap enforcement"
     );
+}
+
+#[test]
+fn test_claim_refund_partially_met_goal_full_refund() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &5000);
+    token_admin.mint(&contributor2, &5000);
+
+    let funding_goal = 10_000;
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Partial Goal"),
+        String::from_str(&env, "Goal not met, full refund expected"),
+        funding_goal,
+        10,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &2000);
+    client.contribute(&campaign_id, &contributor2, &1500);
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 2000);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 1500);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp += 11 * SECONDS_PER_DAY;
+    });
+
+    client.claim_refund(&campaign_id, &contributor1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(token.balance(&contributor1), 5000);
+
+    client.claim_refund(&campaign_id, &contributor2);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 0);
+    assert_eq!(token.balance(&contributor2), 5000);
 }

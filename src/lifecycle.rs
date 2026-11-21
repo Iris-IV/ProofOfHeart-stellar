@@ -33,11 +33,11 @@ impl CampaignState {
     /// Derives the dominant lifecycle state from a campaign's flags, in
     /// priority order: `Cancelled` > `Withdrawn` > `Verified` > `Active`.
     pub fn of(campaign: &Campaign) -> Self {
-        if campaign.is_cancelled {
+        if campaign.is_cancelled() {
             CampaignState::Cancelled
-        } else if campaign.funds_withdrawn {
+        } else if campaign.funds_withdrawn() {
             CampaignState::Withdrawn
-        } else if campaign.is_verified {
+        } else if campaign.is_verified() {
             CampaignState::Verified
         } else {
             CampaignState::Active
@@ -91,15 +91,49 @@ pub(crate) fn assert_admin(env: &Env, caller: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Authorize the current call as the contract admin, returning early with
+/// `Error::NotAuthorized` from the enclosing function otherwise (#1262).
+///
+/// - `ensure_admin!(env)` requires the *stored* admin's signature and
+///   evaluates to that admin `Address`, for entry points that take no
+///   caller argument.
+/// - `ensure_admin!(env, &caller)` checks that `caller` is the stored admin
+///   and requires `caller`'s signature.
+///
+/// Both forms go through [`assert_admin`], so the check order (identity
+/// before `require_auth`) and error are identical to the hand-written form.
+macro_rules! ensure_admin {
+    ($env:expr) => {{
+        let admin = $crate::storage::get_admin($env);
+        $crate::lifecycle::assert_admin($env, &admin)?;
+        admin
+    }};
+    ($env:expr, $caller:expr) => {
+        $crate::lifecycle::assert_admin($env, $caller)?
+    };
+}
+pub(crate) use ensure_admin;
+
+/// Publishes a Soroban event with the given topics tuple and data payload.
+///
+/// Wraps `env.events().publish()` to keep event emission idiomatic and
+/// consistent across all contract entrypoints (#1214).
+macro_rules! emit_event {
+    ($env:expr, $topics:expr, $data:expr) => {
+        $env.events().publish($topics, $data)
+    };
+}
+pub(crate) use emit_event;
+
 pub(crate) fn require_active_campaign(campaign: &Campaign) -> Result<(), Error> {
-    if campaign.is_cancelled || !campaign.is_active {
+    if campaign.is_cancelled() || !campaign.is_active() {
         return Err(Error::CampaignNotActive);
     }
     Ok(())
 }
 
 pub(crate) fn require_unverified_campaign(campaign: &Campaign) -> Result<(), Error> {
-    if campaign.is_verified {
+    if campaign.is_verified() {
         return Err(Error::CampaignAlreadyVerified);
     }
     Ok(())
@@ -153,6 +187,46 @@ pub(crate) fn campaign_token_client(env: &Env, campaign_id: u32) -> token::Clien
     token::Client::new(env, &get_campaign_token(env, campaign_id))
 }
 
+/// Auto-settlement status check for campaigns (#1027).
+///
+/// Determines if a campaign has passed its deadline and what settlement actions
+/// are appropriate. External keepers or background triggers can call this to
+/// identify campaigns ready for final settlement.
+///
+/// Returns `(deadline_passed, goal_met, ready_for_withdrawal)`:
+/// - `deadline_passed`: true if current ledger timestamp > campaign.deadline
+/// - `goal_met`: true if amount_raised >= funding_goal
+/// - `ready_for_withdrawal`: true if campaign is verified, goal met, deadline
+///   passed, and funds have not yet been withdrawn
+///
+/// Settlement logic:
+/// - If `deadline_passed && goal_met` → campaign succeeded, ready for withdrawal
+/// - If `deadline_passed && !goal_met` → campaign failed, contributors can refund
+/// - If `!deadline_passed` → campaign still active, no settlement needed yet
+///
+/// Campaigns already cancelled or withdrawn are reported as-is; this function
+/// does not mutate state, only reads it for settlement decisioning.
+pub fn check_settlement_status(
+    env: &Env,
+    campaign_id: u32,
+) -> Result<(bool, bool, bool), Error> {
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    let current_time = env.ledger().timestamp();
+
+    let deadline_passed = current_time > campaign.deadline;
+    let goal_met = campaign.amount_raised >= campaign.funding_goal;
+
+    // Ready for withdrawal if: verified + goal met + deadline passed +
+    // not already withdrawn + not cancelled
+    let ready_for_withdrawal = campaign.is_verified()
+        && goal_met
+        && deadline_passed
+        && !campaign.funds_withdrawn()
+        && !campaign.is_cancelled();
+
+    Ok((deadline_passed, goal_met, ready_for_withdrawal))
+}
+
 pub(crate) fn campaign_start_time_or_error(env: &Env, campaign_id: u32) -> Result<u64, Error> {
     get_campaign_start_time(env, campaign_id).ok_or(Error::InvalidDuration)
 }
@@ -182,10 +256,23 @@ mod tests {
             funding_goal: 1_000,
             deadline: 0,
             amount_raised: 0,
-            is_active,
-            funds_withdrawn,
-            is_cancelled,
-            is_verified,
+            status: (if is_active {
+                crate::types::CAMPAIGN_ACTIVE
+            } else {
+                0
+            }) | (if funds_withdrawn {
+                crate::types::CAMPAIGN_SUCCEEDED
+            } else {
+                0
+            }) | (if is_cancelled {
+                crate::types::CAMPAIGN_PAUSED
+            } else {
+                0
+            }) | (if is_verified {
+                crate::types::CAMPAIGN_VALIDATED
+            } else {
+                0
+            }),
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

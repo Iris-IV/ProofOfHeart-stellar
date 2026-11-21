@@ -38,7 +38,7 @@ fn test_community_voting_verification_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::VerificationConflict);
@@ -109,7 +109,7 @@ fn test_verify_campaign_quorum_and_threshold_edges() {
 
     client.vote_on_campaign(&campaign_id_1, &voter4, &false);
     client.verify_campaign(&campaign_id_1);
-    assert!(client.get_campaign(&campaign_id_1).is_verified);
+    assert!(client.get_campaign(&campaign_id_1).is_verified());
 
     let campaign_id_2 = client.create_campaign(&make_params(
         creator.clone(),
@@ -324,7 +324,7 @@ fn test_verify_campaigns_extends_voting_state_ttl() {
 
     // Verify campaign is verified (confirming it worked)
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_verified);
+    assert!(campaign.is_verified());
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn test_verify_campaigns_partial_failure_reports_failed_ids() {
     );
     assert_eq!(failed_ids, soroban_sdk::Vec::from_array(&env, [999u32]));
     assert!(
-        client.get_campaign(&campaign_id).is_verified,
+        client.get_campaign(&campaign_id).is_verified(),
         "the valid campaign must be committed even though the batch also failed"
     );
 }
@@ -440,8 +440,8 @@ fn test_verify_campaigns_cancelled_campaign_in_batch_reported_as_failed() {
         failed_ids,
         soroban_sdk::Vec::from_array(&env, [cancelled_id])
     );
-    assert!(client.get_campaign(&valid_id).is_verified);
-    assert!(!client.get_campaign(&cancelled_id).is_verified);
+    assert!(client.get_campaign(&valid_id).is_verified());
+    assert!(!client.get_campaign(&cancelled_id).is_verified());
 }
 
 #[test]
@@ -613,6 +613,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -735,7 +736,7 @@ fn test_verify_campaign_with_votes_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
 
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 // ── #536: per-category voting threshold ─────────────────────────────────────────
@@ -781,7 +782,7 @@ fn test_category_voting_threshold_overrides_global_default() {
     );
 
     client.verify_campaign_with_votes(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]
@@ -1240,4 +1241,72 @@ fn test_purge_voting_state_split_batches_then_finalize() {
         assert!(!client.has_voted(&campaign_id, &voter));
     }
     assert_eq!(client.get_approve_votes(&campaign_id), 0);
+}
+
+#[test]
+fn test_vote_records_immutable_balance_snapshot_at_vote_ledger() {
+    let (env, _admin, creator, voter, _, token, token_admin, client) = setup_env();
+    token_admin.mint(&voter, &100);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Snapshot Voting"),
+        String::from_str(&env, "Vote-time balance audit"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let vote_ledger = env.ledger().sequence();
+    client.vote_on_campaign(&campaign_id, &voter, &true);
+
+    assert_eq!(
+        client.get_voter_balance_snapshot(&campaign_id, &voter),
+        Some((100, vote_ledger))
+    );
+    assert_eq!(
+        client.get_vote_snapshot_ledger(&campaign_id),
+        Some(vote_ledger)
+    );
+
+    // Moving tokens after the vote must not rewrite the recorded snapshot.
+    let recipient = Address::generate(&env);
+    token.transfer(&voter, &recipient, &100);
+    token_admin.mint(&voter, &1_000_000);
+
+    assert_eq!(
+        client.get_voter_balance_snapshot(&campaign_id, &voter),
+        Some((100, vote_ledger))
+    );
+}
+
+#[test]
+fn test_flash_loan_style_balance_inflation_cannot_change_vote_tally() {
+    let (env, _admin, creator, voter, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&voter, &100);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Flash Loan Voting"),
+        String::from_str(&env, "Unit weight must not follow balance"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.vote_on_campaign(&campaign_id, &voter, &true);
+
+    // Simulate a flash-loan-style balance spike after the vote was recorded.
+    token_admin.mint(&voter, &(i128::MAX / 2));
+    assert_eq!(client.get_approve_votes(&campaign_id), 1);
+    env.as_contract(&client.address, || {
+        assert_eq!(crate::storage::get_approve_weight(&env, campaign_id), 1);
+        assert_eq!(crate::storage::get_reject_weight(&env, campaign_id), 0);
+    });
 }

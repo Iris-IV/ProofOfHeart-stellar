@@ -502,21 +502,30 @@ Soroban contracts can be upgraded by uploading a new WASM and calling `update_cu
    ```
 3. **Upload the new WASM** to get its hash:
    ```bash
-   soroban contract upload \
+   stellar contract upload \
      --wasm target/wasm32-unknown-unknown/release/proof_of_heart.wasm \
      --source deployer --network testnet
    # → <NEW_WASM_HASH>
    ```
 4. **Upgrade the contract** (replaces the running WASM):
    ```bash
-   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+   stellar contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
      -- update_current_contract_wasm --wasm_hash <NEW_WASM_HASH>
    ```
 5. **Run migration** immediately after upgrade:
    ```bash
-   soroban contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
+   stellar contract invoke --id "$CONTRACT_ID" --source deployer --network testnet \
      -- migrate --admin <ADMIN_ADDRESS> --expected_old_version 1
    ```
+
+### Version History
+
+| Version | Changes | Breaking |
+|---------|---------|----------|
+| 1 | Initial release | — |
+| 2 | Campaign struct changes (status bitfield, pending_creator_expiry, effective_amount_raised); new storage keys; event payload changes | Yes |
+
+For upgrades after v2, increment `expected_old_version` to match the current stored version.
 
 ### Migration Safety Rules
 
@@ -524,6 +533,7 @@ Soroban contracts can be upgraded by uploading a new WASM and calling `update_cu
 - `migrate` requires admin authorization.
 - After a successful migration the stored version is updated to the new `CONTRACT_VERSION`.
 - Always test the full upgrade + migrate sequence on testnet before mainnet.
+- The frontend must check `get_version()` and use `migrate` if the returned version is less than the compiled `contract_version()`.
 
 ---
 

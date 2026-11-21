@@ -17,7 +17,7 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::Error;
-use crate::lifecycle::{assert_admin, get_campaign_or_error, require_active_campaign};
+use crate::lifecycle::{emit_event, ensure_admin, get_campaign_or_error, require_active_campaign};
 use crate::storage::{
     self, bump_instance_ttl, get_active_campaign_count, get_admin, get_approval_threshold_bps,
     get_max_campaign_funding_goal, get_max_contribution_per_transaction,
@@ -33,6 +33,64 @@ use crate::storage::{
     set_withdraw_release_delay_days, set_withdraw_reserve_percentage, AdminKey,
 };
 use crate::voting;
+
+// ---------------------------------------------------------------------------
+// Security validation helpers (#993)
+//
+// These functions encapsulate access control and parameter validation checks
+// that must hold across all admin operations. Centralizing them here ensures
+// security invariants are enforced consistently and auditable in one place.
+// ---------------------------------------------------------------------------
+
+/// Validates that an address list contains no duplicates.
+///
+/// Duplicate addresses in emergency pause signers or governance committees
+/// would allow a single party to meet quorum requirements alone, defeating
+/// the purpose of multi-party authorization.
+///
+/// Returns `Error::ValidationFailed` when duplicates are found.
+#[inline]
+fn validate_unique_addresses(addresses: &Vec<Address>) -> Result<(), Error> {
+    for i in 0..addresses.len() {
+        for j in (i + 1)..addresses.len() {
+            if addresses.get_unchecked(i) == addresses.get_unchecked(j) {
+                return Err(Error::ValidationFailed);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validates that a quorum value is within acceptable bounds.
+///
+/// A quorum of 0 would allow actions with no votes, defeating governance.
+/// A quorum above a reasonable maximum (e.g., 1000) could make the system
+/// ungovernable by setting an unachievable threshold.
+///
+/// Returns `Error::ValidationFailed` for out-of-bounds quorums.
+#[inline]
+fn validate_quorum_bounds(quorum: u32) -> Result<(), Error> {
+    const MAX_REASONABLE_QUORUM: u32 = 1000;
+    if quorum == 0 || quorum > MAX_REASONABLE_QUORUM {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+/// Validates that a percentage (in basis points) does not exceed 100%.
+///
+/// Many operations express percentages as basis points (1 bps = 0.01%).
+/// A value above 10,000 bps (100%) would represent an invalid percentage
+/// and could cause arithmetic overflow or underflow in downstream calculations.
+///
+/// Returns `Error::ValidationFailed` for values > 10,000.
+#[inline]
+fn validate_bps_percentage(bps: u32) -> Result<(), Error> {
+    if bps > 10_000 {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
 
 pub(crate) fn init(
     env: &Env,
@@ -92,22 +150,19 @@ pub(crate) fn init(
 }
 
 pub(crate) fn pause(env: &Env) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
-    env.events().publish(("contract_paused", admin), ());
+    emit_event!(env, ("contract_paused", admin), ());
     Ok(())
 }
 
 pub(crate) fn unpause(env: &Env) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &false);
     env.storage().instance().set(&AdminKey::AutoPaused, &false);
-    env.storage().instance().set(&AdminKey::AutoPaused, &false);
-    env.events().publish(("contract_unpaused", admin), ());
+    emit_event!(env, ("contract_unpaused", admin), ());
     Ok(())
 }
 
@@ -116,10 +171,13 @@ pub(crate) fn set_emergency_pause_signers(
     admin: Address,
     signers: Vec<Address>,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if signers.is_empty() {
         return Err(Error::ValidationFailed);
     }
+    // #993 — Prevent a single signer from appearing multiple times, which would
+    // defeat multi-party authorization by allowing one address to meet quorum alone.
+    validate_unique_addresses(&signers)?;
     // No require_not_paused: admin must be able to configure signers even during pause (#785).
     bump_instance_ttl(env);
     storage::set_emergency_pause_signers(env, &signers);
@@ -139,13 +197,12 @@ pub(crate) fn emergency_pause(env: &Env, caller: Address) -> Result<(), Error> {
     }
     bump_instance_ttl(env);
     env.storage().instance().set(&AdminKey::Paused, &true);
-    env.events().publish(("emergency_paused", caller), ());
+    emit_event!(env, ("emergency_paused", caller), ());
     Ok(())
 }
 
 pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     // No require_not_paused: admin must be able to gate campaign creation even during pause (#388).
     bump_instance_ttl(env);
     set_creation_disabled(env, disabled);
@@ -162,8 +219,7 @@ pub(crate) fn set_creation_disabled_fn(env: &Env, disabled: bool) -> Result<(), 
 /// Removing a token does not affect campaigns already denominated in it —
 /// their currency is pinned at creation — it only stops new ones.
 pub(crate) fn set_token_allowed_fn(env: &Env, token: Address, allowed: bool) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    let admin = ensure_admin!(env);
     bump_instance_ttl(env);
     crate::storage::set_token_allowed(env, &token, allowed);
     env.events()
@@ -177,7 +233,11 @@ pub(crate) fn set_voting_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
+    // #993 — Validate quorum and threshold before applying them to prevent
+    // ungovernable states (quorum = 0 or impossibly high) or invalid percentages.
+    validate_quorum_bounds(min_votes_quorum)?;
+    validate_bps_percentage(approval_threshold_bps)?;
     // No require_not_paused: admin must be able to adjust voting parameters during pause (#388).
     bump_instance_ttl(env);
     let old_quorum = get_min_votes_quorum(env, voting::DEFAULT_MIN_VOTES_QUORUM);
@@ -204,7 +264,7 @@ pub(crate) fn set_min_voting_balance_fn(
     admin: Address,
     min_balance: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if min_balance < 0 {
         return Err(Error::ValidationFailed);
     }
@@ -228,8 +288,7 @@ pub(crate) fn set_min_voting_balance_fn(
 }
 
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    ensure_admin!(env);
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
     // Two bounds, deliberately, though only the tighter one can currently
     // reject (#793):
@@ -252,7 +311,7 @@ pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> 
     let old_fee = get_platform_fee(env);
     bump_instance_ttl(env);
     set_platform_fee(env, new_fee);
-    env.events().publish(("fee_updated",), (old_fee, new_fee));
+    emit_event!(env, ("fee_updated",), (old_fee, new_fee));
     Ok(())
 }
 
@@ -261,7 +320,7 @@ pub(crate) fn set_max_contribution_per_transaction(
     admin: Address,
     amount: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if amount < 0 {
         return Err(Error::ValidationFailed);
     }
@@ -281,7 +340,7 @@ pub(crate) fn set_campaign_fee_override(
     admin: Address,
     fee_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
@@ -308,7 +367,7 @@ pub(crate) fn set_category_duration_cap(
     category: crate::types::Category,
     max_days: u64,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if !(crate::CAMPAIGN_DURATION_MIN_DAYS..=crate::CAMPAIGN_DURATION_MAX_DAYS).contains(&max_days)
     {
         return Err(Error::ValidationFailed);
@@ -325,7 +384,7 @@ pub(crate) fn remove_category_duration_cap(
     admin: Address,
     category: crate::types::Category,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     bump_instance_ttl(env);
     storage::remove_category_duration_cap(env, category);
     env.events()
@@ -339,7 +398,7 @@ pub(crate) fn set_category_voting_threshold(
     category: crate::types::Category,
     threshold_bps: u32,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if !(voting::MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&threshold_bps) {
         return Err(Error::ValidationFailed);
     }
@@ -357,7 +416,7 @@ pub(crate) fn remove_category_voting_threshold(
     admin: Address,
     category: crate::types::Category,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     bump_instance_ttl(env);
     storage::remove_category_voting_threshold_bps(env, category);
     env.events()
@@ -370,7 +429,7 @@ pub(crate) fn set_min_campaign_funding_goal_fn(
     admin: Address,
     min_goal: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: funding goal limits are admin governance (#388).
     if min_goal <= 0 {
         return Err(Error::FundingGoalMustBePositive);
@@ -390,7 +449,7 @@ pub(crate) fn set_max_campaign_funding_goal_fn(
     admin: Address,
     max_goal: i128,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: funding goal limits are admin governance (#388).
     if max_goal <= 0 {
         return Err(Error::FundingGoalMustBePositive);
@@ -409,7 +468,7 @@ pub(crate) fn set_max_campaign_funding_goal_fn(
 }
 
 pub(crate) fn migrate(env: &Env, admin: Address, expected_old_version: u32) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     let current = get_version(env);
     if current != expected_old_version {
         return Err(Error::ValidationFailed);
@@ -427,7 +486,7 @@ pub(crate) fn propose_token_update(
     admin: Address,
     new_token: Address,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
 
     // #884: Reject no-op proposals where the new token is the same as the
     // current one. Accepting such a proposal would start a pointless timelock
@@ -466,6 +525,9 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
     assert_admin(env, &admin)?;
     let new_token = get_pending_token(env).ok_or(Error::NoPendingTokenUpdate)?;
     let release_after = get_pending_token_release(env).ok_or(Error::NoPendingTokenUpdate)?;
+    ensure_admin!(env, &admin);
+    let new_token = get_pending_token(env).ok_or(Error::ValidationFailed)?;
+    let release_after = get_pending_token_release(env).ok_or(Error::ValidationFailed)?;
     if env.ledger().timestamp() < release_after {
         return Err(Error::TimelockNotElapsed);
     }
@@ -492,7 +554,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 }
 
 pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if get_pending_token(env).is_none() {
         return Err(Error::NoPendingTokenUpdate);
     }
@@ -512,7 +574,7 @@ pub(crate) fn set_token_update_delay_secs_fn(
     admin: Address,
     delay_secs: u64,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     if delay_secs == 0 || delay_secs > crate::MAX_TOKEN_UPDATE_DELAY_SECS {
         return Err(Error::ValidationFailed);
     }
@@ -529,7 +591,7 @@ pub(crate) fn initiate_admin_transfer(
     admin: Address,
     new_admin: Address,
 ) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: admin transfer is the critical recovery path during an emergency (#388).
 
     let current_admin = get_admin(env);
@@ -566,7 +628,7 @@ pub(crate) fn accept_admin_transfer(env: &Env) -> Result<(), Error> {
 }
 
 pub(crate) fn cancel_admin_transfer(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
+    ensure_admin!(env, &admin);
     // No require_not_paused: cancelling an admin transfer must be available during pause (#388).
 
     if get_pending_admin(env).is_none() {
@@ -586,11 +648,10 @@ pub(crate) fn purge_voting_state(
     voters: Vec<Address>,
     finalize_aggregate: bool,
 ) -> Result<(), Error> {
-    let admin = get_admin(env);
-    assert_admin(env, &admin)?;
+    ensure_admin!(env);
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if !campaign.funds_withdrawn && !campaign.is_cancelled {
+    if !campaign.funds_withdrawn() && !campaign.is_cancelled() {
         return Err(Error::ValidationFailed);
     }
 
@@ -701,5 +762,32 @@ mod tests {
         // authorized signer succeeds
         client.emergency_pause(&signer);
         assert!(client.is_paused());
+    }
+
+    /// #965: every governance entrypoint in this module must perform an
+    /// explicit auth check (`ensure_admin!`, `require_auth`, or the legacy
+    /// `assert_admin`) before touching privileged state. This catches future
+    /// additions that forget the guard.
+    #[test]
+    fn test_every_admin_entrypoint_has_explicit_auth() {
+        let source = include_str!("admin.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let mut checked = 0u32;
+
+        for chunk in production.split("pub(crate) fn ").skip(1) {
+            let name = chunk.split('(').next().unwrap_or("<unknown>");
+            assert!(
+                chunk.contains("ensure_admin!")
+                    || chunk.contains("require_auth")
+                    || chunk.contains("assert_admin"),
+                "admin entrypoint `{name}` is missing an explicit authorization check (#965)"
+            );
+            checked += 1;
+        }
+
+        assert!(
+            checked >= 20,
+            "expected the admin entrypoint scan to cover the module"
+        );
     }
 }

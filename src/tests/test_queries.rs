@@ -1,3 +1,6 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
+#![allow(deprecated)]
 extern crate alloc;
 use alloc::format;
 
@@ -10,7 +13,6 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
     env.budget().reset_unlimited();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 0..3 {
         let title_str = format!("Campaign {}", i);
         let id = client.create_campaign(&make_params(
@@ -27,12 +29,12 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
         assert_eq!(id, (i + 1) as u32);
     }
 
-    let page1 = client.list_campaigns(&0, &2);
+    let (page1, _) = client.list_campaigns(&0, &2);
     assert_eq!(page1.len(), 2);
     assert_eq!(page1.get(0).unwrap().id, 1);
     assert_eq!(page1.get(1).unwrap().id, 2);
 
-    let page2 = client.list_campaigns(&2, &2);
+    let (page2, _) = client.list_campaigns(&2, &2);
     assert_eq!(page2.len(), 1);
     assert_eq!(page2.get(0).unwrap().id, 3);
 }
@@ -490,7 +492,6 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for idx in 0..3 {
         let title_str = format!("Campaign {}", idx);
         let id = client.create_campaign(&make_params(
@@ -507,33 +508,26 @@ fn list_campaigns_boundary_cases() {
         assert_eq!(id, (idx + 1) as u32);
     }
 
-    let first_page = client.list_campaigns(&0, &2);
+    let (first_page, _) = client.list_campaigns(&0, &2);
     assert_eq!(first_page.len(), 2);
     assert_eq!(first_page.get(0).unwrap().id, 1);
     assert_eq!(first_page.get(1).unwrap().id, 2);
 
-    let all = client.list_campaigns(&0, &u32::MAX);
+    let (all, _) = client.list_campaigns(&0, &u32::MAX);
     assert_eq!(all.len(), 3);
     assert_eq!(all.get(0).unwrap().id, 1);
     assert_eq!(all.get(2).unwrap().id, 3);
 
     let total = client.get_campaign_count();
-    assert_eq!(client.list_campaigns(&total, &5).len(), 0);
-    assert_eq!(client.list_campaigns(&(total + 1), &5).len(), 0);
-    assert_eq!(client.list_campaigns(&0, &0).len(), 0);
+    assert_eq!(client.list_campaigns(&total, &5).0.len(), 0);
+    assert_eq!(client.list_campaigns(&(total + 1), &5).0.len(), 0);
+    assert_eq!(client.list_campaigns(&0, &0).0.len(), 0);
 }
 
 #[test]
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = [
-        "Campaign 1",
-        "Campaign 2",
-        "Campaign 3",
-        "Campaign 4",
-        "Campaign 5",
-    ];
     for idx in 0..5 {
         let title_str = format!("Campaign {}", idx);
         let _ = client.create_campaign(&make_params(
@@ -586,10 +580,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
         funding_goal: 1_000,
         deadline: 0,
         amount_raised: 0,
-        is_active: true,
-        funds_withdrawn: false,
-        is_cancelled: false,
-        is_verified: false,
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,
@@ -676,14 +667,14 @@ fn test_list_campaigns_and_list_active_campaigns_boundary_agreement() {
     let total = client.get_campaign_count();
 
     // Both functions should return empty when start == total_count
-    let list_at_boundary = client.list_campaigns(&total, &10);
+    let (list_at_boundary, _) = client.list_campaigns(&total, &10);
     let active_at_boundary = client.list_active_campaigns(&total, &10);
     assert_eq!(list_at_boundary.len(), 0);
     assert_eq!(active_at_boundary.0.len(), 0);
     assert_eq!(active_at_boundary.1, 0);
 
     // Both should also return empty when start > total_count
-    let list_beyond_boundary = client.list_campaigns(&(total + 1), &10);
+    let (list_beyond_boundary, _) = client.list_campaigns(&(total + 1), &10);
     let active_beyond_boundary = client.list_active_campaigns(&(total + 1), &10);
     assert_eq!(list_beyond_boundary.len(), 0);
     assert_eq!(active_beyond_boundary.0.len(), 0);
@@ -725,7 +716,6 @@ fn test_get_platform_stats_after_initialization() {
     assert_eq!(stats.cancelled_campaigns, 0);
     assert_eq!(stats.total_amount_raised, 0);
     assert!(!stats.stats_are_partial);
-    assert_eq!(stats.scanned_up_to, 0);
 }
 
 // ── #849 get_contributor_portfolio bounded pagination ─────────────────────────

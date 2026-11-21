@@ -78,6 +78,66 @@ Future upgrades should implement:
    - **Governance admin** (multisig + timelock): Can set fees, vesting, voting parameters
    - **Upgrade admin** (timelock): Can migrate to new contract versions
 
+## Emergency Withdrawal Process
+
+### What It Is
+
+When a campaign reaches its funding goal and the creator calls `withdraw_funds`, the contract:
+
+1. Calculates the platform fee (`amount_raised × platform_fee_bps / 10 000`).
+2. Transfers the fee directly to the **current admin address**.
+3. Transfers the remaining creator amount to `campaign.creator`.
+
+The admin address at withdrawal time is therefore a privileged fee recipient. Because admin transfer has a timelock, a malicious actor who obtains the admin key cannot instantly redirect fee flows on campaigns in progress — but they can queue the redirection and execute it after the delay.
+
+### The 7-Day Timelock Window
+
+`propose_token_update` and `initiate_admin_transfer` / `accept_admin_transfer` enforce a delay before they take effect. This 7-day window is the **only on-chain guarantee** contributors and creators have to detect and react to a hostile admin action before funds leave the contract under different control:
+
+| Action | Timelock | What can go wrong |
+|--------|----------|-------------------|
+| `propose_token_update` | 7 days (`TOKEN_UPDATE_DELAY_SECS`) | Admin proposes a malicious ERC-20 clone; contributors must act before `accept_token_update` |
+| `initiate_admin_transfer` | 7 days | Admin queues a transfer to an attacker address; monitor `admin_transfer_initiated` event |
+| `update_platform_fee` | None (current) | Fee can be raised to `PLATFORM_FEE_MAX_BPS` (10%) immediately on the next withdrawal |
+
+### Events to Watch
+
+Subscribe to these contract events to detect a hostile emergency withdrawal attempt:
+
+| Event topic | Meaning | Recommended action |
+|-------------|---------|-------------------|
+| `token_update_proposed` | New token migration queued | Inspect new token contract; alert if unknown |
+| `admin_transfer_initiated` | Admin key rotation queued | Verify new admin address; pause contributions if unrecognised |
+| `fee_updated` | Platform fee changed | Alert if fee raised above baseline; track in campaign UI |
+| `withdrawal` | Creator or admin withdrawal | Cross-check fee recipient address in event payload |
+| `contract_paused` | Contract frozen | Investigate immediately; contributors cannot refund while paused |
+
+To subscribe on-chain, use the Stellar Horizon event-streaming API or the `soroban events` CLI:
+
+```bash
+# Stream events for the deployed contract
+stellar events --id <CONTRACT_ID> --start-ledger <DEPLOY_LEDGER> \
+  --type contract --output json
+```
+
+Filter for the `admin_transfer_initiated` and `token_update_proposed` topics to catch the start of any timelock window.
+
+### Recommended Multisig Setup
+
+The single-key admin model is a known risk. Until a Soroban-native multisig contract is deployed (see **Long-Term Strategy** below), operators should:
+
+1. **Use a hardware wallet** (Ledger, Trezor) as the admin signer. Physical confirmation prevents remote key extraction.
+2. **Rotate regularly** — use `initiate_admin_transfer` / `accept_admin_transfer` on a fixed schedule (e.g., annually) to prove key control and practice the rotation procedure.
+3. **Configure a Stellar multisig account** as the admin address: set the account's `med_threshold` to 2, add co-signers (e.g., a second hardware wallet and a cold-storage key), and require 2-of-3 signatures for the admin operations above. The Stellar base-layer multisig is enforced at the transaction level before the contract even sees the call.
+4. **Monitor the timelock window**: set an automated alert for `admin_transfer_initiated` and `token_update_proposed` events. The 7-day window is the last line of defence — act within it.
+
+### How Contributors Can Protect Themselves
+
+- **Check the admin address** before contributing: `stellar contract invoke -- get_admin`. Verify it is the multisig or hardware-wallet address published by the team.
+- **Monitor the `token_update_proposed` event**: if a new token contract appears, review its source code. A malicious token can allow the admin to mint unbacked supply.
+- **React within the timelock**: if you see `admin_transfer_initiated` to an unknown address, claim a refund (if the campaign is still cancellable) or raise an alarm to other contributors before the 7-day window closes.
+- **Prefer campaigns that have passed community voting** over admin-force-verified ones: community verification distributes trust across voters.
+
 ## Incident Response
 
 If the admin key is suspected compromised:
@@ -96,8 +156,10 @@ Integrators should monitor the following events and alert if suspicious:
 - `campaign_verified`: Direct admin verifications (frequency baseline)
 - `contract_paused`: Any pause event (investigate reason)
 - `vesting_params_updated`: Changes to withdrawal delays/reserves (alert creators)
-- `token_update_proposed`: Any token migration (check new token contract)
-- `admin_updated`: Admin key rotation (verify legitimacy)
+- `token_update_proposed`: Any token migration (check new token contract; see **Emergency Withdrawal Process**)
+- `admin_transfer_initiated`: Admin key rotation queued (verify new address; 7-day window to react)
+- `admin_updated`: Admin key rotation completed (verify legitimacy)
+- `withdrawal`: Campaign fund withdrawal (cross-check fee recipient address)
 
 ## Comparison: Other Platforms
 

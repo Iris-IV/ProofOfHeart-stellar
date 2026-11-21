@@ -1,5 +1,8 @@
 //! Tests for the admin last-resort emergency withdrawal (#802).
 
+extern crate alloc;
+use alloc::format;
+
 use super::helpers::*;
 use crate::{Category, EmergencyWithdrawal, Error, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS};
 use soroban_sdk::testutils::{Events, Ledger};
@@ -17,9 +20,13 @@ fn goal_met_campaign(
     let goal: i128 = 1_000;
     token_admin.mint(contributor, &goal);
 
+    // Title must be unique per creator (#801); suffix with the next id.
+    let next_id = client.get_campaign_count() + 1;
+    let title = String::from_str(env, &format!("Misconfigured Campaign {next_id}"));
+
     let campaign_id = client.create_campaign(&make_params(
         creator.clone(),
-        String::from_str(env, "Misconfigured Campaign"),
+        title,
         String::from_str(env, "Creator key is dead; funds are locked"),
         goal,
         30,
@@ -30,6 +37,10 @@ fn goal_met_campaign(
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, contributor, &goal);
+    // Withdrawals require a closed funding window (#1346); emergency recovery
+    // itself has no deadline check, so moving past it here keeps every
+    // emergency test on the post-deadline path withdrawals expect.
+    advance(env, 31 * 86400);
     (campaign_id, goal)
 }
 
@@ -59,8 +70,8 @@ fn test_emergency_withdraw_full_happy_path() {
     assert_eq!(token.balance(&recipient), goal);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
+    assert!(campaign.funds_withdrawn());
+    assert!(!campaign.is_active());
     assert_eq!(campaign.effective_amount_raised, 0);
     // Audit total is preserved.
     assert_eq!(campaign.amount_raised, goal);
@@ -308,12 +319,14 @@ fn test_execute_clears_stale_proposal_when_creator_withdrew_meanwhile() {
 
     client.emergency_withdraw(&admin, &campaign_id, &recipient);
 
-    // The creator key turns out to be fine after all and withdraws normally.
+    // The creator key turns out to be fine after all and withdraws normally,
+    // which clears the now-stale proposal on the success path.
     client.withdraw_funds(&campaign_id);
+    assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
 
     advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
     let res = client.try_execute_emergency_withdrawal(&admin, &campaign_id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::FundsAlreadyWithdrawn);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // Stale proposal is cleared, recipient got nothing.
     assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
@@ -371,4 +384,153 @@ fn test_emergency_withdrawn_campaign_not_refundable() {
     // And the normal creator withdrawal is now closed too.
     let res = client.try_withdraw_funds(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::FundsAlreadyWithdrawn);
+}
+
+#[test]
+fn test_multiple_emergency_withdrawals_concurrent() {
+    let (env, admin, creator, contributor, _c2, token, token_admin, client) = setup_env();
+
+    // Create two separate campaigns
+    let (campaign_1, goal1) =
+        goal_met_campaign(&env, &client, &creator, &contributor, &token_admin);
+    let (campaign_2, goal2) =
+        goal_met_campaign(&env, &client, &creator, &contributor, &token_admin);
+
+    let recipient_1 = Address::generate(&env);
+    let recipient_2 = Address::generate(&env);
+
+    // Initiate emergency withdrawal for both campaigns
+    client.emergency_withdraw(&admin, &campaign_1, &recipient_1);
+    client.emergency_withdraw(&admin, &campaign_2, &recipient_2);
+
+    advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
+
+    // Both should execute independently
+    client.execute_emergency_withdrawal(&admin, &campaign_1);
+    client.execute_emergency_withdrawal(&admin, &campaign_2);
+
+    assert_eq!(token.balance(&recipient_1), goal1);
+    assert_eq!(token.balance(&recipient_2), goal2);
+    assert!(client.get_campaign(&campaign_1).funds_withdrawn());
+    assert!(client.get_campaign(&campaign_2).funds_withdrawn());
+}
+
+#[test]
+fn test_emergency_withdraw_partial_timelock_expiration() {
+    let (env, admin, creator, contributor, _c2, _token, token_admin, client) = setup_env();
+    let (campaign_id, _goal) =
+        goal_met_campaign(&env, &client, &creator, &contributor, &token_admin);
+    let recipient = Address::generate(&env);
+
+    client.emergency_withdraw(&admin, &campaign_id, &recipient);
+    let pending = client.get_emergency_withdrawal(&campaign_id).unwrap();
+
+    // Advance halfway through the timelock
+    advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS / 2);
+
+    // Try to execute before timelock expires
+    assert_eq!(
+        client
+            .try_execute_emergency_withdrawal(&admin, &campaign_id)
+            .unwrap_err()
+            .unwrap(),
+        Error::ValidationFailed
+    );
+
+    // Advance to just after the execute_after timestamp
+    env.ledger()
+        .with_mut(|li| li.timestamp = pending.execute_after + 1);
+
+    // Should now succeed
+    client.execute_emergency_withdrawal(&admin, &campaign_id);
+    assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
+}
+
+#[test]
+fn test_emergency_withdraw_with_multiple_contributors() {
+    let (env, admin, creator, contributor, contributor2, token, token_admin, client) = setup_env();
+
+    // Create campaign with multiple contributors
+    let goal: i128 = 1_000;
+    token_admin.mint(&contributor, &goal);
+    token_admin.mint(&contributor2, &500);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Multi Contributor Campaign"),
+        String::from_str(&env, "Testing with multiple contributors"),
+        goal,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor, &600);
+    client.contribute(&campaign_id, &contributor2, &400);
+
+    let recipient = Address::generate(&env);
+    client.emergency_withdraw(&admin, &campaign_id, &recipient);
+
+    advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
+    client.execute_emergency_withdrawal(&admin, &campaign_id);
+
+    // Recipient receives all funds from multiple contributors
+    assert_eq!(token.balance(&recipient), goal);
+    assert_eq!(client.get_campaign(&campaign_id).effective_amount_raised, 0);
+}
+
+#[test]
+fn test_emergency_withdrawal_zero_contribution_campaign() {
+    let (env, admin, creator, _contributor, _c2, _token, _token_admin, client) = setup_env();
+
+    // Create campaign but don't fund it (would normally fail to meet goal)
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Empty Campaign"),
+        String::from_str(&env, "No contributions"),
+        1_000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let recipient = Address::generate(&env);
+
+    // Should reject emergency withdrawal when goal not reached
+    assert_eq!(
+        client
+            .try_emergency_withdraw(&admin, &campaign_id, &recipient)
+            .unwrap_err()
+            .unwrap(),
+        Error::FundingGoalNotReached
+    );
+}
+
+#[test]
+fn test_cancelled_proposal_is_cleared_without_moving_funds() {
+    let (env, admin, creator, contributor, _c2, token, token_admin, client) = setup_env();
+    let (campaign_id, goal) =
+        goal_met_campaign(&env, &client, &creator, &contributor, &token_admin);
+    let recipient = Address::generate(&env);
+
+    client.emergency_withdraw(&admin, &campaign_id, &recipient);
+    client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "cancelled"));
+
+    advance(&env, EMERGENCY_WITHDRAWAL_TIMELOCK_SECS);
+    assert_eq!(
+        client
+            .try_execute_emergency_withdrawal(&admin, &campaign_id)
+            .unwrap_err()
+            .unwrap(),
+        Error::CampaignNotActive
+    );
+    assert_eq!(client.get_emergency_withdrawal(&campaign_id), None);
+    assert_eq!(token.balance(&recipient), 0);
+    assert_eq!(client.get_campaign(&campaign_id).effective_amount_raised, 0);
+    let _ = goal;
 }
