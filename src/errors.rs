@@ -261,6 +261,8 @@ pub enum Error {
     // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
+    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
+    RefundNotAvailable = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
@@ -351,6 +353,7 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
+                RefundNotAvailable,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -466,6 +469,10 @@ mod tests {
             "VerificationConflict"
         );
         assert_eq!(
+            Error::RefundNotAvailable.to_string(),
+            "RefundNotAvailable"
+        );
+        assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
             "DeadlineAlreadyExtended"
         );
@@ -555,14 +562,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 50 (Soroban's XDR cap for
-    /// `ScSpecUDTErrorEnumV0.cases`). If this creeps back up, `cargo build`
-    /// itself will fail with `#[contracterror] ... LengthExceedsMax` before
-    /// this test ever runs — this assertion just documents why.
+    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
+    /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
+    /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, minus the freed discriminant 35.
-        const CASES: u32 = 50;
-        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
+        const CASES: u32 = 51;
+        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
     }
 }

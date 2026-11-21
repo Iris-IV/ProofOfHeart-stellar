@@ -476,6 +476,8 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     let failed_due_to_goal = env.ledger().timestamp() > campaign.deadline
         && campaign.amount_raised < campaign.funding_goal;
 
+    if !(campaign.is_cancelled || failed_due_to_goal) {
+        return Err(Error::RefundNotAvailable);
     if !(campaign.is_cancelled() || failed_due_to_goal) {
         return Err(Error::ValidationFailed);
     }
