@@ -224,6 +224,8 @@ pub enum Error {
     // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
+    // `#21` (NotPendingOwner) is retired — never returned by any entry point; freed for the
+    // token-update variants below (#1532). Do not reuse discriminant 21.
     // `#21` (formerly `NotPendingOwner`, never returned by any entry point)
     // is retired to keep the enum within the 50-case spec limit. Do not reuse.
     /// No ownership transfer is currently pending.
@@ -261,6 +263,10 @@ pub enum Error {
     // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
+    /// `propose_token_update` was called with a token address identical to the one already in use.
+    SameToken = 35,
+    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
+    RefundNotAvailable = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
@@ -290,6 +296,13 @@ pub enum Error {
     MilestoneAlreadyClaimed = 50,
     /// An invariant condition has been violated (state corruption or bug).
     InvariantBroken = 51,
+    /// `accept_token_update` or `cancel_token_update` was called with no pending token update.
+    NoPendingTokenUpdate = 52,
+    /// `accept_token_update` was called before the mandatory timelock has elapsed.
+    TimelockNotElapsed = 53,
+    /// `accept_token_update` was blocked because active campaigns or outstanding balances still
+    /// reference the current token.
+    TokenUpdateBlocked = 54,
     /// The campaign has reached or exceeded its funding goal.
     FundingGoalReached = 53,
 }
@@ -351,6 +364,8 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
+                SameToken,
+                RefundNotAvailable,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -367,6 +382,9 @@ impl Error {
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
                 InvariantBroken,
+                NoPendingTokenUpdate,
+                TimelockNotElapsed,
+                TokenUpdateBlocked,
                 FundingGoalReached,
             ]
         )
@@ -466,6 +484,10 @@ mod tests {
             "VerificationConflict"
         );
         assert_eq!(
+            Error::RefundNotAvailable.to_string(),
+            "RefundNotAvailable"
+        );
+        assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
             "DeadlineAlreadyExtended"
         );
@@ -514,6 +536,19 @@ mod tests {
             "MilestoneAlreadyClaimed"
         );
         assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
+        assert_eq!(Error::SameToken.to_string(), "SameToken");
+        assert_eq!(
+            Error::NoPendingTokenUpdate.to_string(),
+            "NoPendingTokenUpdate"
+        );
+        assert_eq!(
+            Error::TimelockNotElapsed.to_string(),
+            "TimelockNotElapsed"
+        );
+        assert_eq!(
+            Error::TokenUpdateBlocked.to_string(),
+            "TokenUpdateBlocked"
+        );
     }
 
     #[test]
@@ -555,14 +590,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 50 (Soroban's XDR cap for
-    /// `ScSpecUDTErrorEnumV0.cases`). If this creeps back up, `cargo build`
-    /// itself will fail with `#[contracterror] ... LengthExceedsMax` before
-    /// this test ever runs — this assertion just documents why.
+    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
+    /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
+    /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, minus the freed discriminant 35.
-        const CASES: u32 = 50;
-        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
+        const CASES: u32 = 51;
+        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
     }
 }
