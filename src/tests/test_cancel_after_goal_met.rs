@@ -59,7 +59,7 @@ fn test_cancel_campaign_allowed_when_goal_not_met() {
 
     // Goal not reached — cancellation must succeed
     client.cancel_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// If amount_raised exceeds the goal the block still applies.

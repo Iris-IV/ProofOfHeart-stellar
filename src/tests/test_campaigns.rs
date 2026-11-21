@@ -90,8 +90,8 @@ fn test_create_and_validation() {
     let campaign = client.get_campaign(&campaign_id);
     assert_eq!(campaign.id, 1);
     assert_eq!(campaign.funding_goal, 2000);
-    assert!(campaign.is_active);
-    assert!(!campaign.is_verified);
+    assert!(campaign.is_active());
+    assert!(!campaign.is_verified());
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn test_admin_verify_campaign_success() {
         0i128,
     ));
     client.verify_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn test_description_length_boundaries() {
     assert!(client
         .try_create_campaign(&make_params(
             creator.clone(),
-            String::from_str(&env, &std::format!("{} {}", title, 1)),
+            String::from_str(&env, &std::format!("{} {}", "T1", 1)),
             String::from_str(&env, "a"),
             1000,
             30,
@@ -809,7 +809,7 @@ fn test_update_campaign_blocks_after_community_verification() {
     client.vote_on_campaign(&campaign_id, &contributor2, &true);
     client.vote_on_campaign(&campaign_id, &voter3, &true);
     client.verify_campaign_with_votes(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 
     // Fix #416: update_campaign must be blocked after community verification.
     let res = client.try_update_campaign(
@@ -1098,8 +1098,8 @@ fn test_cancel_campaign_already_cancelled_is_terminal() {
 
     client.cancel_campaign(&campaign_id);
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.is_cancelled);
-    assert!(!campaign.is_active);
+    assert!(campaign.is_cancelled());
+    assert!(!campaign.is_active());
 
     let res = client.try_cancel_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
@@ -1127,8 +1127,8 @@ fn test_cancel_campaign_after_withdrawal_is_terminal() {
     client.withdraw_funds(&campaign_id);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(campaign.funds_withdrawn);
-    assert!(!campaign.is_active);
+    assert!(campaign.funds_withdrawn());
+    assert!(!campaign.is_active());
 
     let res = client.try_cancel_campaign(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::CampaignNotActive);
@@ -1693,7 +1693,7 @@ fn test_cancel_campaign_allowed_when_goal_not_met() {
 
     // Goal not reached — cancellation must succeed
     client.cancel_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 /// If amount_raised exceeds the goal the block still applies.
@@ -1723,6 +1723,105 @@ fn test_cancel_campaign_blocked_when_amount_exceeds_goal() {
 
     let result = client.try_cancel_campaign(&campaign_id);
     assert_eq!(result, Err(Ok(Error::GoalMetCancellationNotAllowed)));
+}
+
+// ── #1591: cancellation penalty when creator has no token balance ─────────────
+
+/// #1591: when a cancellation penalty is configured and the creator's token
+/// balance is 0, `cancel_campaign` must fail — the penalty transfer cannot
+/// be completed and the contract must not proceed as if it succeeded.
+///
+/// Without this guard a creator with no balance could effectively escape the
+/// penalty by holding zero tokens: the transfer would panic and leave the
+/// campaign in an inconsistent state.
+#[test]
+fn test_cancel_campaign_penalty_fails_when_creator_has_no_balance() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    // contributor1 funds the campaign so amount_raised > 0 (penalty is on amount_raised)
+    token_admin.mint(&contributor1, &2_000);
+    // creator intentionally receives NO tokens — balance stays 0
+    assert_eq!(token.balance(&creator), 0);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Zero-Balance Creator"),
+        String::from_str(&env, "Creator has no tokens"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 1_000);
+
+    // Enable a 2% cancellation penalty (200 bps).  The expected penalty is
+    // 1000 * 200 / 10000 = 20 tokens, but the creator has 0.
+    client.set_cancellation_penalty_bps(&admin, &200);
+
+    // The cancel must fail: the token transfer panics because the creator's
+    // balance (0) is insufficient to cover the penalty (20).
+    let result = client.try_cancel_campaign(&campaign_id);
+    assert!(
+        result.is_err(),
+        "cancel_campaign must fail when creator balance is insufficient for the penalty"
+    );
+
+    // Campaign state must remain active — cancellation was not committed.
+    let campaign = client.get_campaign(&campaign_id);
+    assert!(
+        campaign.is_active(),
+        "campaign must stay active after a failed cancellation"
+    );
+    assert!(
+        !campaign.is_cancelled(),
+        "campaign must not be marked cancelled after a failed penalty transfer"
+    );
+
+    // Creator's balance is still 0 — no partial transfer occurred.
+    assert_eq!(token.balance(&creator), 0);
+}
+
+/// #1591: once the creator acquires enough tokens to cover the penalty,
+/// cancellation succeeds and the penalty reaches the admin.
+#[test]
+fn test_cancel_campaign_penalty_succeeds_when_creator_has_sufficient_balance() {
+    let (env, admin, creator, contributor1, _, token, token_admin, client) = setup_env();
+
+    token_admin.mint(&contributor1, &2_000);
+    // Give the creator exactly enough to cover a 2% penalty on 1_000 raised = 20 tokens.
+    token_admin.mint(&creator, &100);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Funded Creator"),
+        String::from_str(&env, "Creator has tokens"),
+        5_000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+    client.contribute(&campaign_id, &contributor1, &1_000);
+
+    client.set_cancellation_penalty_bps(&admin, &200); // 2%
+
+    let creator_before = token.balance(&creator);  // 100
+    let admin_before   = token.balance(&admin);
+
+    client.cancel_campaign(&campaign_id);
+
+    // Penalty = 1000 * 200 / 10000 = 20 tokens deducted from creator, credited to admin.
+    assert_eq!(token.balance(&creator), creator_before - 20);
+    assert_eq!(token.balance(&admin),   admin_before  + 20);
+
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 }
 
 // ── #840: transfer address validation ─────────────────────────────────────────

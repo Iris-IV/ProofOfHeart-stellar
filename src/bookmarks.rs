@@ -131,7 +131,7 @@ pub fn get_saved(env: &Env, user: Address) -> Vec<u32> {
     let mut live = Vec::new(env);
     for campaign_id in saved.iter() {
         match get_campaign(env, campaign_id) {
-            Some(campaign) if !campaign.is_cancelled => live.push_back(campaign_id),
+            Some(campaign) if !campaign.is_cancelled() => live.push_back(campaign_id),
             _ => {}
         }
     }
@@ -178,8 +178,7 @@ pub(crate) fn prune_bookmarks_for_campaign(env: &Env, campaign_id: u32) {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::format;
-
+    extern crate std;
     use crate::bookmarks::MAX_BOOKMARKS_PER_WALLET;
     use crate::tests::helpers::*;
     use crate::Category;
@@ -288,15 +287,13 @@ mod tests {
             creator: creator.clone(),
             first_creator: creator.clone(),
             pending_creator: crate::types::MaybePendingCreator::None,
+            pending_creator_expiry: 0,
             title: String::from_str(&env, "T"),
             description: String::from_str(&env, "D"),
             funding_goal: 1000,
             deadline: 100000,
             amount_raised: 0,
-            is_active: true,
-            funds_withdrawn: false,
-            is_cancelled: false,
-            is_verified: false,
+            status: crate::types::CAMPAIGN_ACTIVE,
             category: Category::Learner,
             has_revenue_sharing: false,
             revenue_share_percentage: 0,

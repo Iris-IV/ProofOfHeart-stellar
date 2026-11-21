@@ -153,7 +153,7 @@ fn test_verify_campaign_with_votes_past_deadline_fails() {
 
     let res = client.try_verify_campaign_with_votes(&campaign_id);
     assert_eq!(res.unwrap_err().unwrap(), Error::DeadlinePassed);
-    assert!(!client.get_campaign(&campaign_id).is_verified);
+    assert!(!client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]
@@ -174,6 +174,7 @@ fn test_vote_on_campaign_after_withdraw_fails() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     let res = client.try_vote_on_campaign(&campaign_id, &contributor1, &true);
@@ -354,7 +355,7 @@ fn test_verify_campaign_with_votes_success() {
 
     client.verify_campaign_with_votes(&campaign_id);
 
-    assert!(client.get_campaign(&campaign_id).is_verified);
+    assert!(client.get_campaign(&campaign_id).is_verified());
 }
 
 #[test]

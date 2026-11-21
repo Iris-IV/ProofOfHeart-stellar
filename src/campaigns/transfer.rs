@@ -13,6 +13,7 @@ use crate::storage::{
 };
 use crate::types::MaybePendingCreator;
 
+#[inline]
 fn get_creator_campaign_position_or_legacy_scan(
     env: &Env,
     creator: &Address,
@@ -55,6 +56,7 @@ fn get_creator_campaign_position_or_legacy_scan(
 ///
 /// # Errors
 /// * `CampaignNotActive` — Campaign is cancelled or funds withdrawn.
+/// * `ContractPaused` — The contract is currently paused.
 /// * `InvalidNewOwner` — Nominee is the current creator.
 /// * `TransferAlreadyPending` — Another transfer is already pending.
 pub(crate) fn initiate_campaign_transfer(
@@ -62,16 +64,21 @@ pub(crate) fn initiate_campaign_transfer(
     campaign_id: u32,
     new_creator: Address,
 ) -> Result<(), Error> {
-    // Require the nominee's auth first — this validates the address is a
-    // usable account or contract (#840) and that the nominee consents to
-    // the transfer before any state is written.
+    // Check the pause flag before asking the nominee to authorize: the call is
+    // rejected while paused regardless, so requiring a signature first would
+    // only waste it. This mirrors the ordering guarantee in
+    // `accept_campaign_transfer` (#832).
+    require_not_paused(env)?;
+
+    // Require the nominee's auth — this validates the address is a usable
+    // account or contract (#840) and that the nominee consents to the
+    // transfer before any state is written.
     new_creator.require_auth();
 
     let mut campaign = get_creator_campaign(env, campaign_id)?;
-    require_not_paused(env)?;
     require_active_campaign(&campaign)?;
 
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::CampaignNotActive);
     }
 
@@ -99,11 +106,7 @@ pub(crate) fn initiate_campaign_transfer(
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
-        (
-            "campaign_transfer_initiated",
-            campaign_id,
-            campaign.creator.clone(),
-        ),
+        ("campaign_transfer_initiated", campaign_id, campaign.creator),
         (new_creator, expiry),
     );
 
@@ -128,7 +131,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     require_active_campaign(&campaign)?;
     require_not_paused(env)?;
 
-    let pending = match campaign.pending_creator.clone() {
+    let pending = match campaign.pending_creator.take() {
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
@@ -168,9 +171,7 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
         get_creator_campaign_position_or_legacy_scan(env, &old_creator, campaign_id, old_count)
             .ok_or(Error::ValidationFailed)?;
     let mut old_bucket = get_creator_campaign_bucket(env, &old_creator, old_bucket_idx);
-    if old_bucket.is_empty() {
-        return Err(Error::ValidationFailed);
-    }
+    // `get` returns `None` for an empty bucket, so this also covers that case.
     if old_bucket.get(old_slot_idx) != Some(campaign_id) {
         return Err(Error::ValidationFailed);
     }
@@ -214,7 +215,6 @@ pub(crate) fn accept_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     set_campaign_creator_index(env, campaign_id, &pending);
 
     campaign.creator = pending.clone();
-    campaign.pending_creator = MaybePendingCreator::None;
     campaign.pending_creator_expiry = 0;
 
     set_campaign(env, campaign_id, &campaign);
@@ -243,22 +243,17 @@ pub(crate) fn cancel_campaign_transfer(env: &Env, campaign_id: u32) -> Result<()
     let mut campaign = get_creator_campaign(env, campaign_id)?;
     require_not_paused(env)?;
 
-    let pending_address = match campaign.pending_creator.clone() {
+    let pending_address = match campaign.pending_creator.take() {
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
 
     bump_instance_ttl(env);
-    campaign.pending_creator = MaybePendingCreator::None;
     campaign.pending_creator_expiry = 0;
     set_campaign(env, campaign_id, &campaign);
 
     env.events().publish(
-        (
-            "campaign_transfer_cancelled",
-            campaign_id,
-            campaign.creator.clone(),
-        ),
+        ("campaign_transfer_cancelled", campaign_id, campaign.creator),
         pending_address,
     );
 
@@ -280,13 +275,12 @@ pub(crate) fn admin_cancel_campaign_transfer(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
 
-    let pending_address = match campaign.pending_creator.clone() {
+    let pending_address = match campaign.pending_creator.take() {
         MaybePendingCreator::Some(addr) => addr,
         MaybePendingCreator::None => return Err(Error::NoTransferPending),
     };
 
     bump_instance_ttl(env);
-    campaign.pending_creator = MaybePendingCreator::None;
     campaign.pending_creator_expiry = 0;
     set_campaign(env, campaign_id, &campaign);
 

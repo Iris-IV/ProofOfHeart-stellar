@@ -17,14 +17,6 @@ pub(crate) const BPS_CEIL_OFFSET: i128 = BPS_DENOMINATOR as i128 - 1;
 /// Number of seconds in one day.
 pub(crate) const SECONDS_PER_DAY: u64 = 86_400;
 
-/// Additional TTL (seconds) to bump storage when finalizing verification.
-///
-/// `verify_with_votes` writes campaign verification state and counters; it
-/// must extend the campaign/voting storage TTL before those writes to avoid a
-/// near-expiry campaign failing mid-finalization. This is the minimum buffer
-/// we add on top of the existing TTL.
-pub(crate) const VERIFICATION_TTD_BUMP_SECS: u64 = SECONDS_PER_DAY;
-
 /// Default delay before a proposed token update can be accepted (7 days).
 ///
 /// This is only the fallback used until the admin sets an explicit override
@@ -64,7 +56,7 @@ pub(crate) const MAX_TOKEN_UPDATE_DELAY_SECS: u64 = 365 * SECONDS_PER_DAY;
 ///    category cap is itself clamped to `CAMPAIGN_DURATION_MAX_DAYS` when an
 ///    admin sets it. No campaign can run longer than a year, extension
 ///    included.
-//.
+///
 /// Named rather than left as a literal so a future edit has to state that it
 /// is changing a security bound.
 pub(crate) const MAX_EXTENSION_DAYS: u64 = 30;
@@ -94,3 +86,71 @@ pub(crate) const TRANSFER_EXPIRY_SECS: u64 = 7 * SECONDS_PER_DAY;
 /// exceeds the per-invocation CPU budget once a creator has created several dozen
 /// campaigns (see `test_creator_buckets_100_campaigns`).
 pub(crate) const MAX_SCAN_WINDOW: u32 = 1000;
+
+/// Maximum number of campaigns folded into the aggregate queries
+/// (`get_platform_report`, `get_creator_stats`) per call (#1237).
+///
+/// Those queries do one or two persistent reads per campaign, and a Soroban
+/// transaction may touch at most 100 ledger entries, so the far larger
+/// [`MAX_SCAN_WINDOW`] would overrun the CPU/read budget long before it was
+/// reached. Keeping the bound below the entry limit leaves room for the fixed
+/// reads (counters, buckets, token, fee) each query also performs.
+pub(crate) const MAX_STATS_SCAN: u32 = 40;
+
+// ---------------------------------------------------------------------------
+// Dynamic platform fee by category (#1019)
+//
+// Different cause categories have different fee structures to align with
+// their risk profiles, regulatory overhead, and platform sustainability goals.
+// These constants define the default fee percentage (in basis points) for
+// each category when category-specific fees are enabled.
+// ---------------------------------------------------------------------------
+
+/// Default platform fee for Learner campaigns (150 bps = 1.5%).
+///
+/// Learner campaigns typically request smaller amounts for educational purposes
+/// and benefit from lower fees to maximize funding received. The reduced fee
+/// encourages individual learners to use the platform.
+pub(crate) const LEARNER_FEE_BPS: u32 = 150;
+
+/// Default platform fee for EducationalStartup campaigns (300 bps = 3%).
+///
+/// Startups with revenue-sharing models represent higher administrative
+/// overhead (ongoing tracking, distribution) and justify a standard commercial
+/// platform fee.
+pub(crate) const EDUCATIONAL_STARTUP_FEE_BPS: u32 = 300;
+
+/// Default platform fee for Educator campaigns (200 bps = 2%).
+///
+/// Educators creating learning content fall between individual learners and
+/// commercial startups. A moderate fee balances platform sustainability with
+/// the educational mission.
+pub(crate) const EDUCATOR_FEE_BPS: u32 = 200;
+
+/// Default platform fee for Publisher campaigns (350 bps = 3.5%).
+///
+/// Publishers typically launch larger campaigns for educational materials and
+/// represent the highest commercial risk profile. The fee reflects the
+/// additional verification and compliance burden.
+pub(crate) const PUBLISHER_FEE_BPS: u32 = 350;
+
+/// Returns the default platform fee (in basis points) for a given category.
+///
+/// This mapping enables category-specific fee calculations without hardcoding
+/// switch statements throughout the codebase. Callers can use this function
+/// when category-based fees are enabled, or fall back to the global platform
+/// fee when uniform pricing is desired.
+///
+/// # Example
+/// ```ignore
+/// let fee_bps = get_category_fee_bps(Category::Learner); // 150 bps
+/// ```
+pub(crate) const fn get_category_fee_bps(category: u32) -> u32 {
+    match category {
+        0 => LEARNER_FEE_BPS,           // Category::Learner
+        1 => EDUCATIONAL_STARTUP_FEE_BPS, // Category::EducationalStartup
+        2 => EDUCATOR_FEE_BPS,           // Category::Educator
+        3 => PUBLISHER_FEE_BPS,          // Category::Publisher
+        _ => EDUCATIONAL_STARTUP_FEE_BPS, // Fallback to standard fee
+    }
+}

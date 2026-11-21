@@ -66,10 +66,10 @@ pub(crate) fn emergency_withdraw(
     assert_admin(env, &admin)?;
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
     }
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         return Err(Error::FundsAlreadyWithdrawn);
     }
     // Only funds that reached the goal are truly locked: a failed campaign is
@@ -174,11 +174,11 @@ pub(crate) fn execute_emergency_withdrawal(
     // The campaign could have been cancelled or withdrawn during the timelock
     // window (e.g. a rescued creator key withdrew normally). Clear the now
     // meaningless proposal rather than leaving it dangling.
-    if campaign.is_cancelled {
+    if campaign.is_cancelled() {
         remove_emergency_withdrawal(env, campaign_id);
         return Err(Error::CampaignNotActive);
     }
-    if campaign.funds_withdrawn {
+    if campaign.funds_withdrawn() {
         remove_emergency_withdrawal(env, campaign_id);
         return Err(Error::FundsAlreadyWithdrawn);
     }
@@ -194,8 +194,8 @@ pub(crate) fn execute_emergency_withdrawal(
     // State first (CEI): a malicious token contract must not be able to
     // re-enter and drain the escrow twice. After this, the campaign is
     // withdrawn+inactive and holds no escrowed principal.
-    campaign.funds_withdrawn = true;
-    campaign.is_active = false;
+    campaign.set_funds_withdrawn(true);
+    campaign.set_active(false);
     campaign.effective_amount_raised = 0;
     set_campaign(env, campaign_id, &campaign);
     decrement_active_campaign_count(env);
@@ -216,5 +216,40 @@ pub(crate) fn execute_emergency_withdrawal(
         (pending.recipient, amount),
     );
 
+    Ok(())
+}
+
+/// Rescues stranded foreign tokens accidentally sent to the contract (#1037).
+///
+/// Only non-escrow tokens may be rescued: `token` must differ from the
+/// platform token and must not be on the campaign-currency allowlist
+/// (allowlisted tokens may be live campaign escrow). Contributor funds are
+/// never reachable via this path. Reuses `ValidationFailed` (error enum is
+/// at the 50-case XDR cap, so no new variant is introduced).
+pub(crate) fn rescue_stranded_tokens(
+    env: &Env,
+    admin: Address,
+    token: Address,
+    to: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if amount <= 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if token == crate::storage::get_token(env) {
+        return Err(Error::ValidationFailed);
+    }
+    if crate::storage::is_token_allowed(env, &token) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    soroban_sdk::token::Client::new(env, &token).transfer(
+        &env.current_contract_address(),
+        &to,
+        &amount,
+    );
+    env.events()
+        .publish(("stranded_tokens_rescued", token, to), amount);
     Ok(())
 }

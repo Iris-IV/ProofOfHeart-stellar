@@ -7,6 +7,7 @@ use soroban_sdk::{
     testutils::{AuthorizedFunction, AuthorizedInvocation},
     Address, IntoVal, String, Symbol,
 };
+use proptest::prelude::*;
 
 // ── contribute & basic failure states ───────────────────────────────────────────
 
@@ -41,8 +42,8 @@ fn test_contribute_and_withdraw_success() {
     assert_eq!(token.balance(&creator), 970);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert!(!campaign.is_active);
-    assert!(campaign.funds_withdrawn);
+    assert!(!campaign.is_active());
+    assert!(campaign.funds_withdrawn());
 }
 
 #[test]
@@ -185,19 +186,19 @@ fn test_multiple_concurrent_campaigns_are_isolated() {
 
     client.withdraw_funds(&campaign_1);
 
-    assert!(client.get_campaign(&campaign_1).funds_withdrawn);
-    assert!(!client.get_campaign(&campaign_1).is_active);
+    assert!(client.get_campaign(&campaign_1).funds_withdrawn());
+    assert!(!client.get_campaign(&campaign_1).is_active());
     assert_eq!(client.get_campaign(&campaign_2).amount_raised, 900);
-    assert!(!client.get_campaign(&campaign_2).funds_withdrawn);
+    assert!(!client.get_campaign(&campaign_2).funds_withdrawn());
     assert_eq!(client.get_campaign(&campaign_3).amount_raised, 2000);
 
     client.cancel_campaign(&campaign_2);
-    assert!(client.get_campaign(&campaign_2).is_cancelled);
-    assert!(client.get_campaign(&campaign_3).is_active);
+    assert!(client.get_campaign(&campaign_2).is_cancelled());
+    assert!(client.get_campaign(&campaign_3).is_active());
 
     client.withdraw_funds(&campaign_3);
-    assert!(client.get_campaign(&campaign_3).funds_withdrawn);
-    assert!(!client.get_campaign(&campaign_3).is_active);
+    assert!(client.get_campaign(&campaign_3).funds_withdrawn());
+    assert!(!client.get_campaign(&campaign_3).is_active());
 
     client.deposit_revenue(&campaign_3, &3000);
 
@@ -720,7 +721,7 @@ fn test_cancel_and_refund() {
     client.contribute(&campaign_id, &contributor2, &500);
 
     client.cancel_campaign(&campaign_id);
-    assert!(client.get_campaign(&campaign_id).is_cancelled);
+    assert!(client.get_campaign(&campaign_id).is_cancelled());
 
     client.claim_refund(&campaign_id, &contributor1);
     client.claim_refund(&campaign_id, &contributor2);
@@ -1010,7 +1011,7 @@ fn test_claim_refund_clears_existing_revenue_claimed_key() {
     // Artificially mark funds as withdrawn so deposit/claim_revenue bypass the guard.
     env.as_contract(&client.address, || {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1204,7 +1205,7 @@ fn test_claim_revenue_amount_raised_zero_guard() {
         let mut campaign = storage::get_campaign(&env, campaign_id).unwrap();
         campaign.amount_raised = 0;
         campaign.effective_amount_raised = 0;
-        campaign.funds_withdrawn = true;
+        campaign.set_funds_withdrawn(true);
         storage::set_campaign(&env, campaign_id, &campaign);
     });
 
@@ -1383,4 +1384,511 @@ fn test_batch_contribute_rejects_duplicate_campaign_ids() {
     );
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
+
+// ── Property-based tests for contribution accumulation & refund invariants ────
+
+proptest! {
+    #[test]
+    fn prop_contributions_accumulate_correctly(
+        contributions in prop::collection::vec(1i128..10_000i128, 1..10)
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) = setup_env();
+
+        // Mint enough tokens for all contributions
+        let total_contributions: i128 = contributions.iter().sum();
+        token_admin.mint(&contributor1, &total_contributions);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Property Test Campaign"),
+            String::from_str(&env, "Testing contribution accumulation"),
+            total_contributions,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        // Make all contributions
+        for contribution in &contributions {
+            client.contribute(&campaign_id, &contributor1, contribution);
+        }
+
+        // Verify total accumulated matches sum of individual contributions
+        let total_recorded = client.get_contribution(&campaign_id, &contributor1);
+        prop_assert_eq!(total_recorded, total_contributions,
+            "Accumulated contribution should equal sum of all contributions");
+
+        // Verify campaign amount_raised matches total
+        let campaign = client.get_campaign(&campaign_id);
+        prop_assert_eq!(campaign.amount_raised, total_contributions,
+            "Campaign amount_raised should match total contributions");
+    }
+
+    #[test]
+    fn prop_refund_total_equals_contribution_total_on_cancel(
+        contributions in prop::collection::vec(100i128..5_000i128, 2..5)
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, token, token_admin, client) = setup_env();
+
+        // Mint enough for all contributions
+        let total_contributions: i128 = contributions.iter().sum();
+        token_admin.mint(&contributor1, &(total_contributions * 2));
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Refund Invariant Campaign"),
+            String::from_str(&env, "Testing refund equals contributions"),
+            total_contributions,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        // Make all contributions
+        for contribution in &contributions {
+            client.contribute(&campaign_id, &contributor1, contribution);
+        }
+
+        let balance_before = token.balance(&contributor1);
+
+        // Cancel campaign and claim refund
+        client.cancel_campaign(&campaign_id);
+        client.claim_refund(&campaign_id, &contributor1);
+
+        let balance_after = token.balance(&contributor1);
+        let refund_received = balance_after - balance_before;
+
+        // Verify refund equals original contribution
+        prop_assert_eq!(refund_received, total_contributions,
+            "Refund received should equal total contributions");
+
+        // Verify contribution is cleared
+        let remaining = client.get_contribution(&campaign_id, &contributor1);
+        prop_assert_eq!(remaining, 0,
+            "Contribution should be zero after refund");
+    }
+
+    #[test]
+    fn prop_multi_contributor_total_invariant(
+        contrib1 in 100i128..2_000i128,
+        contrib2 in 100i128..2_000i128,
+        contrib3 in 100i128..2_000i128,
+    ) {
+        let (env, _admin, creator, c1, c2, token, token_admin, client) = setup_env();
+        let c3 = Address::generate(&env);
+
+        let total = contrib1 + contrib2 + contrib3;
+        token_admin.mint(&c1, &contrib1);
+        token_admin.mint(&c2, &contrib2);
+        token_admin.mint(&c3, &contrib3);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Multi-Contributor Campaign"),
+            String::from_str(&env, "Testing multi-contributor invariant"),
+            total,
+            30,
+            Category::Educator,
+            false,
+            0,
+            0i128,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        client.contribute(&campaign_id, &c1, &contrib1);
+        client.contribute(&campaign_id, &c2, &contrib2);
+        client.contribute(&campaign_id, &c3, &contrib3);
+
+        // Verify total on campaign matches sum of individual contributions
+        let campaign = client.get_campaign(&campaign_id);
+        prop_assert_eq!(campaign.amount_raised, total,
+            "Campaign total should equal sum of all contributors");
+
+        // Cancel and verify all refunds
+        client.cancel_campaign(&campaign_id);
+
+        let balance_c1_before = token.balance(&c1);
+        let balance_c2_before = token.balance(&c2);
+        let balance_c3_before = token.balance(&c3);
+
+        client.claim_refund(&campaign_id, &c1);
+        client.claim_refund(&campaign_id, &c2);
+        client.claim_refund(&campaign_id, &c3);
+
+        let balance_c1_after = token.balance(&c1);
+        let balance_c2_after = token.balance(&c2);
+        let balance_c3_after = token.balance(&c3);
+
+        let refund1 = balance_c1_after - balance_c1_before;
+        let refund2 = balance_c2_after - balance_c2_before;
+        let refund3 = balance_c3_after - balance_c3_before;
+
+        // Verify each contributor's refund matches their contribution
+        prop_assert_eq!(refund1, contrib1, "c1 refund should equal c1 contribution");
+        prop_assert_eq!(refund2, contrib2, "c2 refund should equal c2 contribution");
+        prop_assert_eq!(refund3, contrib3, "c3 refund should equal c3 contribution");
+
+        // Verify total refunds equal total contributions
+        let total_refunded = refund1 + refund2 + refund3;
+        prop_assert_eq!(total_refunded, total,
+            "Total refunded should equal total contributions");
+    }
+
+    #[test]
+    fn prop_lifetime_contribution_cap_enforced(
+        first_contrib in 100i128..1_000i128,
+        second_contrib in 100i128..1_000i128,
+    ) {
+        let (env, _admin, creator, contributor1, _contributor2, _token, token_admin, client) = setup_env();
+
+        let cap = (first_contrib + second_contrib).min(2_000i128);
+        let total_mint = (first_contrib + second_contrib) * 2;
+
+        token_admin.mint(&contributor1, &total_mint);
+
+        let campaign_id = client.create_campaign(&make_params(
+            creator.clone(),
+            String::from_str(&env, "Cap Test Campaign"),
+            String::from_str(&env, "Testing lifetime cap"),
+            10_000,
+            30,
+            Category::Educator,
+            false,
+            0,
+            cap,
+        ));
+        client.verify_campaign(&campaign_id);
+
+        client.contribute(&campaign_id, &contributor1, &first_contrib);
+
+        // Try second contribution that might exceed cap
+        let attempted_total = first_contrib + second_contrib;
+        let should_succeed = attempted_total <= cap;
+
+        match client.try_contribute(&campaign_id, &contributor1, &second_contrib) {
+            Ok(_) => {
+                prop_assert!(should_succeed,
+                    "Contribution should succeed only if within cap: {} <= {}",
+                    attempted_total, cap);
+                let recorded = client.get_contribution(&campaign_id, &contributor1);
+                prop_assert_eq!(recorded, attempted_total,
+                    "Recorded contribution should be sum of both");
+            }
+            Err(Ok(Error::ContributionCapExceeded)) => {
+                prop_assert!(!should_succeed,
+                    "Contribution should fail only if exceeds cap: {} > {}",
+                    attempted_total, cap);
+            }
+            Err(e) => prop_assert!(false, "Unexpected error: {:?}", e),
+        }
+    }
+}
+
+// ── edge-case: zero-amount and max i128 contribution inputs (#1211) ──────────
+
+#[test]
+fn test_contribute_zero_amount_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Zero Amount"),
+        String::from_str(&env, "Testing zero contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &0);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 0);
+}
+
+#[test]
+fn test_contribute_negative_amount_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Negative Amount"),
+        String::from_str(&env, "Testing negative contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &-1);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+}
+
+#[test]
+fn test_contribute_max_i128_returns_overflow_not_panic() {
+    let (env, _admin, creator, contributor1, _, _, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &1_000_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Max i128"),
+        String::from_str(&env, "Testing max i128 edge case"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_contribute(&campaign_id, &contributor1, &i128::MAX);
+    assert!(res.is_err());
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 0);
+}
+
+#[test]
+fn test_contribute_one_is_valid_minimum() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Min Amount"),
+        String::from_str(&env, "Testing minimum contribution"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    client.contribute(&campaign_id, &contributor1, &1);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 1);
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, 1);
+}
+
+#[test]
+fn test_batch_contribute_with_zero_amount_item_is_rejected() {
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &5000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Batch Zero"),
+        String::from_str(&env, "Testing batch with zero"),
+        1000,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 0i128)],
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionMustBePositive);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 0);
+}
+
+// ── Issue #1581: batch_contribute over-subscription ───────────────────────────
+
+#[test]
+fn test_batch_contribute_over_subscription_is_rejected() {
+    // A batch item whose amount would push amount_raised past the funding goal
+    // must be rejected with FundingGoalReached. Neither amount_raised nor the
+    // contributor's balance should change.
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    let goal: i128 = 1_000;
+    // Mint more than the goal so the over-subscription comes from the contract
+    // guard, not from an insufficient balance.
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Over-subscription Test"),
+        String::from_str(&env, "Batch item pushes amount_raised past goal"),
+        goal as u64,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Contribute exactly the goal-minus-one so the campaign is one stroop short.
+    client.contribute(&campaign_id, &contributor1, &(goal - 1));
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal - 1);
+
+    let balance_before = soroban_sdk::token::Client::new(
+        &env,
+        &client.get_campaign(&campaign_id).token,
+    )
+    .balance(&contributor1);
+
+    // A batch that tries to contribute 2 stroops would push amount_raised to
+    // goal + 1 — over the cap. The contract must reject this.
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 2i128)],
+    );
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalReached);
+
+    // State must be unchanged: amount_raised stays at goal - 1.
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal - 1);
+
+    // The contributor's on-chain contribution record must be unchanged.
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), goal - 1);
+
+    // No tokens must have left the contributor's wallet.
+    let balance_after = soroban_sdk::token::Client::new(
+        &env,
+        &client.get_campaign(&campaign_id).token,
+    )
+    .balance(&contributor1);
+    assert_eq!(balance_after, balance_before);
+}
+
+#[test]
+fn test_batch_contribute_exact_goal_is_accepted() {
+    // A batch item that fills the campaign exactly (amount_raised == goal) must
+    // succeed: the final stroop is not over-subscription.
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+
+    let goal: i128 = 500;
+    token_admin.mint(&contributor1, &5_000);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Exact Goal Batch"),
+        String::from_str(&env, "Batch fills campaign to exactly the goal"),
+        goal as u64,
+        30,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+    client.verify_campaign(&campaign_id);
+
+    // Seed with goal - 1 stroops so one stroop finishes it.
+    client.contribute(&campaign_id, &contributor1, &(goal - 1));
+
+    // The final stroop should be accepted.
+    let res = client.try_batch_contribute(
+        &contributor1,
+        &soroban_sdk::vec![&env, (campaign_id, 1i128)],
+    );
+    assert!(res.is_ok(), "exact-goal batch item must succeed");
+    assert_eq!(client.get_campaign(&campaign_id).amount_raised, goal);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), goal);
+}
+
+// ── Issue #1585: top contributor after a refund ───────────────────────────────
+
+/// Returns the address with the highest `get_contribution` among `candidates`.
+/// Used to assert who is the top contributor without requiring a dedicated
+/// contract query.
+fn assert_top_contributor<'a>(
+    client: &crate::ProofOfHeartClient<'a>,
+    campaign_id: u32,
+    candidates: &[(&soroban_sdk::Address, &str)],
+    expected: &soroban_sdk::Address,
+) {
+    let top = candidates
+        .iter()
+        .max_by_key(|(addr, _)| client.get_contribution(&campaign_id, addr))
+        .expect("candidates must not be empty");
+    assert_eq!(
+        top.0, expected,
+        "expected {} to be the top contributor but {} has the highest balance",
+        top.1,
+        candidates
+            .iter()
+            .find(|(a, _)| *a == expected)
+            .map(|(_, n)| *n)
+            .unwrap_or("?"),
+    );
+}
+
+#[test]
+fn test_top_contributor_after_refund() {
+    let (env, _admin, creator, contributor1, contributor2, token, token_admin, client) =
+        setup_env();
+
+    token_admin.mint(&contributor1, &2000);
+    token_admin.mint(&contributor2, &800);
+
+    let campaign_id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Top Contributor After Refund"),
+        String::from_str(&env, "Issue #1585"),
+        10_000,
+        100,
+        Category::Educator,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.contribute(&campaign_id, &contributor1, &2000);
+    client.contribute(&campaign_id, &contributor2, &800);
+
+    // Before the refund: contributor1 leads.
+    assert_eq!(client.get_contribution(&campaign_id, &contributor1), 2000);
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 800);
+    assert_top_contributor(
+        &client,
+        campaign_id,
+        &[(&contributor1, "contributor1"), (&contributor2, "contributor2")],
+        &contributor1,
+    );
+
+    // Cancel the campaign so both contributors are eligible for a refund.
+    client.cancel_campaign(&campaign_id);
+    assert!(client.get_campaign(&campaign_id).is_cancelled);
+
+    // contributor1 claims their full refund.
+    client.claim_refund(&campaign_id, &contributor1);
+
+    // Post-refund: contributor1's balance is restored and their contribution drops to 0.
+    assert_eq!(token.balance(&contributor1), 2000, "contributor1 balance fully restored");
+    assert_eq!(
+        client.get_contribution(&campaign_id, &contributor1),
+        0,
+        "contribution zeroed after refund",
+    );
+
+    // contributor2 still has an active contribution — they are now the top.
+    assert_eq!(client.get_contribution(&campaign_id, &contributor2), 800);
+    assert_top_contributor(
+        &client,
+        campaign_id,
+        &[(&contributor1, "contributor1"), (&contributor2, "contributor2")],
+        &contributor2,
+    );
 }
