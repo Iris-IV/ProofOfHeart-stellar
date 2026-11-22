@@ -130,6 +130,27 @@ Examples: `docs/add-contributing-md`, `feat/campaign-ownership-transfer`, `fix/r
 
 Delete your branch after merge.
 
+## Required checks on `main`
+
+`main` is protected: a PR cannot be merged unless these CI checks pass. The
+names must match the job names in `.github/workflows/ci.yml` exactly (GitHub
+matches on the job's `name:`, or its key when no `name:` is set):
+
+| Required check | Job key in `ci.yml` |
+|----------------|---------------------|
+| `lint` | `lint` |
+| `Unit Tests` | `test` (`name: Unit Tests`) |
+| `wasm` | `wasm` |
+| `audit` | `audit` |
+
+Branch protection settings for `main` (Settings → Branches → Branch protection rules):
+
+- Require status checks to pass before merging, with **Require branches to be up to date** on, and the four checks above selected.
+- Require a pull request before merging.
+- **Do not allow bypassing the above settings** and do not add the merge bot or admins to the bypass list, so a red check blocks everyone.
+
+If you rename a job in `ci.yml`, update the required checks in the same change; a stale name leaves the gate waiting forever or silently unenforced.
+
 ## Commits
 
 Conventional Commits format:

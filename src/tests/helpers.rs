@@ -131,6 +131,8 @@ pub(crate) fn withdraw_after_deadline(
         max_entry_ttl: 10,
     });
     client.withdraw_funds(&campaign_id);
+}
+
 /// Moves the ledger timestamp to `campaign.deadline + 1` (#854 / #1320).
 ///
 /// `withdraw_funds` only succeeds once the funding window has closed, so any
