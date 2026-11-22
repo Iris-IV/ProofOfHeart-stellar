@@ -31,7 +31,7 @@ fn test_pull_based_revenue_distribution() {
 
     client.contribute(&campaign_id, &contributor1, &1000);
     client.contribute(&campaign_id, &contributor2, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     token_admin.mint(&creator, &5000);
     client.deposit_revenue(&campaign_id, &5000);
@@ -90,7 +90,7 @@ fn test_revenue_sharing_edge_cases() {
 
     client.contribute(&campaign_id, &contributor1, &1);
     client.contribute(&campaign_id, &contributor2, &2);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
     assert_eq!(res.unwrap_err().unwrap(), Error::NoFundsToWithdraw);
@@ -141,7 +141,7 @@ fn test_claim_revenue_at_full_revenue_share_pays_entire_pool_to_contributors() {
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
     client.contribute(&campaign_id, &contributor2, &1_000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
     client.deposit_revenue(&campaign_id, &1_000);
 
     client.claim_revenue(&campaign_id, &contributor1);
@@ -180,7 +180,7 @@ fn test_claim_creator_revenue_at_zero_revenue_share_pays_entire_pool_to_creator(
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1_000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
     client.deposit_revenue(&campaign_id, &1_000);
 
     let creator_balance_before_claim = token.balance(&creator);
@@ -214,7 +214,7 @@ fn test_claim_revenue_requires_contributor_auth() {
     let _ = client.try_verify_campaign(&campaign_id);
 
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     token_admin.mint(&creator, &5000);
     client.deposit_revenue(&campaign_id, &5000);
@@ -264,10 +264,10 @@ fn test_revenue_lifecycle_e2e() {
     client.contribute(&campaign_id, &contributor2, &2500);
 
     let campaign = client.get_campaign(&campaign_id);
-    assert_eq!(campaign.amount_raised, 6500);
+    assert_eq!(campaign.amount_raised, 6000);
     assert!(campaign.amount_raised >= campaign.funding_goal);
 
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let campaign_after_withdrawal = client.get_campaign(&campaign_id);
     assert!(campaign_after_withdrawal.funds_withdrawn());
@@ -288,6 +288,7 @@ fn test_revenue_lifecycle_e2e() {
     assert!(contrib2_claimed_after > contrib2_claimed_before);
 
     client.claim_creator_revenue(&campaign_id);
+    assert!(!env.events().all().is_empty());
 
     assert!(client
         .try_claim_revenue(&campaign_id, &contributor1)
@@ -295,8 +296,6 @@ fn test_revenue_lifecycle_e2e() {
     assert!(client
         .try_claim_revenue(&campaign_id, &contributor2)
         .is_err());
-
-    assert!(!env.events().all().is_empty());
 }
 
 #[test]
@@ -395,7 +394,7 @@ fn test_claim_revenue_blocked_before_funds_withdrawn() {
     assert_eq!(deposit_res.unwrap_err().unwrap(), Error::ValidationFailed);
 
     // After withdrawal, deposit + claim succeeds.
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
     client.deposit_revenue(&campaign_id, &1000);
     client.claim_revenue(&campaign_id, &contributor1);
     assert!(client.get_revenue_claimed(&campaign_id, &contributor1) > 0);
@@ -423,7 +422,7 @@ fn test_deposit_revenue_negative_amount() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &-100);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -449,7 +448,7 @@ fn test_deposit_revenue_zero_amount() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &0);
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
@@ -475,7 +474,7 @@ fn test_deposit_revenue_without_revenue_sharing() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     let res = client.try_deposit_revenue(&campaign_id, &1000);
     assert_eq!(res.unwrap_err().unwrap(), Error::RevenueSharingNotEnabled);
@@ -501,7 +500,7 @@ fn test_deposit_revenue_when_paused() {
     ));
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
     client.pause();
 
@@ -538,15 +537,20 @@ fn test_deposit_revenue_repeated_calls_accumulate_and_emit_events() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
-    client.withdraw_funds(&campaign_id);
+    withdraw_after_deadline(&env, &client, campaign_id);
 
-    let events_before = env.events().all().len();
+    let mut emitted_contract_events = 0usize;
     for _ in 0..10 {
         client.deposit_revenue(&campaign_id, &100);
+        emitted_contract_events += env
+            .events()
+            .all()
+            .iter()
+            .filter(|(contract, _, _)| contract == &client.address)
+            .count();
     }
-    let events_after = env.events().all().len();
     assert_eq!(client.get_revenue_pool(&campaign_id), 1000);
-    assert_eq!(events_after - events_before, 20);
+    assert_eq!(emitted_contract_events, 20);
 }
 
 #[test]
@@ -1207,17 +1211,10 @@ fn test_revenue_claims_across_two_deposit_rounds() {
     client.deposit_revenue(&campaign_id, &1_000);
     assert_eq!(client.get_revenue_pool(&campaign_id), 1_000);
 
-    // c1 claims after round 1: 60 % of 1_000 = 600.
+    // c1 claims after round 1: 60 % of the 20 % contributor pool (200) = 120.
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(
-        token.balance(&contributor1),
-        600,
-        "c1 after round-1 claim"
-    );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor1),
-        600
-    );
+    assert_eq!(token.balance(&contributor1), 120, "c1 after round-1 claim");
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 120);
     // c2 has not claimed yet — balance unchanged (still 0 after contribution spend).
     assert_eq!(token.balance(&contributor2), 0);
 
@@ -1229,36 +1226,30 @@ fn test_revenue_claims_across_two_deposit_rounds() {
         "pool after both deposits"
     );
 
-    // c1 claims again: entitled to 60 % of 1_500 = 900 total; already has 600,
-    // so this call pays out 300 more.
+    // c1 claims again: entitled to 60 % of the 300 contributor pool = 180 total;
+    // already has 120, so this call pays out 60 more.
     client.claim_revenue(&campaign_id, &contributor1);
     assert_eq!(
         token.balance(&contributor1),
-        900,
+        180,
         "c1 total after round-2 claim"
     );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor1),
-        900
-    );
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 180);
 
-    // c2 claims for the first time: entitled to 40 % of 1_500 = 600 in one go.
+    // c2 claims for the first time: entitled to 40 % of 300 = 120 in one go.
     client.claim_revenue(&campaign_id, &contributor2);
     assert_eq!(
         token.balance(&contributor2),
-        600,
+        120,
         "c2 total after first claim (spanning both rounds)"
     );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor2),
-        600
-    );
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 120);
 
-    // Pool should be fully claimed: 900 + 600 = 1_500.
+    // Contributor pool (20 % of 1_500 = 300) should be fully claimed: 180 + 120 = 300.
     assert_eq!(
         token.balance(&contributor1) + token.balance(&contributor2),
-        1_500,
-        "sum of claims must equal total deposited"
+        300,
+        "sum of claims must equal contributor share of total deposited"
     );
 }
 
@@ -1297,9 +1288,9 @@ fn test_revenue_claim_idempotent_between_deposits() {
 
     client.deposit_revenue(&campaign_id, &1_000);
 
-    // First claim: c1 gets 50 % = 500.
+    // First claim: c1 gets 50 % of the 20 % contributor pool (200) = 100.
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(token.balance(&contributor1), 500);
+    assert_eq!(token.balance(&contributor1), 100);
 
     // Second consecutive claim with no new deposit must yield nothing extra.
     let res = client.try_claim_revenue(&campaign_id, &contributor1);
@@ -1310,7 +1301,7 @@ fn test_revenue_claim_idempotent_between_deposits() {
     );
     assert_eq!(
         token.balance(&contributor1),
-        500,
+        100,
         "balance must not change on a no-op claim"
     );
 }
