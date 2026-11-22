@@ -128,8 +128,9 @@ use crate::errors::Error;
 use crate::lifecycle::{get_campaign_or_error, require_not_paused};
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_admin, get_campaign_milestones,
-    get_platform_fee, get_total_raised_global, is_milestone_claimed, set_campaign,
-    set_campaign_milestones, set_milestone_claimed, set_total_raised_global,
+    get_campaign_paid_out, get_platform_fee, get_total_raised_global, is_milestone_claimed,
+    set_campaign, set_campaign_milestones, set_campaign_paid_out, set_milestone_claimed,
+    set_total_raised_global,
 };
 use crate::types::Milestone;
 
@@ -381,6 +382,10 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
         env,
         total_raised.checked_sub(to_deduct).ok_or(Error::Overflow)?,
     );
+    let paid_out = get_campaign_paid_out(env, campaign_id)
+        .checked_add(to_deduct)
+        .ok_or(Error::Overflow)?;
+    set_campaign_paid_out(env, campaign_id, paid_out);
 
     // Check if all milestones claimed -> mark campaign completed.
     let all_claimed = {

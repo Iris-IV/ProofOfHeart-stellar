@@ -2,8 +2,8 @@ extern crate alloc;
 use alloc::format;
 
 use super::helpers::*;
-use crate::{storage, Category, CreateCampaignParams, Error};
-use soroban_sdk::{Address, String};
+use crate::{storage, Category, CreateCampaignParams, Error, Milestone};
+use soroban_sdk::{testutils::Address as _, Address, String, Vec};
 
 // ── admin_cancel_campaign (#508, #858) ──────────────────────────────────────
 
@@ -350,4 +350,54 @@ fn test_admin_cancel_with_multiple_contributors_all_refund() {
 
     assert_eq!(token.balance(&contributor1), 600);
     assert_eq!(token.balance(&contributor2), 400);
+}
+
+#[test]
+fn test_admin_cancel_after_partial_milestone_payout_does_not_over_refund() {
+    let (env, admin, creator, contributor1, contributor2, token, token_admin, client) = setup_env();
+    let contributor3 = Address::generate(&env);
+
+    token_admin.mint(&contributor1, &600);
+    token_admin.mint(&contributor2, &400);
+    token_admin.mint(&contributor3, &1_000);
+
+    let campaign_a = make_campaign(&env, &client, &creator, 1_000, 10);
+    let campaign_b = make_campaign(&env, &client, &creator, 1_000, 11);
+    client.verify_campaign(&campaign_a);
+    client.verify_campaign(&campaign_b);
+
+    client.contribute(&campaign_a, &contributor1, &600);
+    client.contribute(&campaign_a, &contributor2, &400);
+    client.contribute(&campaign_b, &contributor3, &1_000);
+
+    let mut plan = Vec::new(&env);
+    plan.push_back(Milestone {
+        id: 1,
+        description: String::from_str(&env, "M1"),
+        payout_bps: 5_000,
+        verified: false,
+    });
+    plan.push_back(Milestone {
+        id: 2,
+        description: String::from_str(&env, "M2"),
+        payout_bps: 5_000,
+        verified: false,
+    });
+    client.set_milestones(&campaign_a, &plan);
+    client.verify_milestone(&admin, &campaign_a, &1);
+    client.claim_milestone(&campaign_a, &1);
+
+    client.admin_cancel_campaign(
+        &admin,
+        &campaign_a,
+        &String::from_str(&env, "fraud after M1"),
+    );
+
+    client.claim_refund(&campaign_a, &contributor1);
+    client.claim_refund(&campaign_a, &contributor2);
+
+    assert_eq!(token.balance(&contributor1), 300);
+    assert_eq!(token.balance(&contributor2), 200);
+    assert_eq!(token.balance(&client.address), 1_000);
+    assert_eq!(client.get_total_raised_global(), 1_000);
 }

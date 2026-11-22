@@ -237,6 +237,10 @@ pub enum CampaignKey {
     CampaignPayoutMarker(u32),
     /// Cryptographic proof-of-impact submitted by a verifier, keyed by campaign ID.
     ProofOfImpact(u32),
+    /// Cumulative amount (milestone payouts + fees) already released from a campaign's escrow (#1478).
+    CampaignPaidOut(u32),
+    /// Cumulative amount already refunded to contributors of a partially-paid cancelled campaign (#1478).
+    CampaignRefunded(u32),
 }
 
 /// An admin's record of removing an off-chain comment (#797).
@@ -395,6 +399,24 @@ pub fn get_proof_of_impact(env: &Env, campaign_id: u32) -> Option<crate::types::
 
 pub fn set_proof_of_impact(env: &Env, campaign_id: u32, proof: &crate::types::ProofOfImpact) {
     persistent_set!(env, CampaignKey::ProofOfImpact(campaign_id), proof);
+}
+
+pub fn get_campaign_paid_out(env: &Env, campaign_id: u32) -> i128 {
+    let key = CampaignKey::CampaignPaidOut(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_campaign_paid_out(env: &Env, campaign_id: u32, amount: i128) {
+    persistent_set!(env, CampaignKey::CampaignPaidOut(campaign_id), &amount);
+}
+
+pub fn get_campaign_refunded(env: &Env, campaign_id: u32) -> i128 {
+    let key = CampaignKey::CampaignRefunded(campaign_id);
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn set_campaign_refunded(env: &Env, campaign_id: u32, amount: i128) {
+    persistent_set!(env, CampaignKey::CampaignRefunded(campaign_id), &amount);
 }
 
 // ── Campaign count ────────────────────────────────────────────────────────────

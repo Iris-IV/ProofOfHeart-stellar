@@ -6,13 +6,14 @@ use crate::lifecycle::{
 };
 use crate::storage::{
     bump_instance_ttl, decrement_contributor_count, get_admin,
-    get_campaign_block_contribution_count, get_contribution, get_lifetime_contribution,
+    get_campaign_block_contribution_count, get_campaign_paid_out, get_campaign_refunded,
+    get_contribution, get_contributor_count, get_lifetime_contribution,
     get_max_contribution_per_transaction, get_personal_cap, get_pinned_campaign_token, get_token,
     get_top_contributor, get_total_raised_by_token, get_total_raised_global, has_personal_cap,
     increment_contributor_count, remove_contribution, remove_personal_cap, remove_revenue_claimed,
     set_campaign, set_campaign_block_contribution_count, set_campaign_fee_recipient,
-    set_contribution, set_last_contribution_time, set_lifetime_contribution, set_personal_cap,
-    set_top_contributor, set_total_raised_by_token, set_total_raised_global,
+    set_campaign_refunded, set_contribution, set_last_contribution_time, set_lifetime_contribution,
+    set_personal_cap, set_top_contributor, set_total_raised_by_token, set_total_raised_global,
 };
 use crate::types::Campaign;
 
@@ -485,10 +486,51 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         return Err(Error::NoFundsToWithdraw);
     }
 
+    // #1478: When partial milestone payouts have already released a portion of
+    // this campaign's escrow, pro-rate each contributor's refund to the unpaid
+    // escrow remainder so refunds never draw from other campaigns' balances.
+    let paid_out = get_campaign_paid_out(env, campaign_id);
+    let (refund_amount, next_refunded) = if paid_out > 0 {
+        let unpaid_escrow = campaign
+            .amount_raised
+            .checked_sub(paid_out)
+            .ok_or(Error::Overflow)?;
+        if unpaid_escrow <= 0 || campaign.amount_raised <= 0 {
+            return Err(Error::NoFundsToWithdraw);
+        }
+        let refunded_so_far = get_campaign_refunded(env, campaign_id);
+        let remaining_unpaid = unpaid_escrow
+            .checked_sub(refunded_so_far)
+            .ok_or(Error::Overflow)?;
+        if remaining_unpaid <= 0 {
+            return Err(Error::NoFundsToWithdraw);
+        }
+        let pro_rata = amount
+            .checked_mul(unpaid_escrow)
+            .and_then(|n| n.checked_div(campaign.amount_raised))
+            .ok_or(Error::Overflow)?;
+        let remaining_contributors = get_contributor_count(env, campaign_id);
+        let share = if remaining_contributors <= 1 {
+            remaining_unpaid
+        } else {
+            pro_rata.min(remaining_unpaid)
+        };
+        if share <= 0 {
+            return Err(Error::NoFundsToWithdraw);
+        }
+        let updated_refunded = refunded_so_far.checked_add(share).ok_or(Error::Overflow)?;
+        (share, updated_refunded)
+    } else {
+        (amount, 0)
+    };
+
     bump_instance_ttl(env);
     remove_contribution(env, campaign_id, &contributor);
     remove_revenue_claimed(env, campaign_id, &contributor);
     remove_personal_cap(env, campaign_id, &contributor);
+    if paid_out > 0 {
+        set_campaign_refunded(env, campaign_id, next_refunded);
+    }
 
     decrement_contributor_count(env, campaign_id)?;
 
@@ -498,7 +540,7 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     if !campaign.is_cancelled() {
         campaign.effective_amount_raised = campaign
             .effective_amount_raised
-            .checked_sub(amount)
+            .checked_sub(refund_amount)
             .ok_or(Error::Overflow)?;
         set_campaign(env, campaign_id, &campaign);
     }
@@ -507,7 +549,9 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         let total_raised = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total_raised.checked_sub(amount).ok_or(Error::Overflow)?,
+            total_raised
+                .checked_sub(refund_amount)
+                .ok_or(Error::Overflow)?,
         );
 
         // #1438: also decrement the per-token total on refund.
@@ -516,15 +560,21 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
         set_total_raised_by_token(
             env,
             &campaign_token,
-            token_total.checked_sub(amount).ok_or(Error::Overflow)?,
+            token_total
+                .checked_sub(refund_amount)
+                .ok_or(Error::Overflow)?,
         );
     }
 
     let client = campaign_token_client(env, campaign_id);
-    client.transfer(&env.current_contract_address(), &contributor, &amount);
+    client.transfer(
+        &env.current_contract_address(),
+        &contributor,
+        &refund_amount,
+    );
 
     env.events()
-        .publish(("refund_claimed", campaign_id, contributor), amount);
+        .publish(("refund_claimed", campaign_id, contributor), refund_amount);
 
     Ok(())
 }

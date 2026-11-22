@@ -7,10 +7,10 @@ use crate::lifecycle::{
     require_active_campaign, require_not_paused, transition, CampaignState,
 };
 use crate::storage::{
-    bump_instance_ttl, decrement_active_campaign_count, get_cancellation_penalty_bps,
-    get_revenue_pool, get_total_raised_global, increment_cancelled_campaign_count,
-    remove_top_contributor, remove_voting_state, set_campaign, set_revenue_pool,
-    set_total_raised_global,
+    bump_instance_ttl, decrement_active_campaign_count, get_campaign_paid_out,
+    get_cancellation_penalty_bps, get_revenue_pool, get_total_raised_global,
+    increment_cancelled_campaign_count, remove_top_contributor, remove_voting_state, set_campaign,
+    set_revenue_pool, set_total_raised_global,
 };
 
 /// Upper bound for the voluntary-cancellation penalty (500 bps = 5%, #1052).
@@ -43,7 +43,10 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
     require_not_paused(env)?;
 
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn() {
+    let paid_out = get_campaign_paid_out(env, campaign_id);
+    if campaign.funds_withdrawn()
+        || (campaign.amount_raised > 0 && paid_out >= campaign.amount_raised)
+    {
         return Err(Error::CancellationNotAllowed);
     }
     // Prevent rug-pull: reject cancellation after the funding goal has been met but
@@ -69,22 +72,22 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
         set_revenue_pool(env, campaign_id, 0);
     }
 
-    // #818: Decrement total_raised_global by the full amount_raised upfront so
-    // that the global stat reflects the cancellation immediately — not after
-    // every contributor individually calls claim_refund. Without this,
-    // total_raised_global is overstated until all refunds are claimed, which
-    // blocks accept_token_update (which requires total_raised_global == 0)
-    // forever if any dust refund is never claimed.
+    // #818, #1478: Decrement total_raised_global by the unpaid escrow remainder
+    // upfront so that the global stat reflects the cancellation immediately
+    // without double-subtracting milestone payouts already deducted in
+    // claim_milestone.
     //
     // claim_refund skips the total_raised_global decrement for cancelled
     // campaigns to avoid double-counting.
-    if campaign.amount_raised > 0 {
+    let unpaid_escrow = campaign
+        .amount_raised
+        .checked_sub(paid_out)
+        .ok_or(Error::Overflow)?;
+    if unpaid_escrow > 0 {
         let total = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total
-                .checked_sub(campaign.amount_raised)
-                .ok_or(Error::Overflow)?,
+            total.checked_sub(unpaid_escrow).ok_or(Error::Overflow)?,
         );
     }
 
@@ -160,7 +163,10 @@ pub(crate) fn admin_cancel_campaign(
 
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
-    if campaign.funds_withdrawn() {
+    let paid_out = get_campaign_paid_out(env, campaign_id);
+    if campaign.funds_withdrawn()
+        || (campaign.amount_raised > 0 && paid_out >= campaign.amount_raised)
+    {
         return Err(Error::CancellationNotAllowed);
     }
 
@@ -177,15 +183,17 @@ pub(crate) fn admin_cancel_campaign(
         set_revenue_pool(env, campaign_id, 0);
     }
 
-    // #818: Same upfront decrement as creator cancel — global stat must not be
-    // overstated while unclaimed refunds exist.
-    if campaign.amount_raised > 0 {
+    // #818, #1478: Only deduct the unpaid escrow remainder from total_raised_global;
+    // any claimed milestones have already been subtracted in claim_milestone.
+    let unpaid_escrow = campaign
+        .amount_raised
+        .checked_sub(paid_out)
+        .ok_or(Error::Overflow)?;
+    if unpaid_escrow > 0 {
         let total = get_total_raised_global(env);
         set_total_raised_global(
             env,
-            total
-                .checked_sub(campaign.amount_raised)
-                .ok_or(Error::Overflow)?,
+            total.checked_sub(unpaid_escrow).ok_or(Error::Overflow)?,
         );
     }
 
