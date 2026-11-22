@@ -31,6 +31,7 @@ mod test_issue_1439_1440;
 mod test_lifecycle;
 mod test_lifecycle_events;
 mod test_migrate;
+mod test_milestone_views;
 mod test_milestones;
 mod test_multi_step;
 mod test_multi_token;
