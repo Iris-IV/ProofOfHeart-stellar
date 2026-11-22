@@ -53,6 +53,25 @@ make build-docker
 cargo test --features testutils
 ```
 
+The full suite takes roughly 80 seconds. While iterating you can skip unrelated tests by filtering on a module name or a single test name.
+
+**Run one test module** (e.g. `test_campaigns`):
+```bash
+cargo test --features testutils test_campaigns
+```
+
+**Run a single test by name**:
+```bash
+cargo test --features testutils test_cancel_campaign_already_cancelled_is_terminal
+```
+
+**Run all tests whose names contain a keyword** (e.g. all cancel-related tests):
+```bash
+cargo test --features testutils cancel
+```
+
+The filter is a substring match against the fully-qualified test path, so a module name like `test_campaigns` matches every test inside that module.
+
 The repo includes a `rust-toolchain.toml` that pins the Rust toolchain automatically — `rustup` will download the correct version on first use.
 
 ## Fuzz Testing Workflow
@@ -111,6 +130,27 @@ Examples: `docs/add-contributing-md`, `feat/campaign-ownership-transfer`, `fix/r
 
 Delete your branch after merge.
 
+## Required checks on `main`
+
+`main` is protected: a PR cannot be merged unless these CI checks pass. The
+names must match the job names in `.github/workflows/ci.yml` exactly (GitHub
+matches on the job's `name:`, or its key when no `name:` is set):
+
+| Required check | Job key in `ci.yml` |
+|----------------|---------------------|
+| `lint` | `lint` |
+| `Unit Tests` | `test` (`name: Unit Tests`) |
+| `wasm` | `wasm` |
+| `audit` | `audit` |
+
+Branch protection settings for `main` (Settings → Branches → Branch protection rules):
+
+- Require status checks to pass before merging, with **Require branches to be up to date** on, and the four checks above selected.
+- Require a pull request before merging.
+- **Do not allow bypassing the above settings** and do not add the merge bot or admins to the bypass list, so a red check blocks everyone.
+
+If you rename a job in `ci.yml`, update the required checks in the same change; a stale name leaves the gate waiting forever or silently unenforced.
+
 ## Commits
 
 Conventional Commits format:
@@ -136,6 +176,7 @@ test: deadline boundary coverage
 3. Update `EVENT_PAYLOADS.md` if your PR adds, modifies, or removes any `env.events().publish(...)` call — keep topics, data shape, and source location in sync
 4. Ensure CI is green — all four checks in the Code Style section must pass
 5. One issue per PR
+6. **Issue write-ups belong in the PR description**, not in separate markdown files in the repo. The PR is the permanent home for the rationale, screenshots, benchmarks, and design decisions behind a change. Standalone `ISSUE-*.md` files go stale and confuse contributors
 
 ## Changelog
 
@@ -385,3 +426,4 @@ cargo test test_admin_cancel_campaign_succeeds_after_goal_met -- --nocapture 2>&
 - [Soroban Examples](https://github.com/stellar/soroban-examples) — reference implementations
 
 By contributing, your work falls under the MIT License.
+----

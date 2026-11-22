@@ -218,3 +218,38 @@ pub(crate) fn execute_emergency_withdrawal(
 
     Ok(())
 }
+
+/// Rescues stranded foreign tokens accidentally sent to the contract (#1037).
+///
+/// Only non-escrow tokens may be rescued: `token` must differ from the
+/// platform token and must not be on the campaign-currency allowlist
+/// (allowlisted tokens may be live campaign escrow). Contributor funds are
+/// never reachable via this path. Reuses `ValidationFailed` (error enum is
+/// at the 50-case XDR cap, so no new variant is introduced).
+pub(crate) fn rescue_stranded_tokens(
+    env: &Env,
+    admin: Address,
+    token: Address,
+    to: Address,
+    amount: i128,
+) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    if amount <= 0 {
+        return Err(Error::ValidationFailed);
+    }
+    if token == crate::storage::get_token(env) {
+        return Err(Error::ValidationFailed);
+    }
+    if crate::storage::is_token_allowed(env, &token) {
+        return Err(Error::ValidationFailed);
+    }
+    bump_instance_ttl(env);
+    soroban_sdk::token::Client::new(env, &token).transfer(
+        &env.current_contract_address(),
+        &to,
+        &amount,
+    );
+    env.events()
+        .publish(("stranded_tokens_rescued", token, to), amount);
+    Ok(())
+}

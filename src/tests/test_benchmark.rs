@@ -1,3 +1,5 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
 //! Performance Benchmarking & Gas Usage Metrics Report
 //!
@@ -36,6 +38,40 @@
 //! - `claim_revenue()`: 5M instructions (revenue calculation + token transfer)
 //! - `get_campaigns_by_category()`: 10M instructions (pagination + filtering)
 //! - `unpause()`: 1M instructions (simple state update, caught copy-paste regression in #1251)
+//!
+//! ## Measured Results (#1173)
+//!
+//! CPU instructions from `env.budget().cpu_instruction_cost()` in the test
+//! environment (soroban-sdk 22.0.11). Run
+//! `cargo test --features testutils test_batch_contribute -- --nocapture`
+//! to print the `bench ...` lines yourself.
+//!
+//! | Method | Scenario | CPU instructions | Limit |
+//! |--------|----------|------------------|-------|
+//! | `batch_contribute` | 1 campaign | ~984k | - |
+//! | `batch_contribute` | 4 campaigns (after #1172 hoisting) | ~2.93M (was ~2.94M) | 9M |
+//!
+//! The remaining per-method limits are the constants defined below; each test
+//! prints its measured cost next to its limit.
+//!
+//! ## Reproducing with the Soroban CLI
+//!
+//! ```text
+//! stellar contract build
+//! stellar contract invoke --id <CONTRACT_ID> --source <KEY> --network testnet \
+//!   --sim-only -- contribute --campaign_id 1 --contributor <ADDRESS> --amount 100
+//! ```
+//!
+//! `--sim-only` reports the simulated instruction and memory cost without
+//! submitting a transaction.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! test (setup_env) -> client.method() -> contract fn -> storage + token host calls
+//!                          |
+//!                  env.budget() <- CPU instructions asserted against *_CPU_LIMIT
+//! ```
 //!
 //! ## Interpreting Budget Failures
 //!
@@ -235,6 +271,7 @@ fn test_contribute_instruction_budget() {
 /// - Token transfer (creator withdrawal): ~500K instructions
 /// - Campaign state update: ~1M instructions
 /// - Global state update: ~500K instructions
+///
 /// Total: ~2.5M typical, with headroom for regression detection.
 #[test]
 fn test_withdraw_funds_instruction_budget() {
@@ -278,6 +315,7 @@ fn test_withdraw_funds_instruction_budget() {
 /// - Math is minimal (division, multiplication on i128)
 /// - Token transfer: ~500K instructions
 /// - Storage updates: ~1M instructions
+///
 /// Typical total: ~2M instructions with headroom.
 #[test]
 fn test_claim_revenue_instruction_budget() {
@@ -403,6 +441,7 @@ fn test_get_campaigns_by_category_bucketed_pagination_budget() {
 /// - Admin authorization: ~100K instructions
 /// - Instance storage write: ~50K instructions
 /// - Return value construction: ~10K instructions
+///
 /// Total: ~160K instructions (well under 1M limit)
 #[test]
 fn test_unpause_instruction_budget() {
@@ -720,4 +759,37 @@ fn test_platform_report_scan_is_bounded() {
         cpu < QUERY_REPORT_BOUNDED_CPU_LIMIT,
         "report scanned past MAX_STATS_SCAN: {cpu}"
     );
+}
+
+/// Benchmark test: `get_campaign_stats()` CPU instruction cost (#1178).
+///
+/// For an id that has never existed the query now loads the campaign once
+/// and returns zeroed stats without touching the contributor-count,
+/// top-contributor or last-contribution keys (their storage keys are only
+/// ever written alongside the campaign, so the reads were guaranteed to
+/// miss). Measured on the test host: 96,837 → 61,424 CPU instructions and
+/// 25,081 → 15,009 mem bytes for the missing-id path; the existing-campaign
+/// path also dropped slightly (129,150 → 126,749) when the identity
+/// `MaybePendingCreator` conversion was removed.
+#[test]
+fn test_campaign_stats_cpu_budget() {
+    let (env, _admin, creator, contributor1, _c2, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
+    let id = client.create_campaign(&plain_campaign(&env, creator.clone(), "Stats"));
+    client.verify_campaign(&id);
+    client.contribute(&id, &contributor1, &500);
+
+    // Missing campaign: one storage read (the campaign itself), not four.
+    env.budget().reset_default();
+    let missing = client.get_campaign_stats(&999);
+    assert_cpu_budget(&env, "get_campaign_stats() missing", 75_000);
+    assert_eq!(missing.contributor_count, 0);
+    assert_eq!(missing.avg_contribution, 0);
+
+    // Existing campaign: full stats for ~2x the missing path, not ~2.7x.
+    env.budget().reset_default();
+    let existing = client.get_campaign_stats(&id);
+    assert_cpu_budget(&env, "get_campaign_stats() existing", 140_000);
+    assert_eq!(existing.contributor_count, 1);
+    assert_eq!(existing.avg_contribution, 500);
 }

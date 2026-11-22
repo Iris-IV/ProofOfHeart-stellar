@@ -1,5 +1,6 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 extern crate alloc;
 use alloc::format;
 
@@ -12,7 +13,6 @@ fn test_list_campaigns_exclusive_cursor_semantics() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
     env.budget().reset_unlimited();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for i in 0..3 {
         let title_str = format!("Campaign {}", i);
         let id = client.create_campaign(&make_params(
@@ -492,7 +492,6 @@ fn test_platform_stats_after_withdrawal() {
 fn list_campaigns_boundary_cases() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = ["Campaign 1", "Campaign 2", "Campaign 3"];
     for idx in 0..3 {
         let title_str = format!("Campaign {}", idx);
         let id = client.create_campaign(&make_params(
@@ -529,13 +528,6 @@ fn list_campaigns_boundary_cases() {
 fn list_active_campaigns_boundary_cases_and_sparse_results() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
 
-    let titles = [
-        "Campaign 1",
-        "Campaign 2",
-        "Campaign 3",
-        "Campaign 4",
-        "Campaign 5",
-    ];
     for idx in 0..5 {
         let title_str = format!("Campaign {}", idx);
         let _ = client.create_campaign(&make_params(
@@ -588,7 +580,7 @@ fn minimal_campaign(env: &soroban_sdk::Env, id: u32, creator: &Address) -> Campa
         funding_goal: 1_000,
         deadline: 0,
         amount_raised: 0,
-        status: (if true { crate::types::CAMPAIGN_ACTIVE } else { 0 }) | (if false { crate::types::CAMPAIGN_SUCCEEDED } else { 0 }) | (if false { crate::types::CAMPAIGN_PAUSED } else { 0 }) | (if false { crate::types::CAMPAIGN_VALIDATED } else { 0 }),
+        status: crate::types::CAMPAIGN_ACTIVE,
         category: Category::Learner,
         has_revenue_sharing: false,
         revenue_share_percentage: 0,

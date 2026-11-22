@@ -1,8 +1,6 @@
 default: build
 
-.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help
-.PHONY: all build build-docker test wasm wasm-opt check-wasm clippy fmt fmt-check lint audit ci clean
-.PHONY: all build build-docker test wasm wasm-opt check-wasm clippy clippy-fix fmt fmt-check lint ci clean
+.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help wasm-opt
 
 CLIPPY_FLAGS ?= -D warnings
 
@@ -32,11 +30,12 @@ WASM_PATH = target/wasm32-unknown-unknown/release/proof_of_heart.wasm
 
 all: lint test
 
-build: wasm-opt
+build:
 	stellar contract build
+	@$(MAKE) wasm-opt
 
 build-docker:
-	docker run --rm -v $(PWD):/workspace -w /workspace stellar/rs-soroban-sdk:20.1.0 stellar contract build
+	docker run --rm -v $(PWD):/workspace -w /workspace stellar/rs-soroban-sdk:22.0.0 stellar contract build
 
 test:
 	cargo test --features testutils
@@ -89,7 +88,7 @@ clean:
 
 help:
 	@echo "Available targets:"
-	@echo "  build        - Build the Stellar contract WASM"
+	@echo "  build        - Build the Stellar contract WASM (wasm-opt runs after)"
 	@echo "  build-docker - Build via Docker (reproducible)"
 	@echo "  test         - Run unit tests"
 	@echo "  wasm         - Compile to wasm32-unknown-unknown"

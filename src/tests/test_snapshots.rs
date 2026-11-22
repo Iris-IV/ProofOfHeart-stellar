@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! Snapshot testing for contract state serialization and validation.
 //!
 //! These tests capture and validate the contract state against golden snapshot
@@ -7,10 +6,14 @@
 //! output matches the expected snapshot.
 
 use super::helpers::*;
-use crate::{storage, Category, CreateCampaignParams};
+use crate::{Category, CreateCampaignParams};
 use soroban_sdk::String;
 
-fn params(env: &soroban_sdk::Env, creator: &soroban_sdk::Address, title: &str) -> CreateCampaignParams {
+fn params(
+    env: &soroban_sdk::Env,
+    creator: &soroban_sdk::Address,
+    title: &str,
+) -> CreateCampaignParams {
     CreateCampaignParams {
         creator: creator.clone(),
         title: String::from_str(env, title),
@@ -31,7 +34,6 @@ fn params(env: &soroban_sdk::Env, creator: &soroban_sdk::Address, title: &str) -
 fn test_campaign_initial_state_snapshot() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
-    let title = String::from_str(&env, "Snapshot Test Campaign");
     let id = client.create_campaign(&params(&env, &creator, "Snapshot Test"));
 
     let campaign = client.get_campaign(&id);
@@ -108,7 +110,7 @@ fn test_multiple_contributions_state_snapshot() {
 /// and refund tracking correctly.
 #[test]
 fn test_cancelled_campaign_state_snapshot() {
-    let (env, _admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _platform, platform_admin, client) = setup_env();
 
     platform_admin.mint(&contributor1, &10_000);
     let id = client.create_campaign(&params(&env, &creator, "Cancelled"));
@@ -135,6 +137,8 @@ fn test_withdrawn_campaign_state_snapshot() {
     let id = client.create_campaign(&params(&env, &creator, "Withdrawn"));
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &4000);
+    client.contribute(&id, &contributor1, &1000);
+    advance_past_deadline(&env, &client, id);
 
     client.withdraw_funds(&id);
 
@@ -153,9 +157,9 @@ fn test_voting_state_snapshot() {
 
     token_admin.mint(&contributor1, &10_000);
     let id = client.create_campaign(&params(&env, &creator, "Voting"));
-    client.verify_campaign(&id);
 
     client.vote_on_campaign(&id, &contributor1, &true);
+    client.verify_campaign(&id);
 
     let approvals = client.get_approve_votes(&id);
     let rejections = client.get_reject_votes(&id);
@@ -171,6 +175,7 @@ fn test_revenue_sharing_campaign_state_snapshot() {
     let (env, _admin, creator, _, _, _token, _token_admin, client) = setup_env();
 
     let mut revenue_params = params(&env, &creator, "Revenue Sharing");
+    revenue_params.category = Category::EducationalStartup;
     revenue_params.has_revenue_sharing = true;
     revenue_params.revenue_share_percentage = 25;
 
@@ -186,19 +191,19 @@ fn test_revenue_sharing_campaign_state_snapshot() {
 /// cancellation validates state consistency.
 #[test]
 fn test_complex_lifecycle_state_snapshot() {
-    let (env, _admin, creator, contributor1, contributor2, platform, platform_admin, client) =
+    let (env, _admin, creator, contributor1, contributor2, _platform, platform_admin, client) =
         setup_env();
 
     platform_admin.mint(&contributor1, &10_000);
     platform_admin.mint(&contributor2, &10_000);
 
     let id = client.create_campaign(&params(&env, &creator, "Complex"));
+    client.vote_on_campaign(&id, &contributor1, &true);
+    client.vote_on_campaign(&id, &contributor2, &false);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &2000);
     client.contribute(&id, &contributor2, &1500);
-    client.vote_on_campaign(&id, &contributor1, &true);
-    client.vote_on_campaign(&id, &contributor2, &false);
 
     let campaign = client.get_campaign(&id);
 
@@ -230,7 +235,7 @@ fn test_campaign_counter_state_snapshot() {
 /// contributions and multiple refund transactions.
 #[test]
 fn test_refund_accounting_state_snapshot() {
-    let (env, _admin, creator, contributor1, contributor2, platform, platform_admin, client) =
+    let (env, _admin, creator, contributor1, contributor2, _platform, platform_admin, client) =
         setup_env();
 
     platform_admin.mint(&contributor1, &10_000);
@@ -240,7 +245,7 @@ fn test_refund_accounting_state_snapshot() {
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &3000);
-    client.contribute(&id, &contributor2, &2000);
+    client.contribute(&id, &contributor2, &1500);
 
     client.cancel_campaign(&id);
     client.claim_refund(&id, &contributor1);
@@ -248,16 +253,17 @@ fn test_refund_accounting_state_snapshot() {
     let campaign = client.get_campaign(&id);
 
     assert!(campaign.is_cancelled());
-    assert_eq!(campaign.amount_raised, 5000);
-    // Refunds reduce effective_amount_raised: 5000 raised - 3000 refunded.
-    assert_eq!(campaign.effective_amount_raised, 2000);
+    assert_eq!(campaign.amount_raised, 4500);
+    // Refunds reduce effective_amount_raised: 4500 raised - 3000 refunded.
+    assert_eq!(campaign.effective_amount_raised, 1500);
 }
 
 /// Test: Batch contribution state preserves individual campaign amounts
 /// and aggregate contract balance across multiple tokens.
 #[test]
 fn test_batch_contribution_state_snapshot() {
-    let (env, _admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
+    let (env, _admin, creator, contributor1, _, _token, token_admin, client) = setup_env();
+    token_admin.mint(&contributor1, &10_000);
 
     let id1 = client.create_campaign(&params(&env, &creator, "Batch 1"));
     let id2 = client.create_campaign(&params(&env, &creator, "Batch 2"));

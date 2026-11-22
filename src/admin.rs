@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 //! # Admin trust model (#810)
 //!
 //! A single admin key controls sensitive operations: `update_platform_fee`,
@@ -35,6 +34,64 @@ use crate::storage::{
 };
 use crate::voting;
 
+// ---------------------------------------------------------------------------
+// Security validation helpers (#993)
+//
+// These functions encapsulate access control and parameter validation checks
+// that must hold across all admin operations. Centralizing them here ensures
+// security invariants are enforced consistently and auditable in one place.
+// ---------------------------------------------------------------------------
+
+/// Validates that an address list contains no duplicates.
+///
+/// Duplicate addresses in emergency pause signers or governance committees
+/// would allow a single party to meet quorum requirements alone, defeating
+/// the purpose of multi-party authorization.
+///
+/// Returns `Error::ValidationFailed` when duplicates are found.
+#[inline]
+fn validate_unique_addresses(addresses: &Vec<Address>) -> Result<(), Error> {
+    for i in 0..addresses.len() {
+        for j in (i + 1)..addresses.len() {
+            if addresses.get_unchecked(i) == addresses.get_unchecked(j) {
+                return Err(Error::ValidationFailed);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validates that a quorum value is within acceptable bounds.
+///
+/// A quorum of 0 would allow actions with no votes, defeating governance.
+/// A quorum above a reasonable maximum (e.g., 1000) could make the system
+/// ungovernable by setting an unachievable threshold.
+///
+/// Returns `Error::ValidationFailed` for out-of-bounds quorums.
+#[inline]
+fn validate_quorum_bounds(quorum: u32) -> Result<(), Error> {
+    const MAX_REASONABLE_QUORUM: u32 = 1000;
+    if quorum == 0 || quorum > MAX_REASONABLE_QUORUM {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
+/// Validates that a percentage (in basis points) does not exceed 100%.
+///
+/// Many operations express percentages as basis points (1 bps = 0.01%).
+/// A value above 10,000 bps (100%) would represent an invalid percentage
+/// and could cause arithmetic overflow or underflow in downstream calculations.
+///
+/// Returns `Error::ValidationFailed` for values > 10,000.
+#[inline]
+fn validate_bps_percentage(bps: u32) -> Result<(), Error> {
+    if bps > 10_000 {
+        return Err(Error::ValidationFailed);
+    }
+    Ok(())
+}
+
 pub(crate) fn init(
     env: &Env,
     admin: Address,
@@ -46,9 +103,6 @@ pub(crate) fn init(
     }
     admin.require_auth();
 
-    if platform_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS {
-        return Err(Error::InvalidPlatformFee);
-    }
     if platform_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
@@ -118,6 +172,9 @@ pub(crate) fn set_emergency_pause_signers(
     if signers.is_empty() {
         return Err(Error::ValidationFailed);
     }
+    // #993 — Prevent a single signer from appearing multiple times, which would
+    // defeat multi-party authorization by allowing one address to meet quorum alone.
+    validate_unique_addresses(&signers)?;
     // No require_not_paused: admin must be able to configure signers even during pause (#785).
     bump_instance_ttl(env);
     storage::set_emergency_pause_signers(env, &signers);
@@ -174,6 +231,10 @@ pub(crate) fn set_voting_params(
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
     ensure_admin!(env, &admin);
+    // #993 — Validate quorum and threshold before applying them to prevent
+    // ungovernable states (quorum = 0 or impossibly high) or invalid percentages.
+    validate_quorum_bounds(min_votes_quorum)?;
+    validate_bps_percentage(approval_threshold_bps)?;
     // No require_not_paused: admin must be able to adjust voting parameters during pause (#388).
     bump_instance_ttl(env);
     let old_quorum = get_min_votes_quorum(env, voting::DEFAULT_MIN_VOTES_QUORUM);
@@ -224,24 +285,12 @@ pub(crate) fn set_min_voting_balance_fn(
 }
 
 pub(crate) fn update_platform_fee(env: &Env, new_fee: u32) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
+    ensure_admin!(env);
     // No require_not_paused: admin must be able to adjust fees during an emergency pause (#388).
-    // Two bounds, deliberately, though only the tighter one can currently
-    // reject (#793):
-    //
-    //   * `PLATFORM_FEE_ABSOLUTE_MAX_BPS` (10000 = 100%) is a correctness
-    //     bound. The basis-point formula in `withdraw_funds` computes
-    //     `amount_raised * fee / 10000`; a fee above the denominator would
-    //     make the platform's cut exceed what was raised and drive
-    //     `total_after_fee` negative.
-    //   * `PLATFORM_FEE_MAX_BPS` (1000 = 10%) is the policy bound — what the
-    //     platform promises creators it will never charge more than.
-    //
-    // Policy is stricter than correctness today, so the absolute check is
-    // unreachable. It is kept and checked first anyway: it is the invariant
-    // the arithmetic depends on, and someone raising the policy ceiling must
-    // not be able to breach it by editing one constant.
-    if new_fee > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || new_fee > crate::PLATFORM_FEE_MAX_BPS {
+    // `PLATFORM_FEE_MAX_BPS` (10%) is the single bound. It is far below
+    // `BPS_DENOMINATOR`, so it also guarantees the fee formula in
+    // `withdraw_funds` cannot exceed the amount raised.
+    if new_fee > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
     let old_fee = get_platform_fee(env);
@@ -279,14 +328,9 @@ pub(crate) fn set_campaign_fee_override(
     ensure_admin!(env, &admin);
     // No require_not_paused: per-campaign fee overrides are admin governance (#388).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
-    // Same two bounds as `update_platform_fee` (#793, #799). A per-campaign
-    // override is still a platform fee and must not be a way around either
-    // the arithmetic limit (fee > 10000 bps would make the platform's cut in
-    // `withdraw_funds` exceed the amount raised and drain the campaign) or the
-    // policy ceiling. Returns the same `InvalidPlatformFee` as
-    // `update_platform_fee` so callers see one consistent error for an
-    // out-of-range fee regardless of which setter they used.
-    if fee_bps > crate::PLATFORM_FEE_ABSOLUTE_MAX_BPS || fee_bps > crate::PLATFORM_FEE_MAX_BPS {
+    // Same bound as `update_platform_fee` (#793, #799): a per-campaign override
+    // is still a platform fee, and returns the same `InvalidPlatformFee`.
+    if fee_bps > crate::PLATFORM_FEE_MAX_BPS {
         return Err(Error::InvalidPlatformFee);
     }
     bump_instance_ttl(env);
@@ -428,7 +472,7 @@ pub(crate) fn propose_token_update(
     // current one. Accepting such a proposal would start a pointless timelock
     // and emit a misleading `token_update_proposed` event.
     if new_token == get_token(env) {
-        return Err(Error::ValidationFailed);
+        return Err(Error::SameToken);
     }
 
     env.try_invoke_contract::<u32, Error>(
@@ -458,11 +502,14 @@ pub(crate) fn propose_token_update(
 /// All existing campaigns must reach a terminal state (withdrawn or cancelled)
 /// before the token address can change, preventing stranded balances.
 pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error> {
+    assert_admin(env, &admin)?;
+    let new_token = get_pending_token(env).ok_or(Error::NoPendingTokenUpdate)?;
+    let release_after = get_pending_token_release(env).ok_or(Error::NoPendingTokenUpdate)?;
     ensure_admin!(env, &admin);
     let new_token = get_pending_token(env).ok_or(Error::ValidationFailed)?;
     let release_after = get_pending_token_release(env).ok_or(Error::ValidationFailed)?;
     if env.ledger().timestamp() < release_after {
-        return Err(Error::ValidationFailed);
+        return Err(Error::TimelockNotElapsed);
     }
 
     // Block the swap while any campaign is still active OR any contributor
@@ -474,7 +521,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
     // Gating on the outstanding balance closes that window. Vesting reserves are
     // likewise tracked in `total_raised_global` until released.
     if get_active_campaign_count(env) > 0 || get_total_raised_global(env) != 0 {
-        return Err(Error::ValidationFailed);
+        return Err(Error::TokenUpdateBlocked);
     }
 
     bump_instance_ttl(env);
@@ -489,7 +536,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error> {
     ensure_admin!(env, &admin);
     if get_pending_token(env).is_none() {
-        return Err(Error::ValidationFailed);
+        return Err(Error::NoPendingTokenUpdate);
     }
     bump_instance_ttl(env);
     remove_pending_token(env);
@@ -581,7 +628,7 @@ pub(crate) fn purge_voting_state(
     voters: Vec<Address>,
     finalize_aggregate: bool,
 ) -> Result<(), Error> {
-    let admin = ensure_admin!(env);
+    ensure_admin!(env);
 
     let campaign = get_campaign_or_error(env, campaign_id)?;
     if !campaign.funds_withdrawn() && !campaign.is_cancelled() {
@@ -695,5 +742,32 @@ mod tests {
         // authorized signer succeeds
         client.emergency_pause(&signer);
         assert!(client.is_paused());
+    }
+
+    /// #965: every governance entrypoint in this module must perform an
+    /// explicit auth check (`ensure_admin!`, `require_auth`, or the legacy
+    /// `assert_admin`) before touching privileged state. This catches future
+    /// additions that forget the guard.
+    #[test]
+    fn test_every_admin_entrypoint_has_explicit_auth() {
+        let source = include_str!("admin.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let mut checked = 0u32;
+
+        for chunk in production.split("pub(crate) fn ").skip(1) {
+            let name = chunk.split('(').next().unwrap_or("<unknown>");
+            assert!(
+                chunk.contains("ensure_admin!")
+                    || chunk.contains("require_auth")
+                    || chunk.contains("assert_admin"),
+                "admin entrypoint `{name}` is missing an explicit authorization check (#965)"
+            );
+            checked += 1;
+        }
+
+        assert!(
+            checked >= 20,
+            "expected the admin entrypoint scan to cover the module"
+        );
     }
 }

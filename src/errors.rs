@@ -25,7 +25,7 @@
 //! **Codes are stable.** Discriminants are part of the public ABI (indexers,
 //! frontends and SDK bindings match on the number). They are assigned
 //! explicitly, never resequenced, and a removed variant's number is retired:
-//! **`#35` is retired and must not be reused.** The enum is capped at 50
+//! **`#21` and `#35` are retired and must not be reused.** The enum is capped at 50
 //! cases by Soroban's contract-spec XDR (see the note on [`Error`]).
 //!
 //! ## Taxonomy
@@ -49,7 +49,6 @@
 //!
 //! | Code | Variant | Meaning | Raised in |
 //! |---:|---|---|---|
-//! | 21 | `NotPendingOwner` | Reserved: caller is not the pending creator (not currently returned by any entry point) | — |
 //! | 22 | `NoTransferPending` | Accept/cancel with no transfer in flight | `admin`, `campaigns/transfer` |
 //! | 23 | `InvalidNewOwner` | New owner equals the current one | `admin`, `campaigns/transfer` |
 //! | 40 | `TransferAlreadyPending` | A campaign transfer is already pending | `campaigns/transfer` |
@@ -132,7 +131,7 @@
 //! |---:|---|---|---|
 //! | 15 | `ValidationFailed` | Catch-all input/constraint violation | most modules |
 //! | 30 | `Overflow` | Checked arithmetic overflowed | most state-changing modules |
-//! | 51 | `InvariantBroken` | Internal invariant violated (state corruption or bug) — report it | `storage` |
+//! | 51 | `InvariantBroken` | Internal invariant violated (counter inconsistency or state corruption) — report it | `queries` |
 //!
 //! ## Handling errors
 //!
@@ -225,12 +224,10 @@ pub enum Error {
     // ── Initialization / transfer ───────────────────────────────────────────
     /// The contract has already been initialized.
     AlreadyInitialized = 20,
-    /// The caller is not the pending creator.
-    ///
-    /// Reserved: no entry point currently returns this code (pending-transfer
-    /// checks report `NotAuthorized` / `NoTransferPending`). Kept so `#21`
-    /// stays allocated and is never reused for a different meaning.
-    NotPendingOwner = 21,
+    // `#21` (NotPendingOwner) is retired — never returned by any entry point; freed for the
+    // token-update variants below (#1532). Do not reuse discriminant 21.
+    // `#21` (formerly `NotPendingOwner`, never returned by any entry point)
+    // is retired to keep the enum within the 50-case spec limit. Do not reuse.
     /// No ownership transfer is currently pending.
     NoTransferPending = 22,
     /// The new owner address is invalid (e.g., same as current).
@@ -266,6 +263,10 @@ pub enum Error {
     // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
+    /// `propose_token_update` was called with a token address identical to the one already in use.
+    SameToken = 35,
+    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
+    RefundNotAvailable = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
@@ -295,6 +296,15 @@ pub enum Error {
     MilestoneAlreadyClaimed = 50,
     /// An invariant condition has been violated (state corruption or bug).
     InvariantBroken = 51,
+    /// `accept_token_update` or `cancel_token_update` was called with no pending token update.
+    NoPendingTokenUpdate = 52,
+    /// `accept_token_update` was called before the mandatory timelock has elapsed.
+    TimelockNotElapsed = 53,
+    /// `accept_token_update` was blocked because active campaigns or outstanding balances still
+    /// reference the current token.
+    TokenUpdateBlocked = 54,
+    /// The campaign has reached or exceeded its funding goal.
+    FundingGoalReached = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -341,7 +351,6 @@ impl Error {
                 VotingQuorumNotMet,
                 VotingThresholdNotMet,
                 AlreadyInitialized,
-                NotPendingOwner,
                 NoTransferPending,
                 InvalidNewOwner,
                 ContractPaused,
@@ -355,6 +364,8 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
+                SameToken,
+                RefundNotAvailable,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
@@ -371,6 +382,10 @@ impl Error {
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
                 InvariantBroken,
+                NoPendingTokenUpdate,
+                TimelockNotElapsed,
+                TokenUpdateBlocked,
+                FundingGoalReached,
             ]
         )
     }
@@ -437,7 +452,6 @@ mod tests {
             "VotingThresholdNotMet"
         );
         assert_eq!(Error::AlreadyInitialized.to_string(), "AlreadyInitialized");
-        assert_eq!(Error::NotPendingOwner.to_string(), "NotPendingOwner");
         assert_eq!(Error::NoTransferPending.to_string(), "NoTransferPending");
         assert_eq!(Error::InvalidNewOwner.to_string(), "InvalidNewOwner");
         assert_eq!(Error::ContractPaused.to_string(), "ContractPaused");
@@ -468,6 +482,10 @@ mod tests {
         assert_eq!(
             Error::VerificationConflict.to_string(),
             "VerificationConflict"
+        );
+        assert_eq!(
+            Error::RefundNotAvailable.to_string(),
+            "RefundNotAvailable"
         );
         assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
@@ -518,6 +536,19 @@ mod tests {
             "MilestoneAlreadyClaimed"
         );
         assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
+        assert_eq!(Error::SameToken.to_string(), "SameToken");
+        assert_eq!(
+            Error::NoPendingTokenUpdate.to_string(),
+            "NoPendingTokenUpdate"
+        );
+        assert_eq!(
+            Error::TimelockNotElapsed.to_string(),
+            "TimelockNotElapsed"
+        );
+        assert_eq!(
+            Error::TokenUpdateBlocked.to_string(),
+            "TokenUpdateBlocked"
+        );
     }
 
     #[test]
@@ -559,14 +590,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 50 (Soroban's XDR cap for
-    /// `ScSpecUDTErrorEnumV0.cases`). If this creeps back up, `cargo build`
-    /// itself will fail with `#[contracterror] ... LengthExceedsMax` before
-    /// this test ever runs — this assertion just documents why.
+    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
+    /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
+    /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, minus the freed discriminant 35.
-        const CASES: u32 = 50;
-        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
+        const CASES: u32 = 51;
+        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
     }
 }

@@ -36,22 +36,30 @@ contract uses no temporary storage, so nothing is deleted outright when it
 expires; it is archived and can be restored.
 
 **Writes extend TTL automatically.** Persistent entries are written through the
-`persistent_set!` macro, which extends the entry both before and after the
-write, so a setter cannot forget the bump:
+`persistent_set!` macro, which writes the entry and then extends its TTL, so a
+setter cannot forget the bump. The macro converts the key and value to `Val`s
+once and delegates to a single non-inlined helper, keeping the WASM small:
 
 ```rust
 macro_rules! persistent_set {
     ($env:expr, $key:expr, $value:expr) => {{
-        let key = $key;
-        let storage = $env.storage().persistent();
-        if storage.has(&key) {
-            storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
-        }
-        storage.set(&key, $value);
-        storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        let env: &Env = $env;
+        set_persistent_val(env, $key.into_val(env), $value.into_val(env));
     }};
 }
+
+#[inline(never)]
+fn set_persistent_val(env: &Env, key: Val, value: Val) {
+    let storage = env.storage().persistent();
+    storage.set(&key, &value);
+    storage.extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+}
 ```
+
+Reads that refresh TTL go through `get_persistent_bumped`, which extends the
+entry only after a successful `get` (no extra `has()` probe). Bump-only paths
+use `bump_persistent_if_present`, which keeps the `has()` check because the
+host errors when extending a missing entry.
 
 Instance storage (admin, paused flag, counters and other platform config) is
 extended by `bump_instance_ttl`, which state-changing entrypoints call:

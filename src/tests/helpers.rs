@@ -1,4 +1,6 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use, deprecated)]
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
+#![allow(deprecated)]
 extern crate std;
 
 pub use crate::storage::set_min_campaign_funding_goal;
@@ -10,37 +12,7 @@ pub use soroban_sdk::{
     Address, Env, IntoVal, String,
 };
 
-pub(crate) fn advance_ledger(env: &Env, ledgers: u32) {
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: env.ledger().timestamp(),
-        protocol_version: 22,
-        sequence_number: env.ledger().sequence() + ledgers,
-        network_id: [0; 32],
-        base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 10,
-    });
-}
-
-pub(crate) fn set_ledger_timestamp(env: &Env, timestamp: u64) {
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp,
-        protocol_version: 22,
-        sequence_number: env.ledger().sequence(),
-        network_id: [0; 32],
-        base_reserve: 10,
-        min_temp_entry_ttl: 10,
-        min_persistent_entry_ttl: 10,
-        max_entry_ttl: 10,
-    });
-}
-
-pub(crate) fn advance_days(env: &Env, days: u64) {
-    let new_timestamp = env.ledger().timestamp() + days * 86400;
-    set_ledger_timestamp(env, new_timestamp);
-}
-
+// Mirrors every CreateCampaignParams field positionally; used by most tests.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn make_params(
     creator: Address,
@@ -123,51 +95,6 @@ pub(crate) fn setup_env<'a>() -> (
     setup
 }
 
-pub(crate) fn setup_env_with_version<'a>(version: u32) -> (
-    Env,
-    Address,
-    Address,
-    Address,
-    Address,
-    TokenClient<'a>,
-    TokenAdminClient<'a>,
-    ProofOfHeartClient<'a>,
-) {
-    let env = Env::default();
-    env.mock_all_auths();
-    env.mock_all_auths_allowing_non_root_auth();
-
-    let admin = Address::generate(&env);
-    let creator = Address::generate(&env);
-    let contributor1 = Address::generate(&env);
-    let contributor2 = Address::generate(&env);
-
-    let token_address = env.register_stellar_asset_contract(admin.clone());
-    let token = TokenClient::new(&env, &token_address);
-    let token_admin = TokenAdminClient::new(&env, &token_address);
-
-    let contract_id = env.register_contract(None, ProofOfHeart);
-    let client = ProofOfHeartClient::new(&env, &contract_id);
-
-    client.init(&admin, &token_address, &300);
-
-    env.as_contract(&client.address, || {
-        crate::storage::set_version(&env, version);
-        set_min_campaign_funding_goal(&env, 1);
-    });
-
-    (
-        env,
-        admin,
-        creator,
-        contributor1,
-        contributor2,
-        token,
-        token_admin,
-        client,
-    )
-}
-
 pub(crate) fn setup_token<'a>(env: &Env, admin: &Address) -> TokenClient<'a> {
     let token_address = env.register_stellar_asset_contract(admin.clone());
     TokenClient::new(env, &token_address)
@@ -182,4 +109,49 @@ pub(crate) fn setup_contract<'a>(
     let client = ProofOfHeartClient::new(env, &contract_id);
     client.init(admin, token_address, &300);
     client
+}
+
+/// Advances the ledger past `campaign_id`'s deadline, then calls
+/// `withdraw_funds`.  Use this in tests that need a withdrawn campaign: a
+/// plain `withdraw_funds` call fails with `DeadlineNotPassed` since #854.
+pub(crate) fn withdraw_after_deadline(
+    env: &Env,
+    client: &ProofOfHeartClient<'_>,
+    campaign_id: u32,
+) {
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: deadline + 1,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence(),
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 10,
+        min_persistent_entry_ttl: 10,
+        max_entry_ttl: 10,
+    });
+    client.withdraw_funds(&campaign_id);
+}
+
+/// Moves the ledger timestamp to `campaign.deadline + 1` (#854 / #1320).
+///
+/// `withdraw_funds` only succeeds once the funding window has closed, so any
+/// test exercising the withdrawal (or post-deadline) path must first move time
+/// past the campaign deadline. The deadline is read through the contract's
+/// own `get_campaign` view, so no direct storage access (and therefore no
+/// `as_contract` wrap) is needed.
+pub(crate) fn advance_past_deadline(env: &Env, client: &ProofOfHeartClient<'_>, campaign_id: u32) {
+    let deadline = client.get_campaign(&campaign_id).deadline;
+    env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+}
+
+/// Wraps direct storage / TTL / event reads in contract context (#1338).
+///
+/// Under soroban-sdk 22, `env.storage()`, `env.budget()` TTL queries and
+/// `env.events().all()` executed from a bare test (outside any contract
+/// invocation) fail with `Error(Storage, InternalError)` or silently return
+/// empty results. Every such read must run inside `env.as_contract`; this
+/// helper names that intent at the call site.
+pub(crate) fn with_contract<T>(env: &Env, contract: &Address, f: impl FnOnce() -> T) -> T {
+    env.as_contract(contract, f)
 }

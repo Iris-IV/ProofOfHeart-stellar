@@ -1,9 +1,11 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 #![no_std]
-#![allow(unexpected_cfgs)]
 
 /// Current contract version. Increment this on each breaking upgrade.
-const CONTRACT_VERSION: u32 = 1;
+/// v1 → v2: Breaking storage and struct changes
+///   - Campaign gained status bitfield, pending_creator_expiry, effective_amount_raised
+///   - New storage keys introduced
+///   - Event payloads changed
+const CONTRACT_VERSION: u32 = 2;
 
 // Validation limit constants
 pub(crate) const CAMPAIGN_TITLE_MIN_LEN: u32 = 1;
@@ -22,7 +24,6 @@ pub(crate) const CAMPAIGN_EXTENSION_MAX_DAYS: u64 = 365;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MIN: i128 = 100_000;
 pub(crate) const CAMPAIGN_FUNDING_GOAL_MAX: i128 = 1_000_000_000_000_000; // 10^15
 pub(crate) const PLATFORM_FEE_MAX_BPS: u32 = 1000; // 10%
-pub(crate) const PLATFORM_FEE_ABSOLUTE_MAX_BPS: u32 = BPS_DENOMINATOR; // 100% — hard limit, basis-point formula requires fee <= BPS_DENOMINATOR
 pub(crate) const REVENUE_SHARE_MAX_BPS: u32 = 5000; // 50%
 pub(crate) const AUTO_PAUSE_SINGLE_CONTRIBUTION_BPS_THRESHOLD: i128 = 20000;
 pub(crate) const AUTO_PAUSE_BURST_THRESHOLD: u32 = 10;
@@ -96,7 +97,6 @@ impl ProofOfHeart {
     /// Reverts if the contract is paused, campaign creation is disabled, or any
     /// field in `params` fails validation (title/description length, funding-goal
     /// bounds, duration and category caps).
-    #[allow(clippy::too_many_arguments)]
     pub fn create_campaign(env: Env, params: CreateCampaignParams) -> Result<u32, Error> {
         let id = campaigns::create::create_campaign(&env, params)?;
         increment_active_campaign_count(&env);
@@ -256,6 +256,20 @@ impl ProofOfHeart {
         storage::get_emergency_withdrawal(&env, campaign_id)
     }
 
+    /// Admin: rescues stranded foreign tokens accidentally sent to the
+    /// contract (#1037). Only non-escrow tokens may be rescued: `token` must
+    /// differ from the platform token and must not be on the campaign-currency
+    /// allowlist. Emits `stranded_tokens_rescued`.
+    pub fn rescue_stranded_tokens(
+        env: Env,
+        admin: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        campaigns::emergency::rescue_stranded_tokens(&env, admin, token, to, amount)
+    }
+
     // ── Milestone-based withdrawals (#783) ─────────────────────────────────────
 
     /// Creator: defines the milestone schedule for `campaign_id`, splitting its
@@ -278,6 +292,35 @@ impl ProofOfHeart {
         milestone_id: u32,
     ) -> Result<(), Error> {
         milestones::verify_milestone(&env, admin, campaign_id, milestone_id)
+    }
+
+    /// Admin: verifies all milestones for `campaign_id` in one call (#1043).
+    ///
+    /// Intended for verified non-profit creator accounts where per-milestone
+    /// review is not required. Already-verified milestones are skipped.
+    /// Returns the count of milestones newly verified.
+    ///
+    /// # Errors
+    /// * `NotAuthorized`     — Caller is not the stored admin.
+    /// * `ContractPaused`    — The contract is paused.
+    /// * `CampaignNotFound`  — No campaign with that id.
+    /// * `CampaignNotActive` — The campaign is cancelled.
+    /// * `MilestoneNotFound` — No milestone plan has been set.
+    pub fn batch_verify_milestones(
+        env: Env,
+        admin: Address,
+        campaign_id: u32,
+    ) -> Result<u32, Error> {
+        milestones::batch_verify_milestones(&env, admin, campaign_id)
+    }
+
+    /// Extends the TTL of all core persistent storage keys for a campaign in
+    /// one call (#1062). Useful as a keep-alive for long-running active
+    /// campaigns whose entries might otherwise expire between user activity.
+    /// Instance-storage entries are not touched here; call the standard
+    /// `bump_instance_ttl` for those.
+    pub fn bump_campaign_state(env: Env, campaign_id: u32) {
+        storage::bump_all_campaign_state(&env, campaign_id);
     }
 
     /// Creator: withdraws the tranche for a verified milestone. Reverts if the
@@ -306,6 +349,32 @@ impl ProofOfHeart {
     /// `admin_cancel_campaign` for fraud response instead.
     pub fn cancel_campaign(env: Env, campaign_id: u32) -> Result<(), Error> {
         campaigns::cancel::cancel_campaign(&env, campaign_id)
+    }
+
+    /// Admin: sets the voluntary-cancellation penalty in basis points
+    /// (max 500 = 5%, 0 disables, #1052). Charged creator -> admin on
+    /// `cancel_campaign`; contributor refunds are unaffected.
+    pub fn set_cancellation_penalty_bps(
+        env: Env,
+        admin: Address,
+        penalty_bps: u32,
+    ) -> Result<(), Error> {
+        lifecycle::assert_admin(&env, &admin)?;
+        campaigns::cancel::validate_penalty_bps(penalty_bps)?;
+        bump_instance_ttl(&env);
+        let old = storage::get_cancellation_penalty_bps(&env);
+        storage::set_cancellation_penalty_bps(&env, penalty_bps);
+        lifecycle::emit_event!(
+            env,
+            ("cancellation_penalty_updated", admin),
+            (old, penalty_bps)
+        );
+        Ok(())
+    }
+
+    /// Returns the voluntary-cancellation penalty in basis points (#1052).
+    pub fn get_cancellation_penalty_bps(env: Env) -> u32 {
+        storage::get_cancellation_penalty_bps(&env)
     }
 
     /// Admin-only targeted fraud response: cancels a single campaign without
@@ -343,6 +412,15 @@ impl ProofOfHeart {
         campaigns::update::update_campaign_description(&env, campaign_id, description)
     }
 
+    /// Creator: adds a discovery tag to an active campaign and indexes the
+    /// campaign under it (#798). Tags are append-only. Reverts if paused, the
+    /// campaign is not active, or the tag is empty, longer than
+    /// `CAMPAIGN_TAG_MAX_LEN`, a duplicate, or would exceed
+    /// `MAX_TAGS_PER_CAMPAIGN`. Emits `campaign_tag_added`.
+    pub fn add_campaign_tag(env: Env, campaign_id: u32, tag: String) -> Result<(), Error> {
+        tags::add_campaign_tag(&env, campaign_id, tag)
+    }
+
     /// Creator: pushes an active campaign's deadline out by `additional_days`.
     /// A campaign may be extended at most once and only before its deadline
     /// passes.
@@ -356,6 +434,21 @@ impl ProofOfHeart {
         additional_days: u64,
     ) -> Result<(), Error> {
         campaigns::update::extend_campaign_deadline(&env, campaign_id, additional_days)
+    }
+
+    /// Records a cryptographic proof-of-impact hash submitted by an authorized verifier.
+    pub fn record_proof_of_impact(
+        env: Env,
+        campaign_id: u32,
+        verifier: Address,
+        proof_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        campaigns::update::record_proof_of_impact(&env, campaign_id, verifier, proof_hash)
+    }
+
+    /// Returns the recorded proof of impact for a campaign, if one exists.
+    pub fn get_proof_of_impact(env: Env, campaign_id: u32) -> Option<ProofOfImpact> {
+        campaigns::update::get_proof_of_impact(&env, campaign_id)
     }
 
     // ── Campaign ownership transfer ───────────────────────────────────────────
@@ -424,6 +517,11 @@ impl ProofOfHeart {
         revenue::claim_creator_revenue(&env, campaign_id)
     }
 
+    /// Returns the isolated creator revenue bucket balance for a campaign.
+    pub fn get_creator_bucket_balance(env: Env, campaign_id: u32, creator: Address) -> i128 {
+        revenue::get_creator_bucket(&env, campaign_id, creator)
+    }
+
     // ── Voting & verification ─────────────────────────────────────────────────
 
     /// Casts `voter`'s approve/reject vote on an unverified campaign. Requires
@@ -447,6 +545,66 @@ impl ProofOfHeart {
         lifecycle::require_not_paused(&env)?;
         bump_instance_ttl(&env);
         voting::cast_vote(&env, campaign_id, voter, approve)
+    }
+
+    /// Returns a voter's dynamic voting weight for a campaign: platform-token
+    /// balance plus cumulative donor history (#1054). Informational ranking
+    /// signal; consensus stays 1-address-1-vote (#469).
+    pub fn get_dynamic_voting_weight(env: Env, campaign_id: u32, voter: Address) -> i128 {
+        voting::get_dynamic_voting_weight(&env, campaign_id, &voter)
+    }
+
+    /// Returns a donor's cumulative contributions across all campaigns (#1054).
+    pub fn get_donor_total_contributed(env: Env, donor: Address) -> i128 {
+        storage::get_donor_total_contributed(&env, &donor)
+    }
+
+    /// Delegates the caller's voting rights to a designated community delegate.
+    pub fn delegate_votes(env: Env, delegator: Address, delegate: Address) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::delegate_votes(&env, delegator, delegate)
+    }
+
+    /// Revokes an existing vote delegation.
+    pub fn undelegate_votes(env: Env, delegator: Address) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::undelegate_votes(&env, delegator)
+    }
+
+    /// Returns the active delegate for a given delegator, if one has been assigned.
+    pub fn get_delegate(env: Env, delegator: Address) -> Option<Address> {
+        voting::get_delegate(&env, delegator)
+    }
+
+    /// Returns the `(balance, ledger_sequence)` snapshotted when `voter` cast
+    /// their vote on `campaign_id` (#967). `None` if the voter has not voted.
+    pub fn get_voter_balance_snapshot(
+        env: Env,
+        campaign_id: u32,
+        voter: Address,
+    ) -> Option<(i128, u32)> {
+        storage::get_voter_balance_snapshot(&env, campaign_id, &voter)
+    }
+
+    /// Returns the ledger sequence at which voting on `campaign_id` was
+    /// initiated, or `None` if no vote has been cast (#967).
+    pub fn get_vote_snapshot_ledger(env: Env, campaign_id: u32) -> Option<u32> {
+        storage::get_vote_snapshot_ledger(&env, campaign_id)
+    }
+
+    /// Casts a vote on behalf of a delegator who delegated their voting rights to the caller.
+    pub fn cast_delegated_vote(
+        env: Env,
+        campaign_id: u32,
+        delegate: Address,
+        delegator: Address,
+        approve: bool,
+    ) -> Result<(), Error> {
+        lifecycle::require_not_paused(&env)?;
+        bump_instance_ttl(&env);
+        voting::cast_delegated_vote(&env, campaign_id, delegate, delegator, approve)
     }
 
     /// Admin: verifies `campaign_id` directly, bypassing community voting.
@@ -862,9 +1020,41 @@ impl ProofOfHeart {
         get_campaign_count(&env)
     }
 
-    /// Returns the total amount raised across all campaigns.
+    /// Checks settlement status for a campaign (#1027).
+    ///
+    /// Returns `(deadline_passed, goal_met, ready_for_withdrawal)` to help
+    /// external systems determine if a campaign needs settlement action:
+    /// - `deadline_passed`: true if current timestamp > campaign.deadline
+    /// - `goal_met`: true if amount_raised >= funding_goal
+    /// - `ready_for_withdrawal`: true if verified, goal met, deadline passed,
+    ///   and not yet withdrawn
+    ///
+    /// Background keepers can call this for active campaigns to find ones
+    /// ready for auto-settlement. Campaigns with `deadline_passed && goal_met`
+    /// have succeeded and can be withdrawn; those with `deadline_passed &&
+    /// !goal_met` have expired and contributors can claim refunds.
+    ///
+    /// # Errors
+    /// * `CampaignNotFound` — No campaign with that id.
+    pub fn check_settlement_status(
+        env: Env,
+        campaign_id: u32,
+    ) -> Result<(bool, bool, bool), Error> {
+        lifecycle::check_settlement_status(&env, campaign_id)
+    }
+
+    /// Returns the total amount raised across all campaigns denominated in the
+    /// platform token. For multi-token platforms use `get_total_raised_by_token`
+    /// to query per-currency totals (#1438).
     pub fn get_total_raised_global(env: Env) -> i128 {
         get_total_raised_global(&env)
+    }
+
+    /// Returns the total amount raised for a specific token across all
+    /// campaigns (#1438). Use this instead of `get_total_raised_global` on
+    /// multi-token platforms to avoid summing incompatible currencies.
+    pub fn get_total_raised_by_token(env: Env, token: Address) -> i128 {
+        storage::get_total_raised_by_token(&env, &token)
     }
 
     /// Returns the number of distinct contributors to `campaign_id`.
@@ -1050,6 +1240,25 @@ impl ProofOfHeart {
         limit: u32,
     ) -> (soroban_sdk::Vec<Campaign>, u32) {
         queries::get_campaigns_by_category(&env, category, offset, limit)
+    }
+
+    /// Campaigns carrying `tag`, in the order they were tagged (#798).
+    /// `offset` is a zero-based positional index into the tag's campaign
+    /// list, with the same cursor semantics as `get_campaigns_by_category`.
+    /// Tags are matched exactly (case-sensitive); an unknown, empty or
+    /// over-long tag returns an empty page.
+    pub fn get_campaigns_by_tag(
+        env: Env,
+        tag: String,
+        offset: u32,
+        limit: u32,
+    ) -> (soroban_sdk::Vec<Campaign>, u32) {
+        queries::get_campaigns_by_tag(&env, tag, offset, limit)
+    }
+
+    /// Tags applied to a campaign, in the order they were added (#798).
+    pub fn get_campaign_tags(env: Env, campaign_id: u32) -> soroban_sdk::Vec<String> {
+        queries::get_campaign_tag_list(&env, campaign_id)
     }
 
     /// `start` is a **zero-based positional index** into this creator's

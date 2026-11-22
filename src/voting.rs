@@ -3,11 +3,14 @@ use soroban_sdk::{Address, Env};
 use crate::errors::Error;
 use crate::lifecycle::{transition, CampaignState};
 use crate::storage::{
-    bump_campaign, bump_votes, extend_ttl, get_approval_threshold_bps, get_approve_votes,
-    get_approve_weight, get_category_voting_threshold_bps, get_has_voted, get_min_votes_quorum,
-    get_min_voting_balance, get_reject_votes, get_reject_weight, increment_verified_campaign_count,
+    bump_campaign, bump_instance_ttl, bump_votes, extend_ttl, get_approval_threshold_bps,
+    get_approve_votes, get_approve_weight, get_category_voting_threshold_bps,
+    get_donor_total_contributed, get_has_voted, get_lifetime_contribution, get_min_votes_quorum,
+    get_min_voting_balance, get_reject_votes, get_reject_weight, get_vote_delegate,
+    get_vote_snapshot_ledger, increment_verified_campaign_count, remove_vote_delegate,
     set_approval_threshold_bps, set_approve_votes, set_approve_weight, set_campaign, set_has_voted,
-    set_min_votes_quorum, set_reject_votes, set_reject_weight,
+    set_min_votes_quorum, set_reject_votes, set_reject_weight, set_vote_delegate,
+    set_vote_snapshot_ledger, set_voter_balance_snapshot,
 };
 use crate::{get_campaign_or_error, require_active_campaign, require_unverified_campaign};
 
@@ -27,6 +30,7 @@ pub const MIN_APPROVAL_THRESHOLD_BPS: u32 = 1000;
 /// Resolves the approval threshold that actually applies to `category`:
 /// the per-category override if the admin has set one (#536), otherwise the
 /// global configured default.
+#[inline]
 pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types::Category) -> u32 {
     get_category_voting_threshold_bps(env, category)
         .unwrap_or_else(|| get_approval_threshold_bps(env, DEFAULT_APPROVAL_THRESHOLD_BPS))
@@ -35,6 +39,7 @@ pub(crate) fn effective_approval_threshold_bps(env: &Env, category: crate::types
 /// Calculates the approval percentage in basis points from vote counts.
 ///
 /// Returns `0` when there are no total votes to divide by.
+#[inline]
 pub fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
     if total_votes > 0 {
         ((approve_votes as u64)
@@ -44,6 +49,126 @@ pub fn calculate_approval_bps(approve_votes: u32, total_votes: u32) -> u32 {
     } else {
         0
     }
+}
+
+/// Computes a donor's dynamic voting weight from token balance plus
+/// cumulative historical contributions (#1054).
+///
+/// Weight = `token_balance + history` (saturating, negatives clamped).
+/// Donors with no history keep exactly their token balance.
+///
+/// Note: consensus stays 1-address-1-vote (#469) to prevent flash-loan
+/// inflation; this weight is an informational ranking/signal exposed via
+/// `get_dynamic_voting_weight`, not a replacement for vote counts.
+#[inline]
+pub fn calculate_dynamic_weight(token_balance: i128, history: i128) -> i128 {
+    token_balance.max(0).saturating_add(history.max(0))
+}
+
+/// Returns a voter's dynamic weight for a campaign (#1054).
+///
+/// Combines current platform-token balance with the voter's lifetime
+/// contributions to that campaign plus their cumulative total across all
+/// campaigns (using `max` to avoid double-counting). Pure reader, never traps.
+pub fn get_dynamic_voting_weight(env: &Env, campaign_id: u32, voter: &Address) -> i128 {
+    let balance = crate::lifecycle::token_client(env).balance(voter);
+    let lifetime = get_lifetime_contribution(env, campaign_id, voter);
+    let donor_total = get_donor_total_contributed(env, voter);
+    calculate_dynamic_weight(balance, lifetime.max(donor_total))
+}
+
+/// Records the eligibility snapshot for `voter` immediately before their vote
+/// is added to the tally (#967).
+///
+/// The first vote pins the campaign's `VoteSnapshotLedger`; every voter's
+/// platform-token balance is then stored together with the ledger height it
+/// was observed at. Vote tallies remain unit-weight (1-address-1-vote), so the
+/// snapshot cannot inflate approval share, but it makes the eligibility state
+/// at voting time auditable and immutable for later balance transfers.
+fn record_vote_snapshot(env: &Env, campaign_id: u32, voter: &Address, balance: i128) {
+    let ledger = env.ledger().sequence();
+    if get_vote_snapshot_ledger(env, campaign_id).is_none() {
+        set_vote_snapshot_ledger(env, campaign_id, ledger);
+    }
+    set_voter_balance_snapshot(env, campaign_id, voter, balance, ledger);
+}
+
+/// Shared tally path for `cast_vote` and `cast_delegated_vote` (#1555).
+///
+/// Validates that the campaign accepts votes and that `voter` is eligible and
+/// has not voted yet, snapshots their balance (#967), updates the approve or
+/// reject counters, and marks them as having voted. Authorization and event
+/// emission stay with the callers because they differ between the two paths.
+///
+/// Voting uses a 1-address-1-vote model (#469): every eligible token holder
+/// gets exactly one vote regardless of balance, which prevents flash-loan
+/// inflation. `ApproveWeight`/`RejectWeight` mirror the vote counts (unit
+/// weight) so the legacy storage layout and the weight queries stay
+/// consistent; `verify_with_votes` only consults the counts.
+///
+/// # Errors
+/// * `CampaignNotFound`, `CampaignNotActive`, `DeadlinePassed`,
+///   `CampaignAlreadyVerified` - the campaign cannot take votes.
+/// * `NotTokenHolder` - `voter` holds no platform tokens or is below the minimum.
+/// * `AlreadyVoted` - `voter` has already voted on this campaign.
+/// * `Overflow` - a counter would overflow.
+fn record_vote(env: &Env, campaign_id: u32, voter: &Address, approve: bool) -> Result<(), Error> {
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    if campaign.funds_withdrawn() {
+        return Err(Error::CampaignNotActive);
+    }
+    require_active_campaign(&campaign)?;
+    if env.ledger().timestamp() > campaign.deadline {
+        return Err(Error::DeadlinePassed);
+    }
+    require_unverified_campaign(&campaign)?;
+
+    // Deliberately the platform token, not the campaign's own currency (#784).
+    // Voting weight is a platform-wide stake: measuring it in whatever asset a
+    // campaign happens to be denominated in would let a creator pick an
+    // obscure token and hand voting rights to whoever holds it.
+    let balance = crate::lifecycle::token_client(env).balance(voter);
+    if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
+        return Err(Error::NotTokenHolder);
+    }
+
+    if get_has_voted(env, campaign_id, voter) {
+        extend_ttl(env, campaign_id, voter);
+        return Err(Error::AlreadyVoted);
+    }
+
+    // #967: snapshot the voter's balance at this ledger height before the
+    // tally is mutated.
+    record_vote_snapshot(env, campaign_id, voter, balance);
+
+    if approve {
+        let new_count = get_approve_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_votes(env, campaign_id, new_count);
+        let new_weight = get_approve_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_approve_weight(env, campaign_id, new_weight);
+    } else {
+        let new_count = get_reject_votes(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_votes(env, campaign_id, new_count);
+        let new_weight = get_reject_weight(env, campaign_id)
+            .checked_add(1)
+            .ok_or(Error::Overflow)?;
+        set_reject_weight(env, campaign_id, new_weight);
+    }
+
+    set_has_voted(env, campaign_id, voter);
+    extend_ttl(env, campaign_id, voter);
+    Ok(())
 }
 
 /// Updates the community voting parameters.
@@ -56,6 +181,9 @@ pub fn set_params(
     min_votes_quorum: u32,
     approval_threshold_bps: u32,
 ) -> Result<(), Error> {
+    // Authorization is enforced by `admin::set_voting_params` before this
+    // helper is reached; adding a second `require_auth` here would duplicate
+    // the auth root in the same frame (#965 audit).
     if min_votes_quorum == 0
         || min_votes_quorum > MAX_VOTES_QUORUM
         || !(MIN_APPROVAL_THRESHOLD_BPS..=crate::BPS_DENOMINATOR).contains(&approval_threshold_bps)
@@ -84,65 +212,7 @@ pub fn set_params(
 pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> Result<(), Error> {
     voter.require_auth();
 
-    let campaign = get_campaign_or_error(env, campaign_id)?;
-    if campaign.funds_withdrawn() {
-        return Err(Error::CampaignNotActive);
-    }
-    require_active_campaign(&campaign)?;
-    if env.ledger().timestamp() > campaign.deadline {
-        return Err(Error::DeadlinePassed);
-    }
-    require_unverified_campaign(&campaign)?;
-
-    // Deliberately the platform token, not the campaign's own currency (#784).
-    // Voting weight is a platform-wide stake: measuring it in whatever asset a
-    // campaign happens to be denominated in would let a creator pick an
-    // obscure token and hand voting rights to whoever holds it.
-    let balance = crate::lifecycle::token_client(env).balance(&voter);
-    if balance <= 0 {
-        return Err(Error::NotTokenHolder);
-    }
-
-    let min_voting_balance = get_min_voting_balance(env);
-    if balance < min_voting_balance {
-        return Err(Error::NotTokenHolder);
-    }
-
-    if get_has_voted(env, campaign_id, &voter) {
-        extend_ttl(env, campaign_id, &voter);
-        return Err(Error::AlreadyVoted);
-    }
-
-    // 1-address-1-vote: each voter contributes exactly 1 to the weight sum
-    // regardless of token balance (#469).
-    //
-    // ApproveWeight/RejectWeight are deliberately kept as a mirror of the vote
-    // counts (unit weight per vote) so the legacy storage layout and the
-    // get_approve_weight/get_reject_weight queries stay consistent for
-    // existing deployments and indexers. verify_with_votes only consults the
-    // counts, so the mirror has no security impact.
-    if approve {
-        let new_count = get_approve_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_votes(env, campaign_id, new_count);
-        let new_weight = get_approve_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_approve_weight(env, campaign_id, new_weight);
-    } else {
-        let new_count = get_reject_votes(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_votes(env, campaign_id, new_count);
-        let new_weight = get_reject_weight(env, campaign_id)
-            .checked_add(1)
-            .ok_or(Error::Overflow)?;
-        set_reject_weight(env, campaign_id, new_weight);
-    }
-
-    set_has_voted(env, campaign_id, &voter);
-    extend_ttl(env, campaign_id, &voter);
+    record_vote(env, campaign_id, &voter, approve)?;
 
     env.events().publish(
         ("campaign_vote_cast", campaign_id, voter),
@@ -162,6 +232,9 @@ pub fn cast_vote(env: &Env, campaign_id: u32, voter: Address, approve: bool) -> 
 /// * `CampaignNotActive` - The campaign is cancelled or inactive.
 /// * `AdminVerificationConflict` - The campaign is already verified.
 pub fn admin_verify(env: &Env, campaign_id: u32) -> Result<(), Error> {
+    // Authorization is enforced by the `verify_campaign` / `verify_campaigns`
+    // entrypoints before this helper is called. A second `require_auth` here
+    // would duplicate the auth root in the same frame (#965 audit).
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     if campaign.is_cancelled() {
         return Err(Error::CampaignNotActive);
@@ -236,6 +309,93 @@ pub fn verify_with_votes(env: &Env, campaign_id: u32) -> Result<(), Error> {
     increment_verified_campaign_count(env);
     env.events()
         .publish(("campaign_verified", campaign_id), approve_votes);
+
+    Ok(())
+}
+
+/// Delegates the caller's voting rights to a designated community delegate.
+///
+/// # Errors
+/// * `ValidationFailed` - Delegator cannot delegate to themselves.
+/// * `NotTokenHolder` - Delegator holds no tokens or is below the minimum balance.
+pub fn delegate_votes(env: &Env, delegator: Address, delegate: Address) -> Result<(), Error> {
+    delegator.require_auth();
+    if delegator == delegate {
+        return Err(Error::ValidationFailed);
+    }
+    let balance = crate::lifecycle::token_client(env).balance(&delegator);
+    if balance <= 0 {
+        return Err(Error::NotTokenHolder);
+    }
+    let min_voting_balance = get_min_voting_balance(env);
+    if balance < min_voting_balance {
+        return Err(Error::NotTokenHolder);
+    }
+
+    bump_instance_ttl(env);
+    set_vote_delegate(env, &delegator, &delegate);
+
+    env.events()
+        .publish(("vote_delegated", delegator), delegate);
+
+    Ok(())
+}
+
+/// Revokes an existing vote delegation.
+///
+/// # Errors
+/// * `ValidationFailed` - No active delegation exists for this delegator.
+pub fn undelegate_votes(env: &Env, delegator: Address) -> Result<(), Error> {
+    delegator.require_auth();
+    if get_vote_delegate(env, &delegator).is_none() {
+        return Err(Error::ValidationFailed);
+    }
+
+    bump_instance_ttl(env);
+    remove_vote_delegate(env, &delegator);
+
+    env.events().publish(("vote_undelegated", delegator), ());
+
+    Ok(())
+}
+
+/// Returns the active delegate for a given delegator, if one has been assigned.
+pub fn get_delegate(env: &Env, delegator: Address) -> Option<Address> {
+    get_vote_delegate(env, &delegator)
+}
+
+/// Casts a vote on behalf of a delegator who delegated their voting rights to the caller.
+///
+/// # Errors
+/// * `NotAuthorized` - Caller is not the registered delegate of the delegator.
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignAlreadyVerified` - The campaign is already verified.
+/// * `CampaignNotActive` - The campaign is cancelled or inactive.
+/// * `DeadlinePassed` - The voting period has closed.
+/// * `NotTokenHolder` - The delegator holds no tokens or is below the minimum.
+/// * `AlreadyVoted` - The delegator has already cast a vote on this campaign.
+pub fn cast_delegated_vote(
+    env: &Env,
+    campaign_id: u32,
+    delegate: Address,
+    delegator: Address,
+    approve: bool,
+) -> Result<(), Error> {
+    delegate.require_auth();
+
+    match get_vote_delegate(env, &delegator) {
+        Some(d) if d == delegate => {}
+        _ => return Err(Error::NotAuthorized),
+    }
+
+    // The delegator is the voter of record: eligibility, the one-vote rule and
+    // the tally all apply to them, exactly as for a direct vote.
+    record_vote(env, campaign_id, &delegator, approve)?;
+
+    env.events().publish(
+        ("campaign_delegated_vote_cast", campaign_id, delegate),
+        (delegator, approve),
+    );
 
     Ok(())
 }

@@ -158,6 +158,16 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
+### `campaign_tag_added`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_tag_added", campaign_id: u32)` |
+| Data   | `tag: String` |
+| Source | `src/tags.rs` — `add_campaign_tag()` |
+
+---
+
 ### `campaign_unbookmarked`
 
 | Field  | Value |
@@ -222,7 +232,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("voting_params_updated",)` |
+| Topics | `("voting_params_updated", admin: Address)` |
 | Data   | `(old_quorum: u32, new_quorum: u32, old_threshold: u32, new_threshold: u32)` |
 | Source | `src/admin.rs` — `set_voting_params()` |
 
@@ -242,7 +252,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 | Field  | Value |
 |--------|-------|
-| Topics | `("min_voting_balance_updated",)` |
+| Topics | `("min_voting_balance_updated", admin: Address)` |
 | Data   | `(old_balance: i128, new_balance: i128)` |
 | Source | `src/admin.rs` — `set_min_voting_balance()` |
 
@@ -505,7 +515,7 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 | Field  | Value |
 |--------|-------|
 | Topics | `("campaign_vote_cast", campaign_id: u32, voter: Address)` |
-| Data   | `(approve: bool, balance: i128, weight: i128)` |
+| Data   | `(approve: bool, weight: i128)` — unit weight (`1`) under 1-address-1-vote (#469) |
 | Source | `src/voting.rs` — `cast_vote()` |
 
 ---
@@ -542,4 +552,332 @@ Every `publish(...)` call in the contract, with its topics, data shape, and the 
 
 ---
 
-Total: 52 documented publish() call sites
+### `cancellation_penalty_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_updated", admin: Address)` |
+| Data   | `(old_penalty_bps: u32, new_penalty_bps: u32)` |
+| Source | `src/lib.rs` — `set_cancellation_penalty_bps()` (#1052) |
+
+---
+
+### `cancellation_penalty_collected`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("cancellation_penalty_collected", campaign_id: u32)` |
+| Data   | `penalty: i128` |
+| Source | `src/campaigns/cancel.rs` — `cancel_campaign()` (#1052) |
+
+---
+
+### `stranded_tokens_rescued`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("stranded_tokens_rescued", token: Address, to: Address)` |
+| Data   | `amount: i128` |
+| Source | `src/campaigns/emergency.rs` — `rescue_stranded_tokens()` (#1037) |
+
+---
+
+### `vote_delegated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("vote_delegated", delegator: Address)` |
+| Data   | `delegate: Address` |
+| Source | `src/voting.rs` — `delegate_votes()` |
+
+---
+
+### `vote_undelegated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("vote_undelegated", delegator: Address)` |
+| Data   | `()` |
+| Source | `src/voting.rs` — `undelegate_votes()` |
+
+---
+
+### `campaign_delegated_vote_cast`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_delegated_vote_cast", campaign_id: u32, delegate: Address)` |
+| Data   | `(delegator: Address, approve: bool)` |
+| Source | `src/voting.rs` — `cast_delegated_vote()` |
+
+---
+
+### `proof_of_impact_recorded`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("proof_of_impact_recorded", campaign_id: u32, verifier: Address)` |
+| Data   | `(proof_hash: BytesN<32>, timestamp: u64)` |
+| Source | `src/campaigns/update.rs` — `record_proof_of_impact()` |
+
+---
+
+### `creator_bucket_credited`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("creator_bucket_credited", campaign_id: u32, creator: Address)` |
+| Data   | `creator_share: i128` |
+| Source | `src/revenue.rs` — `deposit_revenue()` |
+
+Total: 60 documented publish() call sites
+
+---
+
+### `campaign_token_allowlisted`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_token_allowlisted", admin: Address)` |
+| Data   | `(token: Address, allowed: bool)` |
+| Source | `src/admin.rs` — `set_token_allowed()` |
+
+---
+
+### `campaign_token_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_token_set", campaign_id: u32)` |
+| Data   | `token: Address` |
+| Source | `src/campaigns/create.rs` — `create_campaign_with_token()` |
+
+---
+
+### `category_voting_threshold_removed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_voting_threshold_removed", category: u32)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `remove_category_voting_threshold()` |
+
+---
+
+### `emergency_pause_signers_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_pause_signers_updated", admin: Address)` |
+| Data   | `signer_count: u32` |
+| Source | `src/admin.rs` — `set_emergency_pause_signers()` |
+
+---
+
+### `emergency_paused`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_paused", caller: Address)` |
+| Data   | `()` |
+| Source | `src/admin.rs` — `emergency_pause()` |
+
+---
+
+### `milestone_verified`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestone_verified", campaign_id: u32, milestone_id: u32)` |
+| Data   | `()` |
+| Source | `src/milestones.rs` — `verify_milestone()` |
+
+---
+
+### `milestones_batch_verified`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestones_batch_verified", campaign_id: u32)` |
+| Data   | `newly_verified: u32` |
+| Source | `src/milestones.rs` — `batch_verify_milestones()` |
+
+---
+
+### `milestones_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestones_set", campaign_id: u32)` |
+| Data   | `milestone_count: u32` |
+| Source | `src/milestones.rs` — `set_milestones()` |
+
+---
+
+### `payout_marker`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("payout_marker", campaign_id: u32)` |
+| Data   | `ledger_sequence: u32` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` (written before any token transfer)` |
+
+---
+
+### `token_update_delay_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("token_update_delay_updated",)` |
+| Data   | `(old_delay_secs: u64, new_delay_secs: u64)` |
+| Source | `src/admin.rs` — `set_token_update_delay_secs()` |
+
+---
+
+### `batch_contribution_made`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("batch_contribution_made", contributor: Address)` |
+| Data   | `(count: u32, total: i128)` |
+| Source | `src/contributions.rs` — `batch_contribute()` |
+
+---
+
+### `campaign_admin_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_admin_cancelled", campaign_id: u32, admin: Address)` |
+| Data   | `(creator: Address, reason: String, ...)` |
+| Source | `src/campaigns/cancel.rs` — `admin_cancel_campaign()` |
+
+---
+
+### `campaign_metadata_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_metadata_updated", campaign_id: u32)` |
+| Data   | `(old_title: String, old_description: String, title: String, description: String)` |
+| Source | `src/campaigns/update.rs` — `update_campaign()` |
+
+---
+
+### `campaign_transfer_admin_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("campaign_transfer_admin_cancelled", campaign_id: u32, admin: Address)` |
+| Data   | `pending_creator: Address` |
+| Source | `src/campaigns/transfer.rs` — `admin_cancel_campaign_transfer()` |
+
+---
+
+### `category_voting_threshold_set`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("category_voting_threshold_set", category: u32)` |
+| Data   | `threshold_bps: u32` |
+| Source | `src/admin.rs` — `set_category_voting_threshold()` |
+
+---
+
+### `comment_censured`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("comment_censured", campaign_id: u32, comment_hash: BytesN<32>)` |
+| Data   | `(admin: Address, reason: String, censured_at: u64)` |
+| Source | `src/comments.rs` — `censure_comment()` |
+
+---
+
+### `comment_uncensured`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("comment_uncensured", campaign_id: u32, comment_hash: BytesN<32>)` |
+| Data   | `(admin: Address, timestamp: u64)` |
+| Source | `src/comments.rs` — `uncensure_comment()` |
+
+---
+
+### `contribution_refunded`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("contribution_refunded", campaign_id: u32, contributor: Address)` |
+| Data   | `refund_amount: i128` |
+| Source | `src/contributions.rs` — `claim_refund()` |
+
+---
+
+### `emergency_withdrawal_proposed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_proposed", campaign_id: u32, admin: Address)` |
+| Data   | `(recipient: Address, execute_after: u64, amount_raised: i128)` |
+| Source | `src/campaigns/emergency.rs` — `emergency_withdraw()` |
+
+---
+
+### `emergency_withdrawal_cancelled`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_cancelled", campaign_id: u32, admin: Address)` |
+| Data   | `recipient: Address` |
+| Source | `src/campaigns/emergency.rs` — `cancel_emergency_withdrawal()` |
+
+---
+
+### `emergency_withdrawal_executed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("emergency_withdrawal_executed", campaign_id: u32, admin: Address)` |
+| Data   | `(recipient: Address, amount: i128)` |
+| Source | `src/campaigns/emergency.rs` — `execute_emergency_withdrawal()` |
+
+---
+
+### `max_contribution_per_transaction_updated`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("max_contribution_per_transaction_updated", admin: Address)` |
+| Data   | `(old_amount: i128, new_amount: i128)` |
+| Source | `src/admin.rs` — `set_max_contribution_per_tx()` |
+
+---
+
+### `milestone_claimed`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("milestone_claimed", campaign_id: u32, milestone_id: u32)` |
+| Data   | `(claimable: i128, fee_claim: i128)` |
+| Source | `src/milestones.rs` — `claim_milestone()` |
+
+---
+
+### `scan_window_exhausted`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("scan_window_exhausted",)` |
+| Data   | `(start: u32, current_id: u32, collected: u32, capped_limit: u32)` |
+| Source | `src/queries.rs` — paginated list queries when the scan window is used up` |
+
+---
+
+### `withdrawal_fee_paid`
+
+| Field  | Value |
+|--------|-------|
+| Topics | `("withdrawal_fee_paid", campaign_id: u32)` |
+| Data   | `(fee_recipient: Address, fee_amount: i128)` |
+| Source | `src/campaigns/withdraw.rs` — `withdraw_funds()` |

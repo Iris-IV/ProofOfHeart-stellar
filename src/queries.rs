@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports, unused_must_use)]
 use soroban_sdk::{Address, Env, String};
 
 use crate::constants::{MAX_SCAN_WINDOW, MAX_STATS_SCAN};
@@ -212,70 +211,6 @@ where
     (campaigns, next_cursor)
 }
 
-#[cfg(test)]
-mod bucket_pagination_tests {
-    use super::get_campaigns_from_buckets;
-    use core::cell::Cell;
-    use soroban_sdk::Env;
-
-    /// Guards against #844: a bucket that reports fewer entries than the
-    /// current position implies (malformed/inconsistent bucket metadata)
-    /// must not walk `position` backwards and re-fetch the same bucket
-    /// forever. This caps the number of `get_bucket` calls and fails loudly
-    /// if that bound is ever exceeded, rather than hanging.
-    #[test]
-    fn malformed_short_bucket_does_not_loop_forever() {
-        let env = Env::default();
-        let bucket_size = 10u32;
-        let total = 25u32;
-        let start = 5u32; // mid-bucket: idx_in_bucket = 5
-        let limit = 50u32;
-
-        let calls = Cell::new(0u32);
-        // Every bucket, regardless of index, reports only 2 entries — far
-        // fewer than `bucket_size` and fewer than `start`'s offset into it.
-        let result =
-            get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
-                let n = calls.get() + 1;
-                calls.set(n);
-                assert!(
-                    n <= 32,
-                    "get_bucket called {n} times — position is not advancing (infinite loop)"
-                );
-                soroban_sdk::Vec::from_array(e, [1u32, 2u32])
-            });
-
-        // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
-        // is collected — the point of the test is termination, not content.
-        assert_eq!(result.0.len(), 0);
-        assert!(calls.get() > 0);
-    }
-
-    /// Same malformed-bucket scenario, but with an always-empty bucket
-    /// (`bucket_len == 0`), which already advanced correctly before #844 —
-    /// kept here as a regression guard alongside the short-bucket case.
-    #[test]
-    fn always_empty_bucket_terminates() {
-        let env = Env::default();
-        let bucket_size = 10u32;
-        let total = 100u32;
-        let calls = Cell::new(0u32);
-
-        let result = get_campaigns_from_buckets(&env, 0, 50, total, bucket_size, |e, _idx| {
-            let n = calls.get() + 1;
-            calls.set(n);
-            assert!(
-                n <= 32,
-                "get_bucket called {n} times — possible infinite loop"
-            );
-            soroban_sdk::Vec::new(e)
-        });
-
-        assert_eq!(result.0.len(), 0);
-        assert!(calls.get() > 0);
-    }
-}
-
 pub(crate) fn get_campaigns_by_category(
     env: &Env,
     category: Category,
@@ -434,17 +369,25 @@ pub(crate) fn get_creator_stats(env: &Env, creator: Address) -> CreatorStats {
 ///   the active and cancelled buckets (withdrawn campaigns are in neither),
 ///   so the two buckets together cannot exceed the number of campaigns.
 ///
-/// Returns `true` only when every invariant holds.
+/// Returns `Ok(())` when every invariant holds, or
+/// `Err(Error::InvariantBroken)` with a description of the first violation
+/// found. `get_platform_stats` treats any error as a signal to set
+/// `stats_are_partial = true` and publish a `platform_stats_inconsistent`
+/// event so indexers know the aggregates must not be trusted.
 pub(crate) fn counters_are_consistent(
     total: u32,
     active: u32,
     verified: u32,
     cancelled: u32,
-) -> bool {
-    active <= total
-        && verified <= total
-        && cancelled <= total
-        && active.saturating_add(cancelled) <= total
+) -> Result<(), crate::errors::Error> {
+    if active > total
+        || verified > total
+        || cancelled > total
+        || active.saturating_add(cancelled) > total
+    {
+        return Err(crate::errors::Error::InvariantBroken);
+    }
+    Ok(())
 }
 
 pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
@@ -469,12 +412,13 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
     let verified_campaigns = get_verified_campaign_count(env);
     let cancelled_campaigns = get_cancelled_campaign_count(env);
 
-    let stats_are_partial = !counters_are_consistent(
+    let stats_are_partial = counters_are_consistent(
         total_campaigns,
         active_campaigns,
         verified_campaigns,
         cancelled_campaigns,
-    );
+    )
+    .is_err();
 
     if stats_are_partial {
         env.events().publish(
@@ -502,12 +446,29 @@ pub(crate) fn get_platform_stats(env: &Env) -> PlatformStats {
 /// count, current top contributor, average contribution size, and the
 /// timestamp of the most recent contribution.
 pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
+    // Load the campaign first (#1178). For an id that has never existed the
+    // three per-campaign reads below (contributor count, top contributor,
+    // last-contribution timestamp) are guaranteed to come back empty — their
+    // keys are only ever written alongside the campaign itself — so the
+    // zeroed stats can be returned without touching storage at all. The
+    // getters' TTL-extend side effects are no-ops for absent keys, so
+    // skipping them is observationally identical.
+    let campaign = match get_campaign(env, campaign_id) {
+        Some(campaign) => campaign,
+        None => {
+            return CampaignStats {
+                contributor_count: 0,
+                top_contributor: MaybePendingCreator::None,
+                avg_contribution: 0,
+                last_contribution_time: 0,
+            }
+        }
+    };
+
     let contributor_count = get_contributor_count(env, campaign_id);
-    let campaign = get_campaign(env, campaign_id);
-    let amount_raised = campaign.as_ref().map(|c| c.amount_raised).unwrap_or(0);
 
     let avg_contribution = if contributor_count > 0 {
-        amount_raised / contributor_count as i128
+        campaign.amount_raised / contributor_count as i128
     } else {
         0
     };
@@ -519,12 +480,14 @@ pub(crate) fn get_campaign_stats(env: &Env, campaign_id: u32) -> CampaignStats {
     // *before* that write existed, whose marker is still in ledger storage.
     // Same write-time-prune / read-time-filter split already used for
     // bookmarks of cancelled campaigns.
-    let top_contributor = if campaign.as_ref().map(|c| c.is_cancelled()).unwrap_or(false) {
+    let top_contributor = if campaign.is_cancelled() {
         MaybePendingCreator::None
     } else {
+        // `MaybePendingCreator` is an alias for `Option<Address>`, which is
+        // exactly what `get_top_contributor` already returns; the old
+        // `.map(MaybePendingCreator::from).unwrap_or(MaybePendingCreator::None)`
+        // was an identity transform that only copied the value (#1178).
         get_top_contributor(env, campaign_id)
-            .map(MaybePendingCreator::from)
-            .unwrap_or(MaybePendingCreator::None)
     };
 
     CampaignStats {
@@ -612,6 +575,10 @@ pub(crate) fn get_contributor_portfolio(
     let mut current_id = start.saturating_add(1);
     let mut next_cursor = 0u32;
     let scan_window_end = start.saturating_add(MAX_SCAN_WINDOW);
+    // Read the ledger timestamp once for the whole scan (#1178): the ledger
+    // cannot advance mid-invocation, so the per-row `env.ledger()`
+    // host call the refundable check used to make was pure overhead.
+    let now = env.ledger().timestamp();
 
     while current_id <= total_campaigns {
         if current_id > scan_window_end {
@@ -647,8 +614,7 @@ pub(crate) fn get_contributor_portfolio(
                 };
 
                 let refundable = campaign.is_cancelled()
-                    || (env.ledger().timestamp() > campaign.deadline
-                        && campaign.amount_raised < campaign.funding_goal);
+                    || (now > campaign.deadline && campaign.amount_raised < campaign.funding_goal);
 
                 portfolio.push_back((
                     current_id,
@@ -667,4 +633,129 @@ pub(crate) fn get_contributor_portfolio(
     }
 
     (portfolio, next_cursor)
+}
+
+#[cfg(test)]
+mod bucket_pagination_tests {
+    use super::get_campaigns_from_buckets;
+    use core::cell::Cell;
+    use soroban_sdk::Env;
+
+    /// Guards against #844: a bucket that reports fewer entries than the
+    /// current position implies (malformed/inconsistent bucket metadata)
+    /// must not walk `position` backwards and re-fetch the same bucket
+    /// forever. This caps the number of `get_bucket` calls and fails loudly
+    /// if that bound is ever exceeded, rather than hanging.
+    ///
+    /// The traversal runs inside `env.as_contract`: collecting a campaign id
+    /// from a bucket ends in `get_campaign`, and under soroban-sdk 22 any
+    /// storage read outside a contract frame aborts with
+    /// `Error(Storage, InternalError)` (#1338).
+    #[test]
+    // `register_contract` is the SDK 22 testutils API this suite uses
+    // everywhere else (see the allow at the top of `tests/helpers.rs`).
+    #[allow(deprecated)]
+    fn malformed_short_bucket_does_not_loop_forever() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 25u32;
+        let start = 5u32; // mid-bucket: idx_in_bucket = 5
+        let limit = 50u32;
+
+        let calls = Cell::new(0u32);
+        // `as_contract` needs a real contract instance for its frame, so
+        // register a throwaway ProofOfHeart; the frame exists purely so the
+        // helper's storage reads have a contract context.
+        let contract_id = env.register_contract(None, crate::ProofOfHeart);
+        let result = env.as_contract(&contract_id, || {
+            // Every bucket, regardless of index, reports only 2 entries — far
+            // fewer than `bucket_size` and fewer than `start`'s offset into it.
+            get_campaigns_from_buckets(&env, start, limit, total, bucket_size, |e, _idx| {
+                let n = calls.get() + 1;
+                calls.set(n);
+                assert!(
+                    n <= 32,
+                    "get_bucket called {n} times — position is not advancing (infinite loop)"
+                );
+                soroban_sdk::Vec::from_array(e, [1u32, 2u32])
+            })
+        });
+
+        // No real campaigns exist for ids 1/2 in this bare `Env`, so nothing
+        // is collected — the point of the test is termination, not content.
+        assert_eq!(result.0.len(), 0);
+        assert!(calls.get() > 0);
+    }
+
+    /// Same malformed-bucket scenario, but with an always-empty bucket
+    /// (`bucket_len == 0`), which already advanced correctly before #844 —
+    /// kept here as a regression guard alongside the short-bucket case.
+    #[test]
+    fn always_empty_bucket_terminates() {
+        let env = Env::default();
+        let bucket_size = 10u32;
+        let total = 100u32;
+        let calls = Cell::new(0u32);
+
+        let result = get_campaigns_from_buckets(&env, 0, 50, total, bucket_size, |e, _idx| {
+            let n = calls.get() + 1;
+            calls.set(n);
+            assert!(
+                n <= 32,
+                "get_bucket called {n} times — possible infinite loop"
+            );
+            soroban_sdk::Vec::new(e)
+        });
+
+        assert_eq!(result.0.len(), 0);
+        assert!(calls.get() > 0);
+    }
+}
+
+#[cfg(test)]
+mod invariant_tests {
+    use super::counters_are_consistent;
+    use crate::errors::Error;
+
+    /// #1441: counters_are_consistent now returns Err(InvariantBroken) instead
+    /// of `false` so the error variant is used in production code, not just tests.
+    #[test]
+    fn consistent_counters_return_ok() {
+        assert!(counters_are_consistent(10, 5, 8, 3).is_ok());
+        assert!(counters_are_consistent(0, 0, 0, 0).is_ok());
+        assert!(counters_are_consistent(5, 5, 5, 0).is_ok());
+    }
+
+    #[test]
+    fn active_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 5, 2, 1),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn verified_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 1, 10, 1),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn cancelled_exceeds_total_returns_invariant_broken() {
+        assert_eq!(
+            counters_are_consistent(3, 1, 2, 5),
+            Err(Error::InvariantBroken)
+        );
+    }
+
+    #[test]
+    fn active_plus_cancelled_exceeds_total_returns_invariant_broken() {
+        // active(3) + cancelled(3) = 6 > total(5)
+        assert_eq!(
+            counters_are_consistent(5, 3, 4, 3),
+            Err(Error::InvariantBroken)
+        );
+    }
 }

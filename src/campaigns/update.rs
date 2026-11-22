@@ -1,11 +1,14 @@
-use soroban_sdk::{Env, String};
+use soroban_sdk::{Address, BytesN, Env, String};
 
 use crate::errors::Error;
 use crate::lifecycle::{
-    campaign_start_time_or_error, get_creator_campaign, require_active_campaign,
-    require_not_paused, require_unverified_campaign,
+    campaign_start_time_or_error, get_campaign_or_error, get_creator_campaign,
+    require_active_campaign, require_not_paused, require_unverified_campaign,
 };
-use crate::storage::{bump_instance_ttl, get_category_duration_cap, set_campaign};
+use crate::storage::{
+    bump_instance_ttl, creator_has_title, get_category_duration_cap, hash_text,
+    remove_creator_title_index, set_campaign, set_creator_title_index,
+};
 
 /// Updates the title and description of a campaign.
 ///
@@ -42,11 +45,28 @@ pub(crate) fn update_campaign(
         return Ok(());
     }
 
+    // Keep the per-creator title-uniqueness index in sync with a rename, so a
+    // creator cannot rename into a title they already use and the old title is
+    // released for reuse. Same error as the duplicate check in create.
+    let title_hashes = if campaign.title != title {
+        let new_hash = hash_text(env, &title);
+        if creator_has_title(env, &campaign.creator, &new_hash) {
+            return Err(Error::ValidationFailed);
+        }
+        Some((hash_text(env, &campaign.title), new_hash))
+    } else {
+        None
+    };
+
     bump_instance_ttl(env);
     let old_title = core::mem::replace(&mut campaign.title, title.clone());
     let old_description = core::mem::replace(&mut campaign.description, description.clone());
 
     set_campaign(env, campaign_id, &campaign);
+    if let Some((old_hash, new_hash)) = title_hashes {
+        remove_creator_title_index(env, &campaign.creator, &old_hash);
+        set_creator_title_index(env, &campaign.creator, &new_hash, campaign_id);
+    }
 
     env.events().publish(
         ("campaign_metadata_updated", campaign_id),
@@ -169,4 +189,54 @@ pub(crate) fn extend_campaign_deadline(
         ),
     );
     Ok(())
+}
+
+/// Records a cryptographic proof-of-impact hash submitted by an authorized verifier (e.g. admin).
+///
+/// # Errors
+/// * `CampaignNotFound` - No campaign with the given ID.
+/// * `CampaignNotActive` - Campaign is cancelled or inactive.
+/// * `NotAuthorized` - Caller is not the admin or authorized verifier.
+/// * `ContractPaused` - The contract is paused.
+pub(crate) fn record_proof_of_impact(
+    env: &Env,
+    campaign_id: u32,
+    verifier: Address,
+    proof_hash: BytesN<32>,
+) -> Result<(), Error> {
+    verifier.require_auth();
+    require_not_paused(env)?;
+
+    let campaign = get_campaign_or_error(env, campaign_id)?;
+    require_active_campaign(&campaign)?;
+
+    let admin = crate::storage::get_admin(env);
+    if verifier != admin {
+        return Err(Error::NotAuthorized);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let proof = crate::types::ProofOfImpact {
+        verifier: verifier.clone(),
+        proof_hash: proof_hash.clone(),
+        timestamp,
+    };
+
+    bump_instance_ttl(env);
+    crate::storage::set_proof_of_impact(env, campaign_id, &proof);
+
+    env.events().publish(
+        ("proof_of_impact_recorded", campaign_id, verifier),
+        (proof_hash, timestamp),
+    );
+
+    Ok(())
+}
+
+/// Returns the recorded proof of impact for a campaign, if one exists.
+pub(crate) fn get_proof_of_impact(
+    env: &Env,
+    campaign_id: u32,
+) -> Option<crate::types::ProofOfImpact> {
+    crate::storage::get_proof_of_impact(env, campaign_id)
 }

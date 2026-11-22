@@ -1,3 +1,5 @@
+// Tests use soroban-sdk testutils APIs deprecated in SDK 22 (register_contract,
+// register_stellar_asset_contract, env.budget()) until they move to the replacements.
 #![allow(deprecated)]
 //! Per-campaign currencies (#784).
 //!
@@ -297,6 +299,34 @@ fn test_batch_contribute_groups_by_currency() {
     assert_eq!(client.get_contribution(&c, &contributor1), 300);
 }
 
+#[test]
+fn test_batch_contribute_is_atomic_when_a_later_currency_item_fails() {
+    let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
+    let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
+
+    platform_admin.mint(&contributor1, &5000);
+    usdc_admin.mint(&contributor1, &5000);
+
+    let native_id = client.create_campaign(&params(&env, &creator, "Native atomic"));
+    let usdc_id = client.create_campaign_with_token(&params(&env, &creator, "USDC atomic"), &usdc);
+    client.verify_campaign(&native_id);
+    client.verify_campaign(&usdc_id);
+    client.cancel_campaign(&usdc_id);
+
+    let batch = soroban_sdk::Vec::from_array(&env, [(native_id, 700i128), (usdc_id, 300i128)]);
+    assert_eq!(
+        client
+            .try_batch_contribute(&contributor1, &batch)
+            .unwrap_err()
+            .unwrap(),
+        Error::CampaignNotActive
+    );
+    assert_eq!(client.get_contribution(&native_id, &contributor1), 0);
+    assert_eq!(client.get_campaign(&native_id).effective_amount_raised, 0);
+    assert_eq!(platform.balance(&client.address), 0);
+    assert_eq!(usdc_token.balance(&client.address), 0);
+}
+
 /// A withdrawal pays the creator in the campaign's currency.
 #[test]
 fn test_withdrawal_pays_in_the_campaign_currency() {
@@ -470,8 +500,7 @@ fn test_withdrawal_with_revenue_share_in_campaign_currency() {
 fn test_batch_operations_with_three_currencies() {
     let (env, admin, creator, contributor1, _, platform, platform_admin, client) = setup_env();
     let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
-    let (euroc, euroc_token, euroc_admin) =
-        second_currency(&env, &admin, &client);
+    let (euroc, euroc_token, euroc_admin) = second_currency(&env, &admin, &client);
 
     platform_admin.mint(&contributor1, &10_000);
     usdc_admin.mint(&contributor1, &10_000);
@@ -530,23 +559,26 @@ fn test_allowlist_toggle_does_not_affect_campaign_mechanics() {
     assert_eq!(usdc_token.balance(&client.address), 3000);
 }
 
-/// Gas budget invariants hold under edge cases: zero contributions (if allowed),
-/// maximum i128 values, and rapid state transitions.
+/// A contribution at the top of the funding-goal range (10^15) is accounted
+/// for exactly, with no i128 overflow in the contract's arithmetic. The goal
+/// matches the contribution so the anomaly guard (which auto-pauses on a
+/// single contribution far above the goal) does not fire. Not a gas-budget
+/// test: those live in `test_gas_budget` and are selected by name in CI.
 #[test]
-fn test_gas_budget_under_i128_edge_cases() {
+fn test_i128_edge_case_contribution_does_not_overflow() {
     let (env, admin, creator, contributor1, _, _platform, _platform_admin, client) = setup_env();
     let (usdc, usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
 
     let large_amount = i128::MAX / 2;
     usdc_admin.mint(&contributor1, &large_amount);
 
-    let id = client.create_campaign_with_token(&params(&env, &creator, "Edge"), &usdc);
+    let max_contribution = crate::CAMPAIGN_FUNDING_GOAL_MAX;
+    let mut p = params(&env, &creator, "Edge");
+    p.funding_goal = max_contribution;
+    let id = client.create_campaign_with_token(&p, &usdc);
     client.verify_campaign(&id);
 
-    // Large contribution should not overflow contract arithmetic
-    let max_contribution = 1_000_000_000_000_000i128;
-    if large_amount >= max_contribution {
-        client.contribute(&id, &contributor1, &max_contribution);
-        assert_eq!(usdc_token.balance(&client.address), max_contribution);
-    }
+    client.contribute(&id, &contributor1, &max_contribution);
+    assert_eq!(usdc_token.balance(&client.address), max_contribution);
+    assert_eq!(client.get_campaign(&id).amount_raised, max_contribution);
 }
