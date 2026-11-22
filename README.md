@@ -119,6 +119,7 @@ This repository contains the **Soroban smart contract** that powers the on-chain
 
 ## Documentation
 
+- **Full entrypoint reference (all public functions, with auth and errors, generated from the contract source): [`docs/API.md`](docs/API.md)**
 - Authorization requirements for every public method: `docs/AUTHORIZATION.md`
 - Campaign lifecycle state machine: `docs/CAMPAIGN_LIFECYCLE.md`
 - Donor badge & NFT metadata guidelines (soulbound badges derived from contributions): `docs/badges.md`

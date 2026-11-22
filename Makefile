@@ -1,6 +1,6 @@
 default: build
 
-.PHONY: all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help wasm-opt
+.PHONY: api-docs check-api-docs all build build-docker test wasm check-wasm clippy clippy-fix fmt fmt-check lint audit ci clean help wasm-opt
 
 CLIPPY_FLAGS ?= -D warnings
 
@@ -57,6 +57,12 @@ wasm-opt:
 		echo "::warning::wasm-opt not found; skipping WASM optimization."; \
 		echo "  Install via: brew install binaryen"; \
 	fi
+
+api-docs:
+	python3 scripts/gen-api-docs.py
+
+check-api-docs:
+	python3 scripts/gen-api-docs.py --check
 
 check-wasm: wasm
 	./scripts/check-wasm.sh
