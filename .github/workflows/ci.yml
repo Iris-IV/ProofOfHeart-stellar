@@ -77,6 +77,8 @@ jobs:
       - run: cargo check --features testutils
       - name: Event docs match emitted events
         run: bash scripts/check-events.sh
+      - name: API reference covers every entrypoint
+        run: python3 scripts/gen-api-docs.py --check
 
   # Formatting is enforced; clippy runs with zero warnings denied (#1259).
   lint:
