@@ -255,24 +255,18 @@ pub enum Error {
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
-    /// The funding goal is above the configured maximum.
-    FundingGoalTooHigh = 38,
-    /// A transfer is already pending.
-    TransferAlreadyPending = 35,
-
-    // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
-    /// `propose_token_update` was called with a token address identical to the one already in use.
-    SameToken = 35,
-    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
-    RefundNotAvailable = 35,
+    /// A transfer is already pending.
+    TransferAlreadyPending = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
+    /// The funding goal is above the configured maximum.
+    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 52,
+    InvalidPlatformFee = 39,
 
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
@@ -300,11 +294,6 @@ pub enum Error {
     NoPendingTokenUpdate = 52,
     /// `accept_token_update` was called before the mandatory timelock has elapsed.
     TimelockNotElapsed = 53,
-    /// `accept_token_update` was blocked because active campaigns or outstanding balances still
-    /// reference the current token.
-    TokenUpdateBlocked = 54,
-    /// The campaign has reached or exceeded its funding goal.
-    FundingGoalReached = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -364,13 +353,11 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
-                SameToken,
-                RefundNotAvailable,
+                TransferAlreadyPending,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
                 InvalidPlatformFee,
-                TransferAlreadyPending,
                 InvalidVestingDelay,
                 GoalMetCancellationNotAllowed,
                 InvalidStateTransition,
@@ -384,8 +371,6 @@ impl Error {
                 InvariantBroken,
                 NoPendingTokenUpdate,
                 TimelockNotElapsed,
-                TokenUpdateBlocked,
-                FundingGoalReached,
             ]
         )
     }
@@ -545,10 +530,6 @@ mod tests {
             Error::TimelockNotElapsed.to_string(),
             "TimelockNotElapsed"
         );
-        assert_eq!(
-            Error::TokenUpdateBlocked.to_string(),
-            "TokenUpdateBlocked"
-        );
     }
 
     #[test]
@@ -590,14 +571,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// Locks the total variant count at 50 (maximum allowed by Soroban).
     /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
     /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
     /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
-        const CASES: u32 = 51;
-        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=TimelockNotElapsed, 50 discriminants used.
+        const CASES: u32 = 50;
+        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
     }
 }

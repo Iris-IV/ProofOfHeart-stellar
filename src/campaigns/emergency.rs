@@ -87,6 +87,29 @@ pub(crate) fn emergency_withdraw(
         return Err(Error::ValidationFailed);
     }
 
+    // Calculate remaining escrow after milestone payouts (#1479).
+    let milestones = crate::storage::get_campaign_milestones(env, campaign_id);
+    let mut claimed_total: i128 = 0;
+    for ms in milestones.iter() {
+        if crate::storage::is_milestone_claimed(env, campaign_id, ms.id) {
+            let payout = campaign
+                .effective_amount_raised
+                .checked_mul(ms.payout_bps as i128)
+                .ok_or(Error::Overflow)?
+                .checked_div(10_000)
+                .ok_or(Error::Overflow)?;
+            claimed_total = claimed_total.checked_add(payout).ok_or(Error::Overflow)?;
+        }
+    }
+    let remaining_escrow = campaign
+        .effective_amount_raised
+        .checked_sub(claimed_total)
+        .ok_or(Error::Overflow)?;
+
+    if remaining_escrow <= 0 {
+        return Err(Error::NoFundsToWithdraw);
+    }
+
     let proposed_at = env.ledger().timestamp();
     let execute_after = proposed_at
         .checked_add(crate::EMERGENCY_WITHDRAWAL_TIMELOCK_SECS)
@@ -105,7 +128,7 @@ pub(crate) fn emergency_withdraw(
 
     env.events().publish(
         ("emergency_withdrawal_proposed", campaign_id, admin),
-        (recipient, execute_after, campaign.effective_amount_raised),
+        (recipient, execute_after, remaining_escrow),
     );
 
     Ok(())
@@ -183,7 +206,29 @@ pub(crate) fn execute_emergency_withdrawal(
         return Err(Error::FundsAlreadyWithdrawn);
     }
 
-    let amount = campaign.effective_amount_raised;
+    // Calculate how much has already been claimed via milestones (#1479).
+    // The emergency withdrawal can only transfer funds that remain in escrow.
+    let milestones = crate::storage::get_campaign_milestones(env, campaign_id);
+    let mut claimed_total: i128 = 0;
+    for ms in milestones.iter() {
+        if crate::storage::is_milestone_claimed(env, campaign_id, ms.id) {
+            // claimed = effective_amount_raised * payout_bps / 10_000
+            let payout = campaign
+                .effective_amount_raised
+                .checked_mul(ms.payout_bps as i128)
+                .ok_or(Error::Overflow)?
+                .checked_div(10_000)
+                .ok_or(Error::Overflow)?;
+            claimed_total = claimed_total.checked_add(payout).ok_or(Error::Overflow)?;
+        }
+    }
+
+    // Remaining escrow = effective_amount_raised - claimed_total
+    let amount = campaign
+        .effective_amount_raised
+        .checked_sub(claimed_total)
+        .ok_or(Error::Overflow)?;
+
     if amount <= 0 {
         remove_emergency_withdrawal(env, campaign_id);
         return Err(Error::NoFundsToWithdraw);

@@ -521,7 +521,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
     // Gating on the outstanding balance closes that window. Vesting reserves are
     // likewise tracked in `total_raised_global` until released.
     if get_active_campaign_count(env) > 0 || get_total_raised_global(env) != 0 {
-        return Err(Error::TokenUpdateBlocked);
+        return Err(Error::ValidationFailed);
     }
 
     bump_instance_ttl(env);
