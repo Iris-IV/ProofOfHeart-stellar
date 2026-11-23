@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, FromVal, String, Symbol};
 use soroban_sdk::IntoVal;
 
 #[test]
@@ -702,4 +702,111 @@ fn test_reading_saved_campaigns_requires_no_auth() {
         env.auths().is_empty(),
         "get_saved_campaigns_count must not require authorization"
     );
+}
+
+// ── #1673: `clear_saved_campaigns` coverage ──────────────────────────────────
+//
+// The existing `test_clear_saved_campaigns` pins the state after the call
+// (empty list, zero count, no-error double-clear). These three tests cover the
+// gaps the issue flags: the emitted event and its payload, the behaviour on an
+// already-empty list, and that a clear only touches the calling wallet.
+
+/// Clearing a non-empty list emits `campaign_bookmarks_cleared` whose topic
+/// carries the wallet and whose data payload is the pre-clear count, matching
+/// the shape in `bookmarks.rs`. A regression in the event name, topic order,
+/// or payload shape would be caught here.
+#[test]
+fn test_clear_saved_campaigns_emits_cleared_event_with_count() {
+    let (env, _admin, creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+    let id1 = bookmark_test_campaign(&env, &creator, &client);
+    let id2 = bookmark_test_campaign(&env, &creator, &client);
+    let id3 = bookmark_test_campaign(&env, &creator, &client);
+
+    client.save_campaign(&contributor1, &id1);
+    client.save_campaign(&contributor1, &id2);
+    client.save_campaign(&contributor1, &id3);
+
+    let events_before = env.events().all().len();
+    client.clear_saved_campaigns(&contributor1);
+    let events_after = env.events().all().len();
+
+    assert_eq!(
+        events_after - events_before,
+        1,
+        "clear_saved_campaigns must emit exactly 1 event"
+    );
+
+    let last_event = env.events().all().last().unwrap();
+    let topics = &last_event.1;
+    let data = &last_event.2;
+
+    assert_eq!(topics.len(), 2);
+    let topic0: Symbol = FromVal::from_val(&env, &topics.get(0).unwrap());
+    assert_eq!(topic0, Symbol::new(&env, "campaign_bookmarks_cleared"));
+    let topic1: Address = FromVal::from_val(&env, &topics.get(1).unwrap());
+    assert_eq!(topic1, contributor1);
+
+    let payload: u32 = FromVal::from_val(&env, data);
+    assert_eq!(payload, 3, "event payload must carry the pre-clear count");
+}
+
+/// Clearing an already-empty list still emits the event with a count of 0.
+/// `clear_saved_campaigns` doesn't gate the event on `cleared > 0`, and callers
+/// (indexers, UIs) rely on that: the event is the signal a clear happened,
+/// regardless of what it cleared. Adding a `if cleared > 0` guard in
+/// `bookmarks.rs` would fail this test.
+#[test]
+fn test_clear_saved_campaigns_on_empty_list_still_emits_zero_count() {
+    let (env, _admin, _creator, contributor1, _c2, _token, _token_admin, client) = setup_env();
+
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
+
+    let events_before = env.events().all().len();
+    client.clear_saved_campaigns(&contributor1);
+    let events_after = env.events().all().len();
+
+    assert_eq!(
+        events_after - events_before,
+        1,
+        "clear_saved_campaigns must emit the event even when the list is already empty"
+    );
+
+    let last_event = env.events().all().last().unwrap();
+    let topic0: Symbol = FromVal::from_val(&env, &last_event.1.get(0).unwrap());
+    assert_eq!(topic0, Symbol::new(&env, "campaign_bookmarks_cleared"));
+    let payload: u32 = FromVal::from_val(&env, &last_event.2);
+    assert_eq!(payload, 0, "empty-list clear must emit count=0");
+}
+
+/// A clear is scoped to the caller's own list — another wallet's saved
+/// campaigns are untouched. Without a per-user storage key this would regress
+/// silently; this test fails the moment `set_saved_campaigns` writes to the
+/// wrong address.
+#[test]
+fn test_clear_saved_campaigns_does_not_affect_other_users() {
+    let (env, _admin, creator, contributor1, contributor2, _token, _token_admin, client) =
+        setup_env();
+    let id1 = bookmark_test_campaign(&env, &creator, &client);
+    let id2 = bookmark_test_campaign(&env, &creator, &client);
+
+    client.save_campaign(&contributor1, &id1);
+    client.save_campaign(&contributor1, &id2);
+    client.save_campaign(&contributor2, &id1);
+    client.save_campaign(&contributor2, &id2);
+
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 2);
+    assert_eq!(client.get_saved_campaigns_count(&contributor2), 2);
+
+    client.clear_saved_campaigns(&contributor1);
+
+    assert_eq!(client.get_saved_campaigns_count(&contributor1), 0);
+    assert_eq!(
+        client.get_saved_campaigns_count(&contributor2),
+        2,
+        "contributor2's bookmarks must be untouched by contributor1's clear"
+    );
+    let saved2 = client.get_saved_campaigns(&contributor2);
+    assert_eq!(saved2.len(), 2);
+    assert_eq!(saved2.get(0).unwrap(), id1);
+    assert_eq!(saved2.get(1).unwrap(), id2);
 }
