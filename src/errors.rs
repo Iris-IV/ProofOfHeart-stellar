@@ -255,24 +255,18 @@ pub enum Error {
     CreationDisabled = 32,
     /// The funding goal is below the configured minimum.
     FundingGoalTooLow = 33,
-    /// The funding goal is above the configured maximum.
-    FundingGoalTooHigh = 38,
-    /// A transfer is already pending.
-    TransferAlreadyPending = 35,
-
-    // ── Deadline extension ──────────────────────────────────────────────────
     /// Admin or community verification was attempted on an already verified campaign.
     VerificationConflict = 34,
-    /// `propose_token_update` was called with a token address identical to the one already in use.
-    SameToken = 35,
-    /// The campaign is not in a refundable state (not cancelled and goal was met or deadline hasn't passed).
-    RefundNotAvailable = 35,
+    /// A transfer is already pending.
+    TransferAlreadyPending = 35,
     /// The campaign deadline has already been extended once.
     DeadlineAlreadyExtended = 36,
     /// Extension would push the deadline past the allowed maximum.
     ExtensionTooLong = 37,
+    /// The funding goal is above the configured maximum.
+    FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
-    InvalidPlatformFee = 52,
+    InvalidPlatformFee = 39,
 
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
@@ -303,8 +297,6 @@ pub enum Error {
     /// `accept_token_update` was blocked because active campaigns or outstanding balances still
     /// reference the current token.
     TokenUpdateBlocked = 54,
-    /// The campaign has reached or exceeded its funding goal.
-    FundingGoalReached = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -364,13 +356,11 @@ impl Error {
                 CreationDisabled,
                 FundingGoalTooLow,
                 VerificationConflict,
-                SameToken,
-                RefundNotAvailable,
+                TransferAlreadyPending,
                 DeadlineAlreadyExtended,
                 ExtensionTooLong,
                 FundingGoalTooHigh,
                 InvalidPlatformFee,
-                TransferAlreadyPending,
                 InvalidVestingDelay,
                 GoalMetCancellationNotAllowed,
                 InvalidStateTransition,
@@ -385,7 +375,6 @@ impl Error {
                 NoPendingTokenUpdate,
                 TimelockNotElapsed,
                 TokenUpdateBlocked,
-                FundingGoalReached,
             ]
         )
     }
