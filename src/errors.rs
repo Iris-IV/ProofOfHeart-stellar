@@ -294,9 +294,6 @@ pub enum Error {
     NoPendingTokenUpdate = 52,
     /// `accept_token_update` was called before the mandatory timelock has elapsed.
     TimelockNotElapsed = 53,
-    /// `accept_token_update` was blocked because active campaigns or outstanding balances still
-    /// reference the current token.
-    TokenUpdateBlocked = 54,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -374,7 +371,6 @@ impl Error {
                 InvariantBroken,
                 NoPendingTokenUpdate,
                 TimelockNotElapsed,
-                TokenUpdateBlocked,
             ]
         )
     }
@@ -534,10 +530,6 @@ mod tests {
             Error::TimelockNotElapsed.to_string(),
             "TimelockNotElapsed"
         );
-        assert_eq!(
-            Error::TokenUpdateBlocked.to_string(),
-            "TokenUpdateBlocked"
-        );
     }
 
     #[test]
@@ -579,14 +571,14 @@ mod tests {
         );
     }
 
-    /// Locks the total variant count at 51 (discriminants 1–51, all filled).
+    /// Locks the total variant count at 50 (maximum allowed by Soroban).
     /// If this creeps past Soroban's XDR cap, `cargo build` itself will fail
     /// with `#[contracterror] ... LengthExceedsMax` before this test runs —
     /// this assertion just documents the current count.
     #[test]
     fn error_variant_count_stays_within_xdr_cap() {
-        // NotAuthorized..=InvariantBroken, discriminants 1–51, all filled.
-        const CASES: u32 = 51;
-        assert_eq!(CASES, 51, "Soroban error enums are capped at 50 cases");
+        // NotAuthorized..=TimelockNotElapsed, 50 discriminants used.
+        const CASES: u32 = 50;
+        assert_eq!(CASES, 50, "Soroban error enums are capped at 50 cases");
     }
 }
