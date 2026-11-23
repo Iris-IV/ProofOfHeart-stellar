@@ -178,9 +178,10 @@ fn test_platform_stats_after_withdraw() {
     token_admin.mint(&contributor, &100_000);
     client.contribute(&id, &contributor, &10_000);
 
-    env.ledger().with_mut(|l| {
-        l.timestamp += 31 * SECONDS_PER_DAY;
-    });
+    // Use the shared helper, which reads the actual campaign deadline and
+    // steps past it — a manual `timestamp +=` from the campaign's own clock
+    // is fragile when the test's start time is non-zero.
+    advance_past_deadline(&env, &client, id);
 
     client.withdraw_funds(&id);
     let stats = client.get_platform_stats();
@@ -227,7 +228,9 @@ fn test_get_campaigns_by_category_capped_at_list_max_limit() {
     });
 
     let result = client.get_campaigns_by_category(&Category::Learner, &0u32, &1000u32);
-    assert_eq!(result.0.len(), 20);
+    // `LIST_MAX_LIMIT` grew from 20 to 50 (see src/lib.rs); the test seeds 60
+    // campaigns and requests 1000, so the expected count is the cap itself.
+    assert_eq!(result.0.len(), crate::LIST_MAX_LIMIT as u32);
 }
 
 #[test]
@@ -250,12 +253,25 @@ fn test_resume_campaign_rejects_when_contract_not_paused() {
     let (env, _admin, creator, _, _, _, _, client) = setup_env();
     let campaign_id = client.create_campaign(&make_campaign_params_simple(&env, &creator, 0));
 
-    let events_before = env.events().all().len();
     let result = client.try_resume_campaign(&campaign_id, &creator);
-    let events_after = env.events().all().len();
-
     assert_eq!(result.unwrap_err().unwrap(), Error::ValidationFailed);
-    assert_eq!(events_before, events_after);
+
+    // Under SDK 22, `env.events().all()` only reflects the last invocation's
+    // events. The before/after-count pattern is unreliable (the reverted
+    // try_resume_campaign and the preceding create_campaign live in separate
+    // invocations). The guarantee we actually want to pin is that resume
+    // emits no `campaign_resumed` event when it rejects.
+    let expected = String::from_str(&env, "campaign_resumed");
+    assert!(
+        !env.events().all().iter().any(|(_, topics, _)| {
+            topics
+                .get(0)
+                .and_then(|v| String::try_from_val(&env, &v).ok())
+                .map(|s| s == expected)
+                .unwrap_or(false)
+        }),
+        "no campaign_resumed event must be emitted when resume rejects"
+    );
 }
 
 #[test]
@@ -821,6 +837,7 @@ fn test_creator_claim_does_not_absorb_contributor_rounding() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     client.deposit_revenue(&campaign_id, &10_001);
@@ -862,6 +879,7 @@ fn test_834_rounding_remainder_reaches_contributors() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
+    advance_past_deadline(&_env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     client.deposit_revenue(&campaign_id, &10_001);
@@ -906,6 +924,7 @@ fn test_834_repeated_deposits_do_not_bias_creator() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
+    advance_past_deadline(&_env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     client.deposit_revenue(&campaign_id, &10_001);
@@ -955,6 +974,7 @@ fn test_834_over_claims_rejected() {
     });
     client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &10_001);
+    advance_past_deadline(&_env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     client.deposit_revenue(&campaign_id, &10_001);
@@ -1000,6 +1020,7 @@ fn test_last_revenue_claimant_absorbs_rounding_dust() {
 
     client.contribute(&campaign_id, &contributor1, &1);
     client.contribute(&campaign_id, &contributor2, &2);
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
     client.deposit_revenue(&campaign_id, &10);
 
@@ -1668,16 +1689,14 @@ fn test_reserve_released_event_carries_campaign_creator_and_amount() {
     let campaign_id =
         funded_campaign_852(&env, &admin, &creator, &contributor, &token_admin, &client);
 
-    let now = env.ledger().timestamp();
-    env.ledger().with_mut(|li| {
-        li.timestamp = now + 31 * SECONDS_PER_DAY;
-    });
+    // Step past the campaign's own deadline via the shared helper — it reads
+    // the actual deadline rather than assuming the ledger started at t=0.
+    advance_past_deadline(&env, &client, campaign_id);
     client.withdraw_funds(&campaign_id);
 
     // Move past the vesting delay so the reserve becomes releasable.
-    let now = env.ledger().timestamp();
     env.ledger().with_mut(|li| {
-        li.timestamp = now + (DELAY_DAYS_852 + 1) * SECONDS_PER_DAY;
+        li.timestamp += (DELAY_DAYS_852 + 1) * SECONDS_PER_DAY;
     });
 
     let balance_before = token.balance(&creator);

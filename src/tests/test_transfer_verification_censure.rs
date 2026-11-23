@@ -297,13 +297,14 @@ fn test_uncensure_comment_restores_and_records() {
     client.censure_comment(&campaign_id, &comment, &String::from_str(&env, "Mistake"));
     client.uncensure_comment(&campaign_id, &comment);
 
-    assert!(!client.is_comment_censured(&campaign_id, &comment));
-    assert!(client.get_comment_censure(&campaign_id, &comment).is_none());
-    assert_eq!(client.get_censured_comment_count(&campaign_id), 0);
-
+    // Under SDK 22, `env.events().all()` returns only the LAST invocation's
+    // events, so any client read below would clear the uncensure event before
+    // it is asserted. Capture the event list here, before the read-side
+    // assertions.
+    let events = env.events().all();
     let expected = String::from_str(&env, "comment_uncensured");
     assert!(
-        env.events().all().iter().any(|(_, topics, _)| {
+        events.iter().any(|(_, topics, _)| {
             topics
                 .get(0)
                 .and_then(|v| String::try_from_val(&env, &v).ok())
@@ -312,6 +313,10 @@ fn test_uncensure_comment_restores_and_records() {
         }),
         "comment_uncensured event missing"
     );
+
+    assert!(!client.is_comment_censured(&campaign_id, &comment));
+    assert!(client.get_comment_censure(&campaign_id, &comment).is_none());
+    assert_eq!(client.get_censured_comment_count(&campaign_id), 0);
 }
 
 /// Lifting a censure that was never applied is a no-op rather than an
@@ -422,6 +427,8 @@ fn test_censure_does_not_block_contributions() {
     );
     assert!(client.is_comment_censured(&campaign_id, &hash(&env, 0x20)));
 
+    // `contribute` requires a verified campaign (#26 CampaignNotVerified).
+    client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &500);
     assert_eq!(client.get_contribution(&campaign_id, &contributor1), 500);
     assert_eq!(token.balance(&contributor1), 4500);
@@ -436,6 +443,8 @@ fn test_admin_cancel_campaign_locks_funds() {
     let campaign_id = make_campaign(&env, &creator, &client, 0);
     token_admin.mint(&contributor1, &5000);
 
+    // `contribute` requires a verified campaign (#26 CampaignNotVerified).
+    client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &2000);
     assert_eq!(token.balance(&client.address), 2000);
 
@@ -468,6 +477,8 @@ fn test_admin_cancel_during_active_censure_preserves_censure_records() {
     );
     assert!(client.is_comment_censured(&campaign_id, &comment));
 
+    // `contribute` requires a verified campaign (#26 CampaignNotVerified).
+    client.verify_campaign(&campaign_id);
     client.contribute(&campaign_id, &contributor1, &1000);
 
     client.admin_cancel_campaign(&admin, &campaign_id, &String::from_str(&env, "Fraud"));

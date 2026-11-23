@@ -340,6 +340,8 @@ fn test_withdrawal_pays_in_the_campaign_currency() {
     client.verify_campaign(&id);
     client.contribute(&id, &contributor1, &5000);
 
+    // `withdraw_funds` requires the deadline to have passed (#854).
+    advance_past_deadline(&env, &client, id);
     client.withdraw_funds(&id);
 
     // The creator was paid in USDC, and the contract's platform-token balance
@@ -426,7 +428,13 @@ fn test_multi_contribution_accumulation_in_single_currency() {
     usdc_admin.mint(&contributor1, &10_000);
     usdc_admin.mint(&contributor2, &10_000);
 
-    let id = client.create_campaign_with_token(&params(&env, &creator, "Multi"), &usdc);
+    // Raise the funding goal above the sum of the three contributions so the
+    // third one isn't partially filled — the test's intent is to assert
+    // multi-contribution *accumulation*, not the over-goal truncation path
+    // (that path is covered by test_contribute_caps).
+    let mut p = params(&env, &creator, "Multi");
+    p.funding_goal = 10_000;
+    let id = client.create_campaign_with_token(&p, &usdc);
     client.verify_campaign(&id);
 
     client.contribute(&id, &contributor1, &1000);
@@ -455,8 +463,12 @@ fn test_concurrent_refunds_in_campaign_currency() {
     let id = client.create_campaign_with_token(&params(&env, &creator, "Refund Test"), &usdc);
     client.verify_campaign(&id);
 
-    client.contribute(&id, &contributor1, &2000);
-    client.contribute(&id, &contributor2, &3000);
+    // Keep the raised total under the 5000 goal: cancellation is disallowed
+    // once the goal has been met (#42 GoalMetCancellationNotAllowed). The
+    // intent here is the refund accounting, which is independent of the exact
+    // raise amount.
+    client.contribute(&id, &contributor1, &1000);
+    client.contribute(&id, &contributor2, &1500);
 
     client.cancel_campaign(&id);
     client.claim_refund(&id, &contributor1);
@@ -480,6 +492,10 @@ fn test_withdrawal_with_revenue_share_in_campaign_currency() {
     platform_admin.mint(&client.address, &10_000);
 
     let mut params = params(&env, &creator, "Revenue Test");
+    // Revenue sharing is only permitted on EducationalStartup campaigns
+    // (#7 RevenueShareOnlyForStartup). The default params() picks Learner,
+    // which `create_campaign_with_token` rejects.
+    params.category = Category::EducationalStartup;
     params.has_revenue_sharing = true;
     params.revenue_share_percentage = 50;
 
@@ -488,6 +504,8 @@ fn test_withdrawal_with_revenue_share_in_campaign_currency() {
     client.contribute(&id, &contributor1, &5000);
 
     client.vote_on_campaign(&id, &contributor1, &true);
+    // `withdraw_funds` requires the deadline to have passed (#854).
+    advance_past_deadline(&env, &client, id);
     client.withdraw_funds(&id);
 
     assert!(usdc_token.balance(&creator) > 0);
