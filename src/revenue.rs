@@ -116,6 +116,12 @@ pub(crate) fn deposit_revenue(env: &Env, campaign_id: u32, amount: i128) -> Resu
 
     bump_instance_ttl(env);
 
+    // Issue 1: Ensure campaign token is pinned to the currency under which revenue is deposited.
+    if crate::storage::get_pinned_campaign_token(env, campaign_id).is_none() {
+        let token = crate::storage::get_campaign_token(env, campaign_id);
+        crate::storage::set_campaign_token(env, campaign_id, &token);
+    }
+
     let current_pool = get_revenue_pool(env, campaign_id);
     set_revenue_pool(
         env,

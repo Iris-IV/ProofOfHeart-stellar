@@ -267,6 +267,8 @@ pub enum Error {
     FundingGoalTooHigh = 38,
     /// The provided platform fee exceeds the maximum allowed basis points.
     InvalidPlatformFee = 39,
+    /// The campaign has reached or exceeded its funding goal.
+    FundingGoalReached = 40,
 
     /// Vesting delay days must be greater than zero.
     InvalidVestingDelay = 41,
@@ -290,10 +292,6 @@ pub enum Error {
     MilestoneAlreadyClaimed = 50,
     /// An invariant condition has been violated (state corruption or bug).
     InvariantBroken = 51,
-    /// `accept_token_update` or `cancel_token_update` was called with no pending token update.
-    NoPendingTokenUpdate = 52,
-    /// `accept_token_update` was called before the mandatory timelock has elapsed.
-    TimelockNotElapsed = 53,
 }
 
 /// Builds an exhaustive `match self { Error::V => stringify!(V), ... }` from
@@ -358,6 +356,7 @@ impl Error {
                 ExtensionTooLong,
                 FundingGoalTooHigh,
                 InvalidPlatformFee,
+                FundingGoalReached,
                 InvalidVestingDelay,
                 GoalMetCancellationNotAllowed,
                 InvalidStateTransition,
@@ -369,8 +368,6 @@ impl Error {
                 MilestoneNotVerified,
                 MilestoneAlreadyClaimed,
                 InvariantBroken,
-                NoPendingTokenUpdate,
-                TimelockNotElapsed,
             ]
         )
     }
@@ -469,16 +466,16 @@ mod tests {
             "VerificationConflict"
         );
         assert_eq!(
-            Error::RefundNotAvailable.to_string(),
-            "RefundNotAvailable"
-        );
-        assert_eq!(
             Error::DeadlineAlreadyExtended.to_string(),
             "DeadlineAlreadyExtended"
         );
         assert_eq!(Error::ExtensionTooLong.to_string(), "ExtensionTooLong");
         assert_eq!(Error::FundingGoalTooHigh.to_string(), "FundingGoalTooHigh");
         assert_eq!(Error::InvalidPlatformFee.to_string(), "InvalidPlatformFee");
+        assert_eq!(
+            Error::FundingGoalReached.to_string(),
+            "FundingGoalReached"
+        );
         assert_eq!(
             Error::TransferAlreadyPending.to_string(),
             "TransferAlreadyPending"
@@ -521,15 +518,6 @@ mod tests {
             "MilestoneAlreadyClaimed"
         );
         assert_eq!(Error::InvariantBroken.to_string(), "InvariantBroken");
-        assert_eq!(Error::SameToken.to_string(), "SameToken");
-        assert_eq!(
-            Error::NoPendingTokenUpdate.to_string(),
-            "NoPendingTokenUpdate"
-        );
-        assert_eq!(
-            Error::TimelockNotElapsed.to_string(),
-            "TimelockNotElapsed"
-        );
     }
 
     #[test]

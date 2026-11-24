@@ -61,7 +61,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     let fee_amount = campaign
         .effective_amount_raised
         .checked_mul(platform_fee as i128)
-        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
+        .and_then(|n: i128| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
     let total_after_fee = campaign
@@ -80,7 +80,7 @@ pub(crate) fn withdraw_funds(env: &Env, campaign_id: u32) -> Result<(), Error> {
     });
     let reserve_amount = total_after_fee
         .checked_mul(reserve_bps as i128)
-        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
+        .and_then(|n: i128| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
     let creator_amount = total_after_fee
