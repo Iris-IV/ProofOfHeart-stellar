@@ -133,6 +133,19 @@ use crate::storage::{
 };
 use crate::types::Milestone;
 
+/// Returns `true` once at least one milestone of `campaign_id` has been
+/// claimed, i.e. part of the escrow has already been paid out to the creator
+/// (and the matching fee slice to the admin).
+///
+/// `claim_milestone` only flips `funds_withdrawn` when the *last* milestone is
+/// claimed, so callers that must not act on a partially paid-out campaign
+/// (cancellation, refunds) check this in addition to `funds_withdrawn` (#1478).
+pub(crate) fn has_claimed_milestone(env: &Env, campaign_id: u32) -> bool {
+    get_campaign_milestones(env, campaign_id)
+        .iter()
+        .any(|m| is_milestone_claimed(env, campaign_id, m.id))
+}
+
 /// Creator sets custom milestone payouts for a campaign (#783).
 /// Each milestone's `payout_bps` is a share of the withdrawable funds
 /// (after platform fee). The sum must equal `BPS_DENOMINATOR` (10_000).

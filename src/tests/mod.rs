@@ -4,6 +4,7 @@ pub(crate) mod helpers;
 //TMP mod test_auto_settlement;
 // mod test_bookmarks;
 // mod test_admin_cancel;
+mod test_admin_cancel_milestone_payout;
 //TMP mod test_admin_security;
 mod test_benchmark;
 mod test_campaign_state_ttl;
