@@ -479,6 +479,13 @@ pub(crate) fn claim_refund(env: &Env, campaign_id: u32, contributor: Address) ->
     if !(campaign.is_cancelled() || failed_due_to_goal) {
         return Err(Error::RefundNotAvailable);
     }
+    // #1478: defence in depth — never refund a campaign whose escrow has
+    // already been partially paid out through milestone claims. Those funds
+    // left the contract, so a full refund would be paid from other
+    // campaigns' balances.
+    if crate::milestones::has_claimed_milestone(env, campaign_id) {
+        return Err(Error::RefundNotAvailable);
+    }
 
     let amount = get_contribution(env, campaign_id, &contributor);
     if amount == 0 {

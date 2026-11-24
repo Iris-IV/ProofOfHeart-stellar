@@ -6,6 +6,7 @@ use crate::lifecycle::{
     assert_admin, campaign_token_client, get_campaign_or_error, get_creator_campaign,
     require_active_campaign, require_not_paused, transition, CampaignState,
 };
+use crate::milestones::has_claimed_milestone;
 use crate::storage::{
     bump_instance_ttl, decrement_active_campaign_count, get_cancellation_penalty_bps,
     get_revenue_pool, get_total_raised_global, increment_cancelled_campaign_count,
@@ -44,6 +45,13 @@ pub(crate) fn cancel_campaign(env: &Env, campaign_id: u32) -> Result<(), Error> 
 
     require_active_campaign(&campaign)?;
     if campaign.funds_withdrawn() {
+        return Err(Error::CancellationNotAllowed);
+    }
+    // #1478: `funds_withdrawn` is only set once *every* milestone is claimed.
+    // A partially paid-out milestone campaign must not be cancellable, or
+    // every contributor could `claim_refund` their full contribution and the
+    // already-paid portion would be drained from other campaigns' escrow.
+    if has_claimed_milestone(env, campaign_id) {
         return Err(Error::CancellationNotAllowed);
     }
     // Prevent rug-pull: reject cancellation after the funding goal has been met but
@@ -161,6 +169,13 @@ pub(crate) fn admin_cancel_campaign(
     let mut campaign = get_campaign_or_error(env, campaign_id)?;
     require_active_campaign(&campaign)?;
     if campaign.funds_withdrawn() {
+        return Err(Error::CancellationNotAllowed);
+    }
+    // #1478: `funds_withdrawn` is only set once *every* milestone is claimed.
+    // A partially paid-out milestone campaign must not be cancellable, or
+    // every contributor could `claim_refund` their full contribution and the
+    // already-paid portion would be drained from other campaigns' escrow.
+    if has_claimed_milestone(env, campaign_id) {
         return Err(Error::CancellationNotAllowed);
     }
 
