@@ -472,7 +472,7 @@ pub(crate) fn propose_token_update(
     // current one. Accepting such a proposal would start a pointless timelock
     // and emit a misleading `token_update_proposed` event.
     if new_token == get_token(env) {
-        return Err(Error::SameToken);
+        return Err(Error::ValidationFailed);
     }
 
     env.try_invoke_contract::<u32, Error>(
@@ -502,14 +502,11 @@ pub(crate) fn propose_token_update(
 /// All existing campaigns must reach a terminal state (withdrawn or cancelled)
 /// before the token address can change, preventing stranded balances.
 pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error> {
-    assert_admin(env, &admin)?;
-    let new_token = get_pending_token(env).ok_or(Error::NoPendingTokenUpdate)?;
-    let release_after = get_pending_token_release(env).ok_or(Error::NoPendingTokenUpdate)?;
     ensure_admin!(env, &admin);
     let new_token = get_pending_token(env).ok_or(Error::ValidationFailed)?;
     let release_after = get_pending_token_release(env).ok_or(Error::ValidationFailed)?;
     if env.ledger().timestamp() < release_after {
-        return Err(Error::TimelockNotElapsed);
+        return Err(Error::ValidationFailed);
     }
 
     // Block the swap while any campaign is still active OR any contributor
@@ -526,6 +523,17 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 
     bump_instance_ttl(env);
     let old_token = get_token(env);
+
+    // Issue 1: Pin the current platform token on every campaign before accepting
+    // the update so campaigns (including withdrawn campaigns holding revenue
+    // pools or creator buckets) pay revenue claims in the token deposited.
+    let campaign_count = storage::get_campaign_count(env);
+    for id in 1..=campaign_count {
+        if storage::get_pinned_campaign_token(env, id).is_none() {
+            storage::set_campaign_token(env, id, &old_token);
+        }
+    }
+
     set_token(env, &new_token);
     remove_pending_token(env);
     env.events()
@@ -536,7 +544,7 @@ pub(crate) fn accept_token_update(env: &Env, admin: Address) -> Result<(), Error
 pub(crate) fn cancel_token_update(env: &Env, admin: Address) -> Result<(), Error> {
     ensure_admin!(env, &admin);
     if get_pending_token(env).is_none() {
-        return Err(Error::NoPendingTokenUpdate);
+        return Err(Error::ValidationFailed);
     }
     bump_instance_ttl(env);
     remove_pending_token(env);

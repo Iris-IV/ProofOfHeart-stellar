@@ -306,7 +306,7 @@ pub(crate) fn claim_milestone(env: &Env, campaign_id: u32, milestone_id: u32) ->
     let fee_total = campaign
         .amount_raised
         .checked_mul(platform_fee as i128)
-        .and_then(|n| n.checked_add(crate::BPS_CEIL_OFFSET))
+        .and_then(|n: i128| n.checked_add(crate::BPS_CEIL_OFFSET))
         .ok_or(Error::Overflow)?
         / crate::BPS_DENOMINATOR as i128;
     let total_after_fee = campaign.amount_raised - fee_total;

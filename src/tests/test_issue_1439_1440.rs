@@ -118,10 +118,13 @@ fn test_cap_check_uses_accepted_amount_on_partial_fill() {
     ));
     client.verify_campaign(&campaign_id);
 
-    // Fill 700 with a different contributor so remaining = 300.
-    let other = soroban_sdk::Address::generate(&env);
-    token_admin.mint(&other, &5_000);
-    client.contribute(&campaign_id, &other, &700);
+    // Fill 700 with different contributors so remaining = 300 (cap per user is 400).
+    let other1 = soroban_sdk::Address::generate(&env);
+    let other2 = soroban_sdk::Address::generate(&env);
+    token_admin.mint(&other1, &5_000);
+    token_admin.mint(&other2, &5_000);
+    client.contribute(&campaign_id, &other1, &400);
+    client.contribute(&campaign_id, &other2, &300);
 
     // contributor requests 500 — overshoots by 200 (remaining = 300).
     // accepted = 300, which is ≤ cap (400) → must succeed.

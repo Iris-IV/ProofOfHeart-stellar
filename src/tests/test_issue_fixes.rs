@@ -426,3 +426,161 @@ fn creator_bucket_isolation_multiple_campaigns() {
     assert_eq!(client.get_creator_bucket_balance(&id1, &creator), 800);
     assert_eq!(client.get_creator_bucket_balance(&id2, &creator), 700);
 }
+
+// ── 4 Issues Acceptance Tests ────────────────────────────────────────────────
+
+#[test]
+fn test_issue_1_revenue_claim_pays_in_deposited_token_after_token_update() {
+    let (env, admin, creator, c1, _c2, token_a, token_admin_a, client) = setup_env();
+    let id = make_revenue_campaign(
+        &env,
+        &client,
+        &creator,
+        1_000,
+        "Startup Rev Token Update",
+        2000,
+    );
+    client.verify_campaign(&id);
+
+    token_admin_a.mint(&c1, &2_000);
+    client.contribute(&id, &c1, &1_000);
+
+    advance_past_deadline(&env, &client, id);
+    client.withdraw_funds(&id);
+
+    token_admin_a.mint(&creator, &1_000);
+    client.deposit_revenue(&id, &1_000);
+
+    // Setup second token B and update the platform token
+    let token_b_sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_b = token_b_sac.address();
+    client.propose_token_update(&admin, &token_b);
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += crate::TOKEN_UPDATE_DELAY_SECS + 1;
+    });
+    client.accept_token_update(&admin);
+    assert_eq!(client.get_token(), token_b);
+
+    // Claim revenue for contributor and creator
+    let c1_bal_a_before = token_a.balance(&c1);
+    let creator_bal_a_before = token_a.balance(&creator);
+
+    let token_b_client = soroban_sdk::token::Client::new(&env, &token_b);
+    let c1_bal_b_before = token_b_client.balance(&c1);
+    let creator_bal_b_before = token_b_client.balance(&creator);
+
+    client.claim_revenue(&id, &c1);
+    client.claim_creator_revenue(&id);
+
+    // Payouts must be paid in token A (the token revenue was deposited in)
+    assert_eq!(token_a.balance(&c1), c1_bal_a_before + 200);
+    assert_eq!(token_a.balance(&creator), creator_bal_a_before + 800);
+
+    // Token B balances must remain untouched
+    assert_eq!(token_b_client.balance(&c1), c1_bal_b_before);
+    assert_eq!(token_b_client.balance(&creator), creator_bal_b_before);
+}
+
+#[test]
+fn test_issue_2_batch_contribute_capped_to_remaining_capacity_and_goal_reached() {
+    let (env, _admin, creator, c1, c2, token, token_admin, client) = setup_env();
+    let id = make_campaign(&env, &client, &creator, 1_000, "Batch Capacity Campaign");
+    client.verify_campaign(&id);
+
+    token_admin.mint(&c1, &2_000);
+    token_admin.mint(&c2, &2_000);
+
+    // c1 contributes 900, remaining capacity is 100
+    client.contribute(&id, &c1, &900);
+    assert_eq!(client.get_campaign(&id).amount_raised, 900);
+
+    let c2_bal_before = token.balance(&c2);
+
+    // c2 batch contributes with item of 300 (exceeds remaining capacity of 100)
+    let mut batch = soroban_sdk::Vec::new(&env);
+    batch.push_back((id, 300));
+    client.batch_contribute(&c2, &batch);
+
+    // Capped to remaining capacity: only 100 should be accepted and amount_raised becomes 1000
+    assert_eq!(client.get_campaign(&id).amount_raised, 1_000);
+    assert_eq!(token.balance(&c2), c2_bal_before - 100);
+
+    // Subsequent batch contribute to now fully funded campaign returns FundingGoalReached
+    let mut batch2 = soroban_sdk::Vec::new(&env);
+    batch2.push_back((id, 50));
+    let res = client.try_batch_contribute(&c2, &batch2);
+    assert_eq!(res.unwrap_err().unwrap(), Error::FundingGoalReached);
+}
+
+#[test]
+fn test_issue_3_personal_cap_enforced_against_lifetime_when_current_differs() {
+    let (env, _admin, creator, c1, _c2, _token, token_admin, client) = setup_env();
+    let id = make_campaign(&env, &client, &creator, 5_000, "Personal Cap Lifetime Test");
+    client.verify_campaign(&id);
+
+    token_admin.mint(&c1, &5_000);
+
+    // Set storage so current and lifetime differ: current = 200, lifetime = 400
+    env.as_contract(&client.address, || {
+        crate::storage::set_contribution(&env, id, &c1, 200);
+        crate::storage::set_lifetime_contribution(&env, id, &c1, 400);
+        let mut campaign = crate::storage::get_campaign(&env, id).unwrap();
+        campaign.amount_raised = 200;
+        campaign.effective_amount_raised = 200;
+        crate::storage::set_campaign(&env, id, &campaign);
+    });
+
+    // Set personal cap to 500 (valid since 500 >= lifetime 400)
+    client.set_personal_cap(&id, &c1, &500);
+
+    // Contributor attempts to donate 200.
+    // If evaluated against current: current (200) + 200 = 400 <= 500 (would pass).
+    // Evaluated against lifetime: lifetime (400) + 200 = 600 > 500 -> rejected with ContributionCapExceeded!
+    let res = client.try_contribute(&id, &c1, &200);
+    assert_eq!(res.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+
+    // Batch path also fails against lifetime
+    let mut batch = soroban_sdk::Vec::new(&env);
+    batch.push_back((id, 200));
+    let res_batch = client.try_batch_contribute(&c1, &batch);
+    assert_eq!(
+        res_batch.unwrap_err().unwrap(),
+        Error::ContributionCapExceeded
+    );
+
+    // Donating 100 fits within personal cap (lifetime 400 + 100 = 500 <= 500)
+    client.contribute(&id, &c1, &100);
+    assert_eq!(client.get_contribution(&id, &c1), 300);
+    assert_eq!(client.get_lifetime_contribution(&id, &c1), 500);
+}
+
+#[test]
+fn test_issue_4_contribute_over_cap_due_to_refunded_excess_succeeds() {
+    let (env, admin, creator, c1, _c2, token, token_admin, client) = setup_env();
+    let id = make_campaign(&env, &client, &creator, 1_000, "Cap Refund Excess Test");
+    client.verify_campaign(&id);
+
+    // Set max per-transaction contribution cap to 500
+    client.set_max_contribution_per_tx(&admin, &500);
+
+    token_admin.mint(&c1, &5_000);
+
+    // Contribute 900 initially, remaining capacity is 100
+    client.contribute(&id, &c1, &450);
+    client.contribute(&id, &c1, &450);
+    assert_eq!(client.get_campaign(&id).amount_raised, 900);
+
+    let c1_bal_before = token.balance(&c1);
+
+    // Contributor sends 800.
+    // 800 exceeds the 500 transaction cap.
+    // However, accepted portion is only 100 (which is <= 500 cap).
+    // The excess 700 is refunded.
+    // This MUST succeed!
+    client.contribute(&id, &c1, &800);
+
+    assert_eq!(client.get_campaign(&id).amount_raised, 1_000);
+    // Net deduction from c1 is only 100
+    assert_eq!(token.balance(&c1), c1_bal_before - 100);
+}

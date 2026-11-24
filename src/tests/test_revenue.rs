@@ -1209,15 +1209,8 @@ fn test_revenue_claims_across_two_deposit_rounds() {
 
     // c1 claims after round 1: 60 % of 1_000 = 600.
     client.claim_revenue(&campaign_id, &contributor1);
-    assert_eq!(
-        token.balance(&contributor1),
-        600,
-        "c1 after round-1 claim"
-    );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor1),
-        600
-    );
+    assert_eq!(token.balance(&contributor1), 600, "c1 after round-1 claim");
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 600);
     // c2 has not claimed yet — balance unchanged (still 0 after contribution spend).
     assert_eq!(token.balance(&contributor2), 0);
 
@@ -1237,10 +1230,7 @@ fn test_revenue_claims_across_two_deposit_rounds() {
         900,
         "c1 total after round-2 claim"
     );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor1),
-        900
-    );
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor1), 900);
 
     // c2 claims for the first time: entitled to 40 % of 1_500 = 600 in one go.
     client.claim_revenue(&campaign_id, &contributor2);
@@ -1249,10 +1239,7 @@ fn test_revenue_claims_across_two_deposit_rounds() {
         600,
         "c2 total after first claim (spanning both rounds)"
     );
-    assert_eq!(
-        client.get_revenue_claimed(&campaign_id, &contributor2),
-        600
-    );
+    assert_eq!(client.get_revenue_claimed(&campaign_id, &contributor2), 600);
 
     // Pool should be fully claimed: 900 + 600 = 1_500.
     assert_eq!(

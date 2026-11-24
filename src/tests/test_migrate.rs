@@ -18,8 +18,7 @@ fn test_migrate_from_v1_to_v2() {
     assert_eq!(version_before, 1);
 
     // Perform migration with correct expected old version
-    let result = client.migrate(&admin, &1);
-    assert!(result.is_ok());
+    client.migrate(&admin, &1);
 
     // Verify that get_version returns the new version after migration
     let version_after = client.get_version();

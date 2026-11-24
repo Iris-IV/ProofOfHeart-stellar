@@ -93,7 +93,8 @@ fn test_mixed_token_platform_tracks_per_currency_totals() {
     usdc_admin.mint(&contributor2, &5_000);
 
     let native_id = client.create_campaign(&campaign_params(&env, &creator, "Native"));
-    let usdc_id = client.create_campaign_with_token(&campaign_params(&env, &creator, "USDC"), &usdc);
+    let usdc_id =
+        client.create_campaign_with_token(&campaign_params(&env, &creator, "USDC"), &usdc);
     client.verify_campaign(&native_id);
     client.verify_campaign(&usdc_id);
 
@@ -161,7 +162,8 @@ fn test_global_stays_zero_when_only_alt_token_contributed() {
     let (usdc, _usdc_token, usdc_admin) = second_currency(&env, &admin, &client);
     usdc_admin.mint(&contributor, &5_000);
 
-    let id = client.create_campaign_with_token(&campaign_params(&env, &creator, "USDC only"), &usdc);
+    let id =
+        client.create_campaign_with_token(&campaign_params(&env, &creator, "USDC only"), &usdc);
     client.verify_campaign(&id);
     client.contribute(&id, &contributor, &2_000);
 

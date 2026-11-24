@@ -1,5 +1,7 @@
 //! Stateful property coverage for the platform-token raised total (#1464).
 
+extern crate std;
+
 use proptest::prelude::*;
 
 use super::helpers::*;
@@ -79,7 +81,7 @@ proptest! {
             prop_assert_eq!(
                 client.get_total_raised_global(),
                 expected,
-                "global total diverged after operation {operation}"
+                "global total diverged"
             );
         }
     }

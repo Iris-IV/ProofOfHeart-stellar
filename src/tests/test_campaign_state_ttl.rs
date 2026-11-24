@@ -2,8 +2,11 @@
 
 #![allow(deprecated)]
 
+extern crate std;
+
 use super::helpers::*;
 use crate::{CampaignKey, ContributionKey, VotingKey};
+use soroban_sdk::testutils::storage::Persistent;
 use soroban_sdk::{IntoVal, Val};
 
 #[test]

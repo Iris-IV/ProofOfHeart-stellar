@@ -1,9 +1,10 @@
 //! Tests for category-specific platform fee calculation (#1019).
 
 #![cfg(test)]
+#![allow(clippy::assertions_on_constants)]
 
 use crate::constants::{
-    get_category_fee_bps, EDUCATOR_FEE_BPS, EDUCATIONAL_STARTUP_FEE_BPS, LEARNER_FEE_BPS,
+    get_category_fee_bps, EDUCATIONAL_STARTUP_FEE_BPS, EDUCATOR_FEE_BPS, LEARNER_FEE_BPS,
     PUBLISHER_FEE_BPS,
 };
 

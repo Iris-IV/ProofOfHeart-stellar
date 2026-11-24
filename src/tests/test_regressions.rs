@@ -1792,5 +1792,3 @@ fn test_update_campaign_rename_releases_old_title_and_reserves_new() {
     ));
     assert_eq!(res.unwrap_err().unwrap(), Error::ValidationFailed);
 }
-
-
