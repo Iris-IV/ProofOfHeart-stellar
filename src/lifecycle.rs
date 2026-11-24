@@ -206,10 +206,7 @@ pub(crate) fn campaign_token_client(env: &Env, campaign_id: u32) -> token::Clien
 ///
 /// Campaigns already cancelled or withdrawn are reported as-is; this function
 /// does not mutate state, only reads it for settlement decisioning.
-pub fn check_settlement_status(
-    env: &Env,
-    campaign_id: u32,
-) -> Result<(bool, bool, bool), Error> {
+pub fn check_settlement_status(env: &Env, campaign_id: u32) -> Result<(bool, bool, bool), Error> {
     let campaign = get_campaign_or_error(env, campaign_id)?;
     let current_time = env.ledger().timestamp();
 

@@ -263,7 +263,11 @@ pub(crate) fn contribute(
 
     // Issue 3: Enforce personal cap against lifetime contributions.
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if lifetime.checked_add(accepted_amount).ok_or(Error::Overflow)? > cap {
+        if lifetime
+            .checked_add(accepted_amount)
+            .ok_or(Error::Overflow)?
+            > cap
+        {
             return Err(Error::ContributionCapExceeded);
         }
     }
@@ -300,15 +304,21 @@ pub(crate) fn contribute(
 
     // If there's a refund, send it back immediately
     if refund_amount > 0 {
-        client.transfer(&env.current_contract_address(), &contributor, &refund_amount);
+        client.transfer(
+            &env.current_contract_address(),
+            &contributor,
+            &refund_amount,
+        );
         env.events().publish(
             ("contribution_refunded", campaign_id, contributor.clone()),
             refund_amount,
         );
     }
 
-    env.events()
-        .publish(("contribution_made", campaign_id, contributor), accepted_amount);
+    env.events().publish(
+        ("contribution_made", campaign_id, contributor),
+        accepted_amount,
+    );
 
     Ok(())
 }
@@ -443,7 +453,11 @@ fn apply_batch_contribution(
 
     // Issue 3: Enforce personal cap against lifetime contributions.
     if let Some(cap) = get_personal_cap(env, campaign_id, &contributor) {
-        if lifetime.checked_add(accepted_amount).ok_or(Error::Overflow)? > cap {
+        if lifetime
+            .checked_add(accepted_amount)
+            .ok_or(Error::Overflow)?
+            > cap
+        {
             return Err(Error::ContributionCapExceeded);
         }
     }
@@ -460,7 +474,9 @@ fn apply_batch_contribution(
         accepted_amount,
     )?;
 
-    let new_total = current.checked_add(accepted_amount).ok_or(Error::Overflow)?;
+    let new_total = current
+        .checked_add(accepted_amount)
+        .ok_or(Error::Overflow)?;
     let is_new_top = match get_top_contributor(env, campaign_id) {
         Some(top_addr) if top_addr != contributor => {
             new_total > get_contribution(env, campaign_id, &top_addr)

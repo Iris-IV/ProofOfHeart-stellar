@@ -472,10 +472,7 @@ mod tests {
         assert_eq!(Error::ExtensionTooLong.to_string(), "ExtensionTooLong");
         assert_eq!(Error::FundingGoalTooHigh.to_string(), "FundingGoalTooHigh");
         assert_eq!(Error::InvalidPlatformFee.to_string(), "InvalidPlatformFee");
-        assert_eq!(
-            Error::FundingGoalReached.to_string(),
-            "FundingGoalReached"
-        );
+        assert_eq!(Error::FundingGoalReached.to_string(), "FundingGoalReached");
         assert_eq!(
             Error::TransferAlreadyPending.to_string(),
             "TransferAlreadyPending"

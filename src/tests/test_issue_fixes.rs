@@ -432,7 +432,14 @@ fn creator_bucket_isolation_multiple_campaigns() {
 #[test]
 fn test_issue_1_revenue_claim_pays_in_deposited_token_after_token_update() {
     let (env, admin, creator, c1, _c2, token_a, token_admin_a, client) = setup_env();
-    let id = make_revenue_campaign(&env, &client, &creator, 1_000, "Startup Rev Token Update", 2000);
+    let id = make_revenue_campaign(
+        &env,
+        &client,
+        &creator,
+        1_000,
+        "Startup Rev Token Update",
+        2000,
+    );
     client.verify_campaign(&id);
 
     token_admin_a.mint(&c1, &2_000);
@@ -537,7 +544,10 @@ fn test_issue_3_personal_cap_enforced_against_lifetime_when_current_differs() {
     let mut batch = soroban_sdk::Vec::new(&env);
     batch.push_back((id, 200));
     let res_batch = client.try_batch_contribute(&c1, &batch);
-    assert_eq!(res_batch.unwrap_err().unwrap(), Error::ContributionCapExceeded);
+    assert_eq!(
+        res_batch.unwrap_err().unwrap(),
+        Error::ContributionCapExceeded
+    );
 
     // Donating 100 fits within personal cap (lifetime 400 + 100 = 500 <= 500)
     client.contribute(&id, &c1, &100);

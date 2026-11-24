@@ -118,6 +118,7 @@ pub(crate) const MAX_STATS_SCAN: u32 = 40;
 /// Learner campaigns typically request smaller amounts for educational purposes
 /// and benefit from lower fees to maximize funding received. The reduced fee
 /// encourages individual learners to use the platform.
+#[allow(dead_code)]
 pub(crate) const LEARNER_FEE_BPS: u32 = 150;
 
 /// Default platform fee for EducationalStartup campaigns (300 bps = 3%).
@@ -125,6 +126,7 @@ pub(crate) const LEARNER_FEE_BPS: u32 = 150;
 /// Startups with revenue-sharing models represent higher administrative
 /// overhead (ongoing tracking, distribution) and justify a standard commercial
 /// platform fee.
+#[allow(dead_code)]
 pub(crate) const EDUCATIONAL_STARTUP_FEE_BPS: u32 = 300;
 
 /// Default platform fee for Educator campaigns (200 bps = 2%).
@@ -132,6 +134,7 @@ pub(crate) const EDUCATIONAL_STARTUP_FEE_BPS: u32 = 300;
 /// Educators creating learning content fall between individual learners and
 /// commercial startups. A moderate fee balances platform sustainability with
 /// the educational mission.
+#[allow(dead_code)]
 pub(crate) const EDUCATOR_FEE_BPS: u32 = 200;
 
 /// Default platform fee for Publisher campaigns (350 bps = 3.5%).
@@ -139,6 +142,7 @@ pub(crate) const EDUCATOR_FEE_BPS: u32 = 200;
 /// Publishers typically launch larger campaigns for educational materials and
 /// represent the highest commercial risk profile. The fee reflects the
 /// additional verification and compliance burden.
+#[allow(dead_code)]
 pub(crate) const PUBLISHER_FEE_BPS: u32 = 350;
 
 /// Returns the default platform fee (in basis points) for a given category.
@@ -152,12 +156,13 @@ pub(crate) const PUBLISHER_FEE_BPS: u32 = 350;
 /// ```ignore
 /// let fee_bps = get_category_fee_bps(Category::Learner); // 150 bps
 /// ```
+#[allow(dead_code)]
 pub(crate) const fn get_category_fee_bps(category: u32) -> u32 {
     match category {
-        0 => LEARNER_FEE_BPS,           // Category::Learner
+        0 => LEARNER_FEE_BPS,             // Category::Learner
         1 => EDUCATIONAL_STARTUP_FEE_BPS, // Category::EducationalStartup
-        2 => EDUCATOR_FEE_BPS,           // Category::Educator
-        3 => PUBLISHER_FEE_BPS,          // Category::Publisher
+        2 => EDUCATOR_FEE_BPS,            // Category::Educator
+        3 => PUBLISHER_FEE_BPS,           // Category::Publisher
         _ => EDUCATIONAL_STARTUP_FEE_BPS, // Fallback to standard fee
     }
 }
