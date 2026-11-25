@@ -232,6 +232,10 @@ ProofOfHeart-stellar/
 | ------------------------------------------------------------------------- | ---------------------------- |
 | [ProofOfHeart-frontend](https://github.com/Iris-IV/ProofOfHeart-frontend) | Next.js frontend application |
 
+## API Reference
+
+For the complete list of public functions (including bookmarks, censure, transfers, and token updates), see the [generated rustdoc documentation](https://docs.rs/proof-of-heart) or browse the entry points in [`lib.rs`](contracts/campaign/src/lib.rs).
+
 ## Contributing
 
 We welcome contributors of all experience levels! For detailed setup instructions, coding standards, and PR guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
