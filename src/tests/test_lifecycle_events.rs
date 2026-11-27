@@ -191,9 +191,19 @@ fn test_campaign_created_event_includes_category() {
 
 /// Verifies that the `initialized` event emits the expected topic and data shape
 /// per EVENT_PAYLOADS.md: topics=["initialized", admin], data=(token, fee, quorum, threshold, version).
+///
+/// Events are only reported for the most recent invocation, so the `initialized`
+/// event is captured by re-running `initialize` on a fresh contract and reading
+/// the events immediately after that call.
 #[test]
 fn test_initialized_event_payload_schema() {
-    let (env, admin, _creator, _c1, _c2, token, _token_admin, _client) = setup_env();
+    let (env, admin, _creator, _c1, _c2, token, _token_admin, client) = setup_env();
+
+    // `setup_env` already initialized the contract; capture events from a
+    // freshly registered instance initialized in isolation.
+    let contract_id = env.register(crate::CrowdfundContract, ());
+    let fresh = crate::CrowdfundContractClient::new(&env, &contract_id);
+    fresh.initialize(&admin, &token.address, &0, &0, &0, &0);
 
     let events = env.events().all();
     let init_event = events
@@ -227,7 +237,7 @@ fn test_initialized_event_payload_schema() {
 }
 
 /// Verifies that `campaign_created` emits topics=["campaign_created", id, creator]
-/// and data=campaign_title per EVENT_PAYLOADS.md.
+/// and data=(campaign_title, category) per EVENT_PAYLOADS.md.
 #[test]
 fn test_campaign_created_event_payload_schema() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
@@ -271,8 +281,10 @@ fn test_campaign_created_event_payload_schema() {
         creator
     );
 
-    let data_title = String::try_from_val(&env, &create_event.2).unwrap();
+    let (data_title, data_category): (String, u32) =
+        <(String, u32)>::try_from_val(&env, &create_event.2).unwrap();
     assert_eq!(data_title, title);
+    assert_eq!(data_category, Category::Educator as u32);
 }
 
 /// Verifies that `contribution_made` emits topics=["contribution_made", id, contributor]
