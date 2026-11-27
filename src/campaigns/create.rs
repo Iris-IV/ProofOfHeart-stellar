@@ -209,7 +209,7 @@ fn create_campaign_inner(
     // pinned and never follows a platform-level change.
     if let Some(t) = pinned_token {
         set_campaign_token(env, count, &t);
-        env.events().publish(("campaign_token_set", count), t);
+        env.events().publish("campaign_token_set", (count, t));
     }
 
     set_campaign(env, count, &campaign);

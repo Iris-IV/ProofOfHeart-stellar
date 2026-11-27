@@ -191,10 +191,22 @@ fn test_campaign_created_event_includes_category() {
 
 /// Verifies that the `initialized` event emits the expected topic and data shape
 /// per EVENT_PAYLOADS.md: topics=["initialized", admin], data=(token, fee, quorum, threshold, version).
+///
+/// Events are only reported for the most recent invocation, so the `initialized`
+/// event is captured by re-running `initialize` on a fresh contract and reading
+/// the events immediately after that call.
 #[test]
 fn test_initialized_event_payload_schema() {
     let (env, admin, _creator, _c1, _c2, token, _token_admin, _client) = setup_env();
 
+    // `setup_env` already initialized the contract; capture events from a
+    // freshly registered instance initialized in isolation.
+    let contract_id = env.register(crate::CrowdfundContract, ());
+    let fresh = crate::CrowdfundContractClient::new(&env, &contract_id);
+    fresh.initialize(&admin, &token.address, &0, &0, &0, &0);
+
+    // Events are only reported for the most recent invocation, so read them
+    // immediately after `initialize`.
     let events = env.events().all();
     let init_event = events
         .iter()
@@ -220,14 +232,21 @@ fn test_initialized_event_payload_schema() {
 
     let data: soroban_sdk::Vec<soroban_sdk::Val> =
         soroban_sdk::FromVal::from_val(&env, &init_event.2);
-    let token_addr = soroban_sdk::Address::try_from_val(&env, &data.get(0).unwrap()).unwrap();
+    assert_eq!(data.len(), 5, "initialized data must have 5 fields");
+    let token_addr = Address::try_from_val(&env, &data.get(0).unwrap()).unwrap();
     assert_eq!(token_addr, token.address);
-    let fee: u32 = soroban_sdk::TryFromVal::try_from_val(&env, &data.get(1).unwrap()).unwrap();
+    let fee: u32 = u32::try_from_val(&env, &data.get(1).unwrap()).unwrap();
     assert!(fee <= 1000, "fee must be capped at 1000 bps");
+    let quorum: u32 = u32::try_from_val(&env, &data.get(2).unwrap()).unwrap();
+    let threshold: u32 = u32::try_from_val(&env, &data.get(3).unwrap()).unwrap();
+    let version: u32 = u32::try_from_val(&env, &data.get(4).unwrap()).unwrap();
+    assert_eq!(quorum, 0);
+    assert_eq!(threshold, 0);
+    assert!(version >= 1, "version must be set");
 }
 
 /// Verifies that `campaign_created` emits topics=["campaign_created", id, creator]
-/// and data=campaign_title per EVENT_PAYLOADS.md.
+/// and data=(campaign_title, category) per EVENT_PAYLOADS.md.
 #[test]
 fn test_campaign_created_event_payload_schema() {
     let (env, _admin, creator, _c1, _c2, _token, _token_admin, client) = setup_env();
@@ -263,16 +282,18 @@ fn test_campaign_created_event_payload_schema() {
         String::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
         String::from_str(&env, "campaign_created")
     );
-    let event_id: u32 =
-        soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    let event_id: u32 = u32::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
     assert_eq!(event_id, id);
     assert_eq!(
         Address::try_from_val(&env, &topics.get(2).unwrap()).unwrap(),
         creator
     );
 
-    let data_title = String::try_from_val(&env, &create_event.2).unwrap();
+    // Data is (title, category as u32) as published by `create_campaign`.
+    let (data_title, data_category): (String, u32) =
+        <(String, u32)>::try_from_val(&env, &create_event.2).unwrap();
     assert_eq!(data_title, title);
+    assert_eq!(data_category, Category::Educator as u32);
 }
 
 /// Verifies that `contribution_made` emits topics=["contribution_made", id, contributor]
@@ -315,14 +336,13 @@ fn test_contribution_made_event_payload_schema() {
         String::try_from_val(&env, &topics.get(0).unwrap()).unwrap(),
         String::from_str(&env, "contribution_made")
     );
-    let event_id: u32 =
-        soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
+    let event_id: u32 = u32::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
     assert_eq!(event_id, id);
     assert_eq!(
         Address::try_from_val(&env, &topics.get(2).unwrap()).unwrap(),
         contributor1
     );
 
-    let amount: i128 = soroban_sdk::TryFromVal::try_from_val(&env, &contrib_event.2).unwrap();
+    let amount: i128 = i128::try_from_val(&env, &contrib_event.2).unwrap();
     assert_eq!(amount, 500);
 }
